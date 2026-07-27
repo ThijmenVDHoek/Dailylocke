@@ -30,7 +30,9 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `mega.js` | `Mega` | mega evolution |
 | `forme.js` | `Forme` | forme changes |
 | `itemart.js` | `ItemArt` | item sprites |
+| `audio.js` | `GameAudio` | music/SFX volume, battle-only randomised BGM |
 | `tooltip.js` | — | move/ability/item tooltips |
+| `ui-patch.js` | — | extends `BattleUI` with the run action bar + ball rail |
 | `battle.js` | `RogueBattle` | wraps `@pkmn/sim`: HP/status/PP persistence, AI |
 | `safari-compat.js` | — | iOS viewport quirks |
 | `app.js` | `Game` | screens, section flow, battle glue — boots the game |
@@ -43,6 +45,23 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `pkmn-learnsets.js` | **generated** — gen 9 learnsets, loaded on demand |
 | `three.min.js` | three.js r149 |
 | `battle-ui.js` | hand-written 3D battle renderer — edit directly |
+
+## Audio
+
+`src/audio.js` owns every sound. Two sliders live in **Menu → Profile → Sound**
+and persist to their own `nuzlocke-audio` key, separate from the profile so a
+device preference never rides along with synced shinies and run history.
+
+* **Sliders are perceptual.** Gain is `slider²` — a linear slider spends most
+  of its travel in the "far too loud" range. Music defaults to `0.35`
+  (≈0.12 gain); it used to be a flat `1.0` in battle and `0.5` everywhere else.
+* **Music only plays in battle.** `beginBattle()` starts a track and `show()`
+  fades it out on every other screen. Nothing observes the DOM.
+* **Tracks are randomised per battle**, drawn from a pool that matches the
+  fight: rival/villain themes for wilds, trainer themes for trainers, and
+  `spl-elite4` / `bw2-kanto-gym-leader` held back for boss trainers. The
+  previous track never repeats back-to-back. Selection uses `Math.random`, not
+  the run's seeded RNG — picking a song must not desync the daily run.
 
 ## Loading strategy
 
