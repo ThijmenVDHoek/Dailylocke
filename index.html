@@ -420699,6 +420699,108 @@ window.BattleUI = BattleUI;
                   redrawRoute: renderCrossroads,
                   // the live 3D battle UI, for debugging field effects
                   get ui() { return ui; } };
+
+  // ========================================================
+  // BACKGROUND BATTLE MUSIC (Pokémon Showdown audio)
+  // ========================================================
+  (function initBattleMusic() {
+    var MUSIC_URL = 'https://play.pokemonshowdown.com/audio/oras-trainer.mp3';
+    var audio = new Audio(MUSIC_URL);
+    audio.loop = true;
+    audio.volume = 0.5;
+    audio.preload = 'auto';
+
+    var isPlaying = false;
+    var userInteracted = false;
+
+    function updateVolume() {
+      var battleScreen = document.getElementById('screenBattle');
+      var inBattle = battleScreen && !battleScreen.hidden;
+      audio.volume = inBattle ? 1.0 : 0.5;
+    }
+
+    function playMusic() {
+      if (!userInteracted) return;
+      if (!isPlaying) {
+        audio.play().then(function () {
+          isPlaying = true;
+        }).catch(function () {});
+      }
+    }
+
+    function pauseMusic() {
+      if (isPlaying) {
+        audio.pause();
+        isPlaying = false;
+      }
+    }
+
+    // Hook into the existing show/hide system
+    var origShow = window.show || show;
+    var origHide = window.hide || hide;
+
+    // Patch show()
+    var showFn = origShow || function(name) {
+      // fallback if original show is not directly accessible
+      var el = document.getElementById('screen' + name);
+      if (el) el.hidden = false;
+    };
+
+    window.show = function(name) {
+      var result = showFn.apply(this, arguments);
+      setTimeout(updateVolume, 50);
+      if (name === 'Battle') {
+        playMusic();
+      } else {
+        // keep playing but at reduced volume
+      }
+      return result;
+    };
+
+    // Patch hide()
+    var hideFn = origHide || function() {};
+    window.hide = function() {
+      var result = hideFn.apply(this, arguments);
+      setTimeout(updateVolume, 50);
+      return result;
+    };
+
+    // Also listen for direct hidden attribute changes on battle screen
+    var battleScreen = document.getElementById('screenBattle');
+    if (battleScreen) {
+      var observer = new MutationObserver(function() {
+        updateVolume();
+        if (!battleScreen.hidden) {
+          playMusic();
+        }
+      });
+      observer.observe(battleScreen, { attributes: true, attributeFilter: ['hidden'] });
+    }
+
+    // First user interaction unlocks audio
+    function enableAudio() {
+      userInteracted = true;
+      if (!isPlaying) {
+        audio.play().then(function() {
+          isPlaying = true;
+          updateVolume();
+        }).catch(function(){});
+      }
+      document.removeEventListener('click', enableAudio);
+      document.removeEventListener('touchstart', enableAudio);
+      document.removeEventListener('keydown', enableAudio);
+    }
+
+    document.addEventListener('click', enableAudio, { once: true });
+    document.addEventListener('touchstart', enableAudio, { once: true });
+    document.addEventListener('keydown', enableAudio, { once: true });
+
+    // Initial volume set
+    setTimeout(updateVolume, 100);
+
+    // Expose for debugging
+    window.__battleMusic = { audio: audio, updateVolume: updateVolume };
+  })();
 })();
 
 </script>
