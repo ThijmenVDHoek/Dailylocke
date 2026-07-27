@@ -764,7 +764,11 @@ BattleUI.prototype._drainCryQueue=function(){
     if(finished)return;
     if(idx>=urls.length){advance();return;}
     cleanup();
-    var a=new Audio();a.volume=0.35;a.preload='auto';audio=a;
+    // 0.35 is the cry's own balance against the rest of the mix; the SFX
+    // slider scales it (GameAudio may not exist in isolated tests).
+    var a=new Audio();
+    a.volume=window.GameAudio?window.GameAudio.sfxVolume(0.5):0.35;
+    a.preload='auto';audio=a;
     function err(){if(audio===a)tryNext();}
     function onReady(){
       if(finished||audio!==a)return;

@@ -88,8 +88,17 @@ window.cancelAnimationFrame = (id) => clearTimeout(id);
 // Sprites/cries are network fetches we neither have nor need here.
 window.Image = class { constructor() { this.complete = false; this.naturalWidth = 0; this.naturalHeight = 0; }
   set src(_v) {} get src() { return ''; } addEventListener() {} removeEventListener() {} };
-window.Audio = class { constructor() { this.volume = 1; } play() { return Promise.resolve(); } pause() {}
-  addEventListener() {} removeEventListener() {} };
+// Records what the audio layer asked for so the music checks can assert on
+// track choice and volume without a real media element.
+const audioLog = [];
+window.Audio = class {
+  constructor(src) { this.volume = 1; this.loop = false; this.preload = ''; this.paused = true;
+    this.currentTime = 0; this._src = ''; if (src) this.src = src; }
+  set src(v) { this._src = v; audioLog.push(v); } get src() { return this._src; }
+  play() { this.paused = false; return Promise.resolve(); }
+  pause() { this.paused = true; }
+  load() {} addEventListener() {} removeEventListener() {}
+};
 
 const consoleErrors = [];
 window.console = { ...console, error: (...a) => { consoleErrors.push(a.join(' ')); }, warn: () => {} };
@@ -155,7 +164,62 @@ check('window.BattleUI', typeof window.BattleUI === 'function');
 check('window.Core', !!window.Core);
 check('window.Nuz', !!window.Nuz);
 check('window.RogueBattle', !!window.RogueBattle);
+check('window.GameAudio', !!window.GameAudio);
 check('window.Game (app booted)', !!window.Game);
+
+// ----------------------------------------------------------------- audio ---
+// Music must be quiet by default, must only play during a battle, and must
+// draw from the right pool for the kind of battle.
+{
+  const GA = window.GameAudio;
+  check('music defaults to a quiet level', GA.getMusic() <= 0.4 && GA.getMusic() > 0,
+    `slider ${GA.getMusic()}, gain ${GA.musicVolume().toFixed(3)}`);
+  check('music gain is well below the old 1.0', GA.musicVolume() < 0.2,
+    GA.musicVolume().toFixed(3));
+  check('sfx slider exists with a sane default', GA.getSfx() > 0 && GA.getSfx() <= 1, `${GA.getSfx()}`);
+
+  // Every advertised track is a file Showdown actually serves.
+  const known = new Set(['bw-rival', 'bw-subway-trainer', 'bw-trainer', 'bw2-homika-dogars',
+    'bw2-kanto-gym-leader', 'bw2-rival', 'colosseum-miror-b', 'dpp-rival', 'dpp-trainer',
+    'hgss-johto-trainer', 'hgss-kanto-trainer', 'oras-rival', 'oras-trainer', 'sm-rival',
+    'sm-trainer', 'spl-elite4', 'xd-miror-b', 'xy-rival', 'xy-trainer']);
+  const all = [...GA.TRACKS.wild, ...GA.TRACKS.trainer, ...GA.TRACKS.boss];
+  const bogus = all.filter((t) => !known.has(t));
+  check('every music track exists on Showdown', bogus.length === 0, bogus.join(', '));
+  check('wild and trainer pools are disjoint',
+    !GA.TRACKS.wild.some((t) => GA.TRACKS.trainer.includes(t)));
+
+  GA.unlock();
+  const before = audioLog.length;
+  GA.startBattle('wild');
+  const wildSrc = audioLog.slice(before).join('');
+  check('wild battle picks from the wild pool',
+    GA.TRACKS.wild.some((t) => wildSrc.includes('/' + t + '.mp3')), wildSrc || '(none)');
+  check('music volume honours the slider',
+    Math.abs(GA.musicVolume() - GA.getMusic() ** 2) < 1e-9);
+
+  const beforeT = audioLog.length;
+  GA.startBattle('trainer');
+  const trSrc = audioLog.slice(beforeT).join('');
+  check('trainer battle picks from the trainer pool',
+    GA.TRACKS.trainer.some((t) => trSrc.includes('/' + t + '.mp3')), trSrc || '(none)');
+
+  GA.stop(true);
+  check('music stops outside battle', GA.currentTrack === null);
+
+  // Randomised: 30 wild starts should not all land on the same track.
+  const seen = new Set();
+  for (let i = 0; i < 30; i++) { GA.startBattle('wild'); seen.add(GA.currentTrack); }
+  check('battle music is randomised', seen.size > 1, `${seen.size} distinct tracks`);
+  GA.stop(true);
+
+  // Muting must be real silence, not a quiet hum.
+  const savedMusic = GA.getMusic();
+  GA.setMusic(0);
+  check('music slider at 0 is silent', GA.musicVolume() === 0);
+  GA.setMusic(savedMusic);
+  check('music slider round-trips', Math.abs(GA.getMusic() - savedMusic) < 1e-9);
+}
 
 const PS = window.PS;
 check('gen9 species table loaded', Object.keys(PS.Dex.data.Species).length > 1000,

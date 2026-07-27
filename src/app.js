@@ -130,6 +130,9 @@
       if (el) el.hidden = (s !== name);
     });
     if (name !== 'Battle') teardownBattleUI();
+    // Battle music never plays outside a battle. beginBattle() starts the
+    // right track; every other screen fades it out.
+    if (name !== 'Battle' && window.GameAudio) window.GameAudio.stop();
     // The showcase is a full WebGL context; never leave it running behind
     // another screen.
     if (name === 'Title') startTitleScene(); else stopTitleScene();
@@ -1082,8 +1085,10 @@
     $('profBody').innerHTML = '<div class="profile-hero"><div class="profile-avatar"><img src="' + avatarUrl(av) + '" alt="Avatar"></div><div style="flex:1"><div class="profile-name">Trainer Profile</div><div class="profile-sub">Customize your look and game theme</div></div><button id="editAvatar" class="btn-mini">Edit sprite</button></div>' +
       '' +
       '<div class="profile-section">Theme</div><div class="theme-grid">' + THEMES.map(function (t) { return '<button class="theme-choice' + (t.id === (profile.theme || 'default') ? ' on' : '') + '" data-theme="' + t.id + '" style="--theme-dot:' + t.dot + '"><span class="theme-dot"></span>' + t.name + '</button>'; }).join('') + '</div>' +
+      '<div class="profile-section">Sound</div><div class="vol-group">' + volumeRow('music', 'Music', 'Battle themes') + volumeRow('sfx', 'Sound effects', 'Cries and battle sounds') + '</div>' +
       '<div class="profile-section">Career</div><div class="prof-grid big">' + statCard(profile.totalRuns, 'Runs played') + statCard(profile.bestBattles, 'Best battles') + statCard('S' + profile.bestSection, 'Furthest') + statCard(shinies, 'Shinies') + '</div>' + cur;
     $('editAvatar').onclick = openAvatarPicker;
+    wireVolumeRows($('profBody'));
     // Full gallery is rendered only inside the dedicated sheet.
     $('profBody').querySelectorAll('[data-theme]').forEach(function (b) { b.onclick = function () { profile.theme = b.dataset.theme; saveProfile(); applyTheme(); showProfile(); }; });
     show('Profile');
@@ -1092,6 +1097,48 @@
   function statCard(v, k) {
     return '<div class="prof-stat"><span class="v">' + v + '</span><span class="k">' + k + '</span></div>';
   }
+
+  // ---- VOLUME SLIDERS ------------------------------------------------------
+  // Backed by GameAudio (its own localStorage key), not by the profile: sound
+  // settings are a device preference and shouldn't ride along with a profile
+  // that syncs shinies and run history.
+  function volumeValue(which) {
+    if (!window.GameAudio) return which === 'music' ? 0.35 : 0.7;
+    return which === 'music' ? window.GameAudio.getMusic() : window.GameAudio.getSfx();
+  }
+  function volumeRow(which, label, sub) {
+    var pct = Math.round(volumeValue(which) * 100);
+    return '<div class="vol-row" data-vol="' + which + '">' +
+      '<div class="vol-head"><span class="vol-label">' + label + '</span>' +
+      '<span class="vol-pct" data-volpct="' + which + '">' + pct + '%</span></div>' +
+      '<input class="vol-slider" type="range" min="0" max="100" step="1" value="' + pct + '" ' +
+      'data-volinput="' + which + '" aria-label="' + escapeHtml(label) + ' volume"/>' +
+      '<div class="vol-sub">' + sub + '</div></div>';
+  }
+  function wireVolumeRows(root) {
+    if (!root) return;
+    root.querySelectorAll('[data-volinput]').forEach(function (input) {
+      var which = input.dataset.volinput;
+      var pctEl = root.querySelector('[data-volpct="' + which + '"]');
+      function apply() {
+        var v = Number(input.value) / 100;
+        if (pctEl) pctEl.textContent = Math.round(v * 100) + '%';
+        if (!window.GameAudio) return;
+        if (which === 'music') window.GameAudio.setMusic(v);
+        else window.GameAudio.setSfx(v);
+      }
+      // `input` updates live while dragging so the music responds under the
+      // thumb; `change` catches keyboard use and the end of a drag.
+      input.addEventListener('input', apply);
+      input.addEventListener('change', function () {
+        apply();
+        // Audible reference point for a slider whose effect is otherwise
+        // silent outside battle.
+        if (which === 'sfx' && window.GameAudio) window.GameAudio.playSfx(SFX_PREVIEW, 0.5);
+      });
+    });
+  }
+  var SFX_PREVIEW = 'https://play.pokemonshowdown.com/audio/cries/pikachu.mp3';
 
   function showShinies() {
     closeMenu();
@@ -1459,6 +1506,12 @@
     run.party.forEach(function (m) { N.trackMon(run, m); });
 
     bctx = { cfg: cfg, enemies: cfg.enemies, caught: false, ended: false };
+    // A fresh, randomly chosen track per battle — rival themes for wilds,
+    // trainer themes for trainers, the two "final" themes for bosses.
+    if (window.GameAudio) {
+      window.GameAudio.startBattle(
+        cfg.isWild ? 'wild' : (cfg.trainer && cfg.trainer.boss ? 'boss' : 'trainer'));
+    }
     clearQueue();
     atkSide = null; atkHit = false;
     var u = ensureUI();
@@ -2676,7 +2729,9 @@
   function playCry(speciesId) {
     var sp = Dex.species.get(speciesId);
     var sid = String((sp.exists && sp.spriteid) || speciesId).toLowerCase().replace(/[^a-z0-9-]+/g, '');
-    var a = new Audio('https://play.pokemonshowdown.com/audio/cries/' + sid + '.mp3');
+    var url = 'https://play.pokemonshowdown.com/audio/cries/' + sid + '.mp3';
+    if (window.GameAudio) return window.GameAudio.playSfx(url, 0.7);
+    var a = new Audio(url);
     a.volume = 0.5;
     a.play().catch(function () {});
   }
@@ -2949,60 +3004,8 @@
                   // the live 3D battle UI, for debugging field effects
                   get ui() { return ui; } };
 
-  // ========================================================
-  // BACKGROUND BATTLE MUSIC (Pokémon Showdown audio)
-  // ========================================================
-  (function initBattleMusic() {
-    var MUSIC_URL = 'https://play.pokemonshowdown.com/audio/oras-trainer.mp3';
-    var IN_BATTLE_VOL = 1.0, AMBIENT_VOL = 0.5;
-
-    var audio = new Audio();
-    audio.loop = true;
-    audio.volume = AMBIENT_VOL;
-    // `none` until the player actually interacts: browsers block autoplay
-    // anyway, so eagerly downloading the track just competes for bandwidth
-    // with the sim bundle and the first battle's sprites.
-    audio.preload = 'none';
-
-    var started = false, unlocked = false, srcSet = false;
-
-    function battleVisible() {
-      var el = document.getElementById('screenBattle');
-      return !!el && !el.hidden;
-    }
-    function updateVolume() { audio.volume = battleVisible() ? IN_BATTLE_VOL : AMBIENT_VOL; }
-
-    function play() {
-      if (!unlocked) return;
-      if (!srcSet) { audio.src = MUSIC_URL; srcSet = true; }
-      if (started) return;
-      audio.play().then(function () { started = true; updateVolume(); })
-                  .catch(function () { /* autoplay still blocked; retry later */ });
-    }
-
-    // The screen system just toggles [hidden], so observing that attribute is
-    // both simpler and more reliable than wrapping show() — the previous
-    // version patched `window.show`, which was never the function the game
-    // actually calls, and threw a ReferenceError on an undefined `hide`.
-    var battleScreen = document.getElementById('screenBattle');
-    if (battleScreen && window.MutationObserver) {
-      new MutationObserver(function () {
-        updateVolume();
-        if (battleVisible()) play();
-      }).observe(battleScreen, { attributes: true, attributeFilter: ['hidden'] });
-    }
-
-    function unlock() {
-      unlocked = true;
-      play();
-      document.removeEventListener('click', unlock);
-      document.removeEventListener('touchstart', unlock);
-      document.removeEventListener('keydown', unlock);
-    }
-    document.addEventListener('click', unlock, { once: true });
-    document.addEventListener('touchstart', unlock, { once: true });
-    document.addEventListener('keydown', unlock, { once: true });
-
-    window.__battleMusic = { audio: audio, updateVolume: updateVolume };
-  })();
+  // ---------------------------------------------------------------- AUDIO --
+  // Music is owned by src/audio.js. It plays only while a battle is on screen
+  // and is started by beginBattle()/stopped by show(), so nothing here needs
+  // to poll or observe the DOM.
 })();
