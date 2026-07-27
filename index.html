@@ -1631,7 +1631,11 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 
     <!-- the team lives on this screen; no separate menu -->
     <div class="team-strip" id="xTeam"></div>
-    <div class="team-detail-wrap" id="xTeamDetail" hidden></div>
+
+    <!-- Team detail is now a bottom sheet (modal) instead of inline -->
+    <div id="xTeamDetail" class="overlay" hidden>
+      <div class="overlay-card"></div>
+    </div>
 
     <div class="x-bag">
       <div class="x-bag-head">
@@ -417193,29 +417197,32 @@ window.BattleUI = BattleUI;
   }
 
   // ---- events (delegated, so dynamic content just works) -----------------
+  // Desktop hover/focus only
   document.addEventListener('mouseover', function (e) {
+    if ('ontouchstart' in window) return; // skip on touch devices
     var t = findTip(e.target);
     if (!t || t === current) return;
     show(t);
   });
   document.addEventListener('mouseout', function (e) {
+    if ('ontouchstart' in window) return;
     var t = findTip(e.target);
     if (t && t === current) hide();
   });
   document.addEventListener('focusin', function (e) {
+    if ('ontouchstart' in window) return;
     var t = findTip(e.target);
     if (t) show(t);
   });
   document.addEventListener('focusout', hide);
 
-  // press-and-hold on touch
+  // Mobile: ONLY show on press-and-hold (never on normal tap)
   document.addEventListener('touchstart', function (e) {
     var t = findTip(e.target);
     if (!t) { hide(); return; }
     clearTimeout(holdTimer);
     holdTimer = setTimeout(function () {
       show(t);
-      // a shown tip means "inspect", not "activate"
       t.dataset.tipHeld = '1';
     }, HOLD_MS);
   }, { passive: true });
@@ -417224,8 +417231,8 @@ window.BattleUI = BattleUI;
     clearTimeout(holdTimer); holdTimer = null;
     var t = findTip(e.target);
     if (t && t.dataset.tipHeld) {
-      // swallow the click that follows a long-press
       delete t.dataset.tipHeld;
+      // swallow the immediate click that follows a long-press
       var swallow = function (ev) { ev.stopPropagation(); ev.preventDefault(); };
       t.addEventListener('click', swallow, { capture: true, once: true });
       setTimeout(function () { t.removeEventListener('click', swallow, true); }, 350);
@@ -418617,11 +418624,18 @@ window.BattleUI = BattleUI;
   }
 
   function drawPartyDetail() {
-    var host = $('xTeamDetail');
+    var overlay = $('xTeamDetail');
+    if (!overlay) return;
+    var host = overlay.querySelector('.overlay-card');
     if (!host) return;
+
     var mon = run.party[partySel];
-    if (!mon) { host.hidden = true; host.innerHTML = ''; return; }
-    host.hidden = false;
+    if (!mon) {
+      overlay.hidden = true;
+      host.innerHTML = '';
+      return;
+    }
+    overlay.hidden = false;
 
     var mx = C.maxHP(mon), cur = C.curHP(mon);
     var pct = pctHP(mon.hpPct);
@@ -418687,8 +418701,19 @@ window.BattleUI = BattleUI;
 
     var close = host.querySelector('.pd-close');
     if (close) close.addEventListener('click', function () {
-      partySel = -1; drawTeamStrip(); drawPartyDetail();
+      overlay.hidden = true;
+      partySel = -1;
+      drawTeamStrip();
     });
+
+    // Close when clicking the dark overlay background
+    overlay.onclick = function (e) {
+      if (e.target === overlay) {
+        overlay.hidden = true;
+        partySel = -1;
+        drawTeamStrip();
+      }
+    };
     var take = host.querySelector('[data-take]');
     if (take) take.addEventListener('click', function () {
       N.addItem(run, mon.item, 1);
@@ -418699,12 +418724,14 @@ window.BattleUI = BattleUI;
     var train = host.querySelector('.pd-train');
     if (train) train.addEventListener('click', function () {
       if (run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
+      overlay.hidden = true;
       openTrainer(mon);
     });
     var lead = host.querySelector('.pd-lead');
     if (lead) lead.addEventListener('click', function () {
       run.party.unshift(run.party.splice(partySel, 1)[0]);
       partySel = 0;
+      overlay.hidden = true;
       renderCrossroads(); saveGame();
     });
     host.querySelectorAll('.evo-btn').forEach(function (b) {
@@ -420699,6 +420726,108 @@ window.BattleUI = BattleUI;
                   redrawRoute: renderCrossroads,
                   // the live 3D battle UI, for debugging field effects
                   get ui() { return ui; } };
+
+  // ========================================================
+  // BACKGROUND BATTLE MUSIC (Pokémon Showdown audio)
+  // ========================================================
+  (function initBattleMusic() {
+    var MUSIC_URL = 'https://play.pokemonshowdown.com/audio/oras-trainer.mp3';
+    var audio = new Audio(MUSIC_URL);
+    audio.loop = true;
+    audio.volume = 0.5;
+    audio.preload = 'auto';
+
+    var isPlaying = false;
+    var userInteracted = false;
+
+    function updateVolume() {
+      var battleScreen = document.getElementById('screenBattle');
+      var inBattle = battleScreen && !battleScreen.hidden;
+      audio.volume = inBattle ? 1.0 : 0.5;
+    }
+
+    function playMusic() {
+      if (!userInteracted) return;
+      if (!isPlaying) {
+        audio.play().then(function () {
+          isPlaying = true;
+        }).catch(function () {});
+      }
+    }
+
+    function pauseMusic() {
+      if (isPlaying) {
+        audio.pause();
+        isPlaying = false;
+      }
+    }
+
+    // Hook into the existing show/hide system
+    var origShow = window.show || show;
+    var origHide = window.hide || hide;
+
+    // Patch show()
+    var showFn = origShow || function(name) {
+      // fallback if original show is not directly accessible
+      var el = document.getElementById('screen' + name);
+      if (el) el.hidden = false;
+    };
+
+    window.show = function(name) {
+      var result = showFn.apply(this, arguments);
+      setTimeout(updateVolume, 50);
+      if (name === 'Battle') {
+        playMusic();
+      } else {
+        // keep playing but at reduced volume
+      }
+      return result;
+    };
+
+    // Patch hide()
+    var hideFn = origHide || function() {};
+    window.hide = function() {
+      var result = hideFn.apply(this, arguments);
+      setTimeout(updateVolume, 50);
+      return result;
+    };
+
+    // Also listen for direct hidden attribute changes on battle screen
+    var battleScreen = document.getElementById('screenBattle');
+    if (battleScreen) {
+      var observer = new MutationObserver(function() {
+        updateVolume();
+        if (!battleScreen.hidden) {
+          playMusic();
+        }
+      });
+      observer.observe(battleScreen, { attributes: true, attributeFilter: ['hidden'] });
+    }
+
+    // First user interaction unlocks audio
+    function enableAudio() {
+      userInteracted = true;
+      if (!isPlaying) {
+        audio.play().then(function() {
+          isPlaying = true;
+          updateVolume();
+        }).catch(function(){});
+      }
+      document.removeEventListener('click', enableAudio);
+      document.removeEventListener('touchstart', enableAudio);
+      document.removeEventListener('keydown', enableAudio);
+    }
+
+    document.addEventListener('click', enableAudio, { once: true });
+    document.addEventListener('touchstart', enableAudio, { once: true });
+    document.addEventListener('keydown', enableAudio, { once: true });
+
+    // Initial volume set
+    setTimeout(updateVolume, 100);
+
+    // Expose for debugging
+    window.__battleMusic = { audio: audio, updateVolume: updateVolume };
+  })();
 })();
 
 </script>
