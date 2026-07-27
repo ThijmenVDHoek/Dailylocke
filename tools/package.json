@@ -1,0 +1,15 @@
+{
+  "name": "dailylocke-tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Build tooling for the Dailylocke vendor bundles.",
+  "scripts": {
+    "build": "node build-sim.mjs",
+    "test": "node smoke-test.mjs"
+  },
+  "devDependencies": {
+    "@pkmn/sim": "0.10.11",
+    "esbuild": "^0.25.0",
+    "jsdom": "^24.0.0"
+  }
+}
