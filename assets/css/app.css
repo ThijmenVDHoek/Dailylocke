@@ -160,6 +160,106 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 }
 .title-menu:hover { color:#fff; transform:translateY(-1px); }
 
+/* ---- floating install pill ---------------------------------------------
+   Sits at the top of the title screen, opposite the Menu button, floating
+   over the live 3D scene. It is inside #screenTitle, so it disappears with
+   the rest of the title the moment a run starts. Frosted like .btn-glass so
+   it reads as part of the UI rather than browser chrome. */
+.install-dock {
+  position:absolute; z-index:4;
+  top:max(10px, env(safe-area-inset-top)); left:14px;
+  /* leave room for the Menu button on narrow phones */
+  max-width:calc(100% - 110px);
+  display:flex; align-items:center; gap:4px;
+  animation:installIn .32s cubic-bezier(.2,.9,.3,1) both;
+}
+.install-dock[hidden] { display:none; }
+@keyframes installIn {
+  from { opacity:0; transform:translateY(-10px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+.install-pill {
+  display:flex; align-items:center; gap:9px; min-width:0;
+  padding:8px 15px 8px 12px; border-radius:var(--r-pill);
+  font-family:inherit; color:#fff; cursor:pointer; text-align:left;
+  background:rgba(255,255,255,.14);
+  backdrop-filter:blur(10px) saturate(1.3); -webkit-backdrop-filter:blur(10px) saturate(1.3);
+  box-shadow:0 4px 18px rgba(0,0,0,.42), inset 0 0 0 1px rgba(255,255,255,.16);
+  transition:background-color .15s, transform .12s, box-shadow .16s;
+}
+.install-pill:hover { background:rgba(255,255,255,.24); transform:translateY(-1px); box-shadow:0 8px 24px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.24); }
+.install-pill:active { transform:translateY(0) scale(.985); }
+.install-txt { display:flex; flex-direction:column; min-width:0; line-height:1.1; }
+.install-txt b { color:#fff; font-size:.95rem; }
+.install-txt em {
+  font-style:normal; font-size:.7rem; color:rgba(255,255,255,.72);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+/* Download glyph drawn in CSS: the pixel font has no arrow coverage, and a
+   missing glyph renders as a tofu box. Every part is positioned against the
+   icon itself -- shaft as a background bar, ::before the arrow head, ::after
+   the tray it drops into -- so the whole mark travels together. */
+.install-ic {
+  position:relative; flex:0 0 auto; width:18px; height:18px;
+  background:linear-gradient(var(--gold), var(--gold)) no-repeat center 1px / 2.5px 8px;
+  filter:drop-shadow(0 0 8px rgba(255,215,110,.5));
+}
+.install-ic::before {
+  content:''; position:absolute; left:50%; top:5px; width:8px; height:8px;
+  margin-left:-4px; box-sizing:border-box;
+  border-right:2.5px solid var(--gold); border-bottom:2.5px solid var(--gold);
+  transform:rotate(45deg); border-radius:0 0 2px 0;
+}
+.install-ic::after {
+  content:''; position:absolute; left:50%; bottom:0; width:13px; height:2.5px;
+  margin-left:-6.5px; border-radius:2px; background:var(--gold);
+}
+/* Nudge only the arrow on hover; the tray it lands in stays put. */
+.install-pill:hover .install-ic { animation:installShaft .6s ease-in-out; }
+@keyframes installShaft { 50% { background-position:center 3px; } }
+.install-pill:hover .install-ic::before { animation:installHead .6s ease-in-out; }
+@keyframes installHead { 50% { transform:translateY(2px) rotate(45deg); } }
+
+.install-x {
+  flex:0 0 auto; width:26px; height:26px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-family:inherit; font-size:1.05rem; line-height:1;
+  color:rgba(255,255,255,.62); cursor:pointer;
+  text-shadow:0 2px 8px rgba(0,0,0,.9);
+  transition:color .15s, background-color .15s;
+}
+.install-x:hover { color:#fff; background:rgba(255,255,255,.16); }
+
+/* Short screens: the brand already loses its tagline, so drop the pill's
+   subtitle too rather than crowding the title. */
+@media (max-height:640px), (max-width:380px) {
+  .install-txt em { display:none; }
+  .install-txt b { font-size:.9rem; }
+}
+/* Short screens pull the brand up to padding-top:22px, which would slide the
+   logo under the pill. Push it back down, but only while the pill is actually
+   showing -- browsers without :has() simply keep the original spacing. */
+@media (max-height:640px) {
+  #screenTitle:has(.install-dock:not([hidden])) .title-brand { padding-top:54px; }
+}
+
+/* the how-to sheet for iOS / Safari, which have no install API */
+.install-card { max-width:420px; }
+.install-steps { margin:16px 0 4px; padding:0; list-style:none; counter-reset:istep; }
+.install-steps li {
+  position:relative; counter-increment:istep;
+  display:flex; align-items:flex-start; gap:12px;
+  padding:12px 14px; margin-bottom:8px;
+  border-radius:var(--r-md); background:var(--surface);
+  color:var(--ink); font-size:.95rem; line-height:1.4;
+}
+.install-steps li::before {
+  content:counter(istep);
+  flex:0 0 auto; width:24px; height:24px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(255,215,110,.2); color:var(--gold); font-size:.85rem;
+}
+
 .title-brand {
   position:relative; z-index:2; text-align:center;
   padding:max(60px, calc(env(safe-area-inset-top) + 46px)) 16px 0;
