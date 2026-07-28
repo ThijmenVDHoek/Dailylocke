@@ -1684,3 +1684,14 @@ textarea.search.save-code {
   display:flex; flex-direction:column; gap:12px; }
 .battle-error h2 { color:var(--red); font-size:1.4rem; }
 .battle-error .hint { word-break:break-word; }
+
+/* ===== STATUS BADGE COLORS ===== */
+.ts-st.st-brn, .rs-st.st-brn, .hm-st.st-brn, .battle-st-badge.st-brn { background:#ff5f6d !important; color:#fff !important; }
+.ts-st.st-psn, .rs-st.st-psn, .hm-st.st-psn, .battle-st-badge.st-psn { background:#a855f7 !important; color:#fff !important; }
+.ts-st.st-tox, .rs-st.st-tox, .hm-st.st-tox, .battle-st-badge.st-tox { background:#9333ea !important; color:#fff !important; }
+.ts-st.st-par, .rs-st.st-par, .hm-st.st-par, .battle-st-badge.st-par { background:#facc15 !important; color:#000 !important; }
+.ts-st.st-slp, .rs-st.st-slp, .hm-st.st-slp, .battle-st-badge.st-slp { background:#a2aac4 !important; color:#000 !important; }
+.ts-st.st-frz, .rs-st.st-frz, .hm-st.st-frz, .battle-st-badge.st-frz { background:#7dd3fc !important; color:#000 !important; }
+
+/* Rich battle switcher */
+.battle-hud .pitem.rich { border:1px solid rgba(255,255,255,.12); }

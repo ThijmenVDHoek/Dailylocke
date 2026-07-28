@@ -164,7 +164,14 @@
     return out.length ? out : pool;
   }
 
+  // Helper: deterministic RNG from an arbitrary string key, so the world
+  // (encounters, trainer teams, shinies) is stable per seed and does NOT
+  // consume the battler RNG that drives catch shakes.
+  function drand(key) { return C.mulberry32(C.hashString(key)); }
+
   // Wild encounter. Applies the dupes clause when this is the catchable one.
+  // Deterministic per seed+section+battle, so every player using the same
+  // seed sees the same species (and same shiny rolls) at the same point.
   function pickWild(run, opts) {
     opts = opts || {};
     var tr = tier(run, false);
@@ -174,38 +181,57 @@
       run.party.forEach(function (m) { ex[m.id] = 1; });
       Object.keys(run.seenSpecies).forEach(function (id) { ex[id] = 1; });
     }
-    var cands = candidatePool(run, tr, { excludeSpecies: ex });
-    if (!cands.length) cands = candidatePool(run, tr, {});
-    return C.pick(cands, run.rand);
+    // Try up to 8 deterministic picks to respect dupes clause.
+    for (var attempt = 0; attempt < 8; attempt++) {
+      var seedKey = run.seed + '|wild|' + run.section + '|' + run.battleInSection + '|' + attempt;
+      var r = drand(seedKey);
+      var cands = candidatePool(run, tr, { excludeSpecies: attempt === 0 ? ex : null });
+      if (!cands.length) cands = candidatePool(run, tr, {});
+      var pick = C.pick(cands, r);
+      if (!ex || !ex[pick] || attempt === 7) return pick;
+    }
+    var c2 = candidatePool(run, tr, { excludeSpecies: ex });
+    if (!c2.length) c2 = candidatePool(run, tr, {});
+    return C.pick(c2, drand(run.seed + '|wild|fallback|' + run.section + '|' + run.battleInSection));
   }
 
   // Shiny odds for anything the player can OWN: wild encounters (catchable or
   // not) and the three starters. Trainer-owned Pokemon are never shiny --
   // they cannot be caught, so a shiny there would only be a tease.
   var SHINY_ODDS = 1 / 512;
+  // Legacy helper kept for starter generation (which uses its own RNG) and
+  // for old save compatibility; new wild shinies use deterministic roll.
   function rollShiny(run) { return run.rand() < SHINY_ODDS; }
+  function rollShinyDeterministic(run, speciesId) {
+    var r = drand(run.seed + '|shiny|' + run.section + '|' + run.battleInSection + '|' + speciesId);
+    return r() < SHINY_ODDS;
+  }
 
   async function makeWild(run, speciesId) {
     var tr = tier(run, false);
-    var mon = await C.makeMon(speciesId, { rand: run.rand });
-    applyTraining(run, mon, tr, false);
-    if (rollShiny(run)) mon.shiny = true;
+    // Use a deterministic RNG for the moveset so same seed -> same moves
+    var moveRand = drand(run.seed + '|wildMoves|' + run.section + '|' + run.battleInSection + '|' + speciesId);
+    var mon = await C.makeMon(speciesId, { rand: moveRand });
+    applyTraining(run, mon, tr, false, speciesId);
+    if (rollShinyDeterministic(run, speciesId)) mon.shiny = true;
     return mon;
   }
 
-  function applyTraining(run, mon, tr, isTrainer) {
+  function applyTraining(run, mon, tr, isTrainer, speciesHint) {
     var s = Dex.species.get(mon.id);
     var physical = s.baseStats.atk >= s.baseStats.spa;
     var ev = tr.evs;
     mon.evs = { hp: Math.min(252, Math.round(ev * 0.7)), atk: 0, def: 0, spa: 0, spd: 0, spe: ev };
     if (physical) mon.evs.atk = ev; else mon.evs.spa = ev;
     mon.nature = physical ? 'Adamant' : 'Modest';
-    if (run.rand() < tr.itemChance) {
+    var key = run.seed + '|trainItem|' + run.section + '|' + run.battleInSection + '|' + mon.id + '|' + (speciesHint || '') + '|' + (isTrainer ? 't' : 'w');
+    var r = drand(key);
+    if (r() < tr.itemChance) {
       var pool = isTrainer
         ? ['leftovers', 'lifeorb', 'choicescarf', 'choiceband', 'choicespecs', 'focussash',
            'assaultvest', 'sitrusberry', 'lumberry', 'expertbelt', 'rockyhelmet', 'weaknesspolicy']
         : ['sitrusberry', 'lumberry', 'leftovers', 'focussash', 'quickclaw'];
-      var it = C.pick(pool, run.rand);
+      var it = C.pick(pool, r);
       if (it === 'choiceband' && s.baseStats.atk < s.baseStats.spa) it = 'choicespecs';
       if (it === 'choicespecs' && s.baseStats.spa < s.baseStats.atk) it = 'choiceband';
       mon.item = it;
@@ -255,7 +281,8 @@
         // Preserve a reliable themed leader even if a narrow early BST band has no match.
         if (themed.length) cands = themed;
       }
-      var id = C.pick(cands, run.rand);
+      var rTeam = drand(run.seed + '|trainerTeam|' + run.section + '|' + i + '|' + (trainer ? trainer.sprite : ''));
+      var id = C.pick(cands, rTeam);
       // Late bosses occasionally lead with an already-Mega species. This is a
       // true high-BST opponent (not merely an extra low-level party slot).
       var megaPool = ['charizardmegax','charizardmegay','venusaurmega','blastoise mega',
@@ -264,10 +291,14 @@
         var sp = Dex.species.get(x);
         return sp.exists && (!trainer || !trainer.theme || sp.types.indexOf(trainer.theme) >= 0);
       });
-      if (trainer && trainer.boss && run.section >= 8 && i === n - 1 && megaPool.length && run.rand() < 0.55) id = C.pick(megaPool, run.rand);
+      if (trainer && trainer.boss && run.section >= 8 && i === n - 1 && megaPool.length) {
+        var rBoss = drand(run.seed + '|trainerMega|' + run.section + '|' + i);
+        if (rBoss() < 0.55) id = C.pick(megaPool, rBoss);
+      }
       used[id] = 1;
-      var mon = await C.makeMon(id, { rand: run.rand });
-      applyTraining(run, mon, tr, true);
+      var moveRand = drand(run.seed + '|trainerMoves|' + run.section + '|' + i + '|' + id);
+      var mon = await C.makeMon(id, { rand: moveRand });
+      applyTraining(run, mon, tr, true, id + '|' + i);
       team.push(mon);
     }
     return team;

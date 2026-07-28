@@ -9,12 +9,16 @@
   // ---------------------------------------------------------------- RNG ----
   function mulberry32(seed) {
     var a = seed >>> 0;
-    return function () {
+    var fn = function () {
       a |= 0; a = (a + 1831565813) | 0;
       var t = Math.imul(a ^ (a >>> 15), 1 | a);
       t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+    fn.getState = function () { return a >>> 0; };
+    fn.setState = function (s) { a = s >>> 0; };
+    fn.getSeed = function () { return seed >>> 0; };
+    return fn;
   }
   function hashString(str) {
     var h = 2166136261 >>> 0;

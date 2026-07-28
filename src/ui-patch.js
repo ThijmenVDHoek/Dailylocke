@@ -70,7 +70,21 @@
       'text-align:center;padding:0 4px;box-shadow:0 2px 8px rgba(0,0,0,.5);}',
     '.battle-hud .br-odds{position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);',
       'font-size:.62rem;color:#ffd76e;background:rgba(10,13,24,.85);padding:1px 6px;border-radius:999px;',
-      'white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}'
+      'white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}',
+    '.battle-hud .pitem.rich{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:12px 12px;}',
+    '.battle-hud .pitem.rich .pd-hero{display:flex;align-items:center;gap:10px;}',
+    '.battle-hud .pitem.rich .pd-art{flex:0 0 auto;width:64px;display:flex;justify-content:center;}',
+    '.battle-hud .pitem.rich .pd-id{flex:1;min-width:0;}',
+    '.battle-hud .pitem.rich .pd-species{font-size:.7rem;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:1px;}',
+    '.battle-hud .pitem.rich .pd-name{font-size:1.05rem;color:#fff;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    '.battle-hud .types{margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;}',
+    '.battle-hud .type{font-size:.58rem;padding:2px 6px;border-radius:999px;color:#fff;text-transform:uppercase;}',
+    '.battle-hud .hm-b.big{height:7px;background:rgba(0,0,0,.45);border-radius:999px;overflow:hidden;flex:1;}',
+    '.battle-hud .hm-b.big i{display:block;height:100%;border-radius:999px;}',
+    '.battle-hud .pd-hp{display:flex;align-items:center;gap:8px;font-size:.78rem;color:rgba(255,255,255,.8);}',
+    '.battle-hud .battle-st-badge{font-size:.62rem;padding:2px 6px;border-radius:999px;}',
+    '.battle-hud .pd-moves{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;}',
+    '.battle-hud .pd-moves .mv-chip{font-size:.62rem;padding:2px 6px;border-radius:999px;color:#fff;}'
   ].join('');
   var st = document.createElement('style');
   st.textContent = css;
@@ -230,9 +244,10 @@
     }
 
     // ---- sub-panel (party switch list) replaces the move grid ----
-    if (this.s.panel && (this.s.panel.type === 'party' || this.s.panel.type === 'list')) {
+    if (this.s.panel && (this.s.panel.type === 'party' || this.s.panel.type === 'party-rich' || this.s.panel.type === 'list')) {
       var p = this.s.panel;
       var isList = p.type === 'list';
+      var isRich = p.type === 'party-rich';
       var html = '';
       if (p.title) html += '<div class="ptitle">' + p.title + '</div>';
       html += '<div class="plist">';
@@ -247,14 +262,43 @@
             '</div>' +
             (it.right ? '<span class="pi-r">' + it.right + '</span>' : '') +
             '</button>';
+        } else if (isRich) {
+          // Rich battle switcher: mimics crossroads team detail
+          var st = it.status || '';
+          var stMap = { brn: '#ff5f6d', psn: '#a855f7', tox: '#9333ea', par: '#facc15', slp: '#a2aac4', frz: '#7dd3fc' };
+          var stCol = it.statusColor || stMap[st] || '#ff5f6d';
+          var stTxt = (st === 'par') ? '#000' : '#fff';
+          var typesHtml = '';
+          if (it.types) { typesHtml = '<div class="types">' + it.types.map(function(t){ return '<span class="type type-'+t+'">'+t+'</span>'; }).join('') + '</div>'; }
+          var pct = it.pct != null ? it.pct : Math.round((it.hp||0)*100);
+          var hpCol = it.hpCol || (it.hp > 0.5 ? '#4ade80' : it.hp > 0.2 ? '#facc15' : '#ef4444');
+          var cur = it.cur != null ? it.cur : '';
+          var mx = it.mx != null ? it.mx : '';
+          html += '<button class="pitem rich" data-i="' + i + '"' + (it.disabled ? ' disabled' : '') + '>' +
+            '<div class="pd-hero">' +
+              '<div class="pd-art">' + (it.iconHtml || '') + '</div>' +
+              '<div class="pd-id"><div class="pd-species">' + (it.species || '') + (it.fainted ? '' : '') + '</div>' +
+              '<div class="pd-name">' + it.name + (it.active ? ' <span style="opacity:.6">(active)</span>' : '') + '</div>' +
+              typesHtml + '</div>' +
+            '</div>' +
+            '<div class="pd-hp"><div class="hm-b big"><i style="width:' + pct + '%;background:' + hpCol + '"></i></div>' +
+            '<span>' + (cur!==''? cur + ' / ' + mx : pct + '%') + (st ? ' \u00b7 ' + st.toUpperCase() : '') + '</span>' +
+            (st ? '<span class="battle-st-badge" style="background:' + stCol + ';color:' + stTxt + '">' + st.toUpperCase() + '</span>' : '') +
+            '</div>' +
+            '</button>';
         } else {
           var col = it.hp > 0.5 ? '#4ade80' : it.hp > 0.2 ? '#facc15' : '#ef4444';
+          // status color mapping for legacy party panel
+          var stm = { brn: '#ff5f6d', psn: '#a855f7', tox: '#9333ea', par: '#facc15', slp: '#a2aac4', frz: '#7dd3fc' };
+          var sc = it.status ? (stm[it.status] || '#ff5f6d') : '';
+          var stTxtC = (it.status === 'par') ? '#000' : '#fff';
+          var badge = it.status ? '<span style="margin-left:6px;background:' + sc + ';color:' + stTxtC + ';padding:1px 5px;border-radius:999px;font-size:.6rem">' + it.status.toUpperCase() + '</span>' : '';
           html += '<button class="pitem" data-i="' + i + '"' + (it.disabled ? ' disabled' : '') + '>' +
             (it.iconHtml ? it.iconHtml
                           : (it.icon ? '<img src="' + it.icon + '" alt="">' : '')) +
             '<div style="flex:1;min-width:0">' +
               '<div class="pi-n">' + it.name + (it.active ? ' <span style="opacity:.7">(out)</span>' : '') + '</div>' +
-              '<div class="pi-h">' + (it.fainted ? 'Fainted' : Math.round(it.hp * 100) + '%' + (it.status ? ' \u00b7 ' + it.status.toUpperCase() : '')) + '</div>' +
+              '<div class="pi-h">' + (it.fainted ? 'Fainted' : Math.round(it.hp * 100) + '%' + (it.status ? ' ' : '')) + badge + '</div>' +
               '<div class="pbar"><i style="width:' + Math.round(it.hp * 100) + '%;background:' + col + '"></i></div>' +
             '</div></button>';
         }

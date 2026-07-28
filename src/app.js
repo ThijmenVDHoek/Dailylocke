@@ -242,6 +242,8 @@
     $('btnSeed').addEventListener('click', function () {
       var s = prompt('Enter a seed (any text):'); if (s) startRun(C.hashString(s));
     });
+    var tl = $('btnTitleLoad');
+    if (tl) tl.addEventListener('click', function () { openSaveImport(); });
     // Show today's date on the daily button so it reads as "the" run.
     try {
       var d0 = new Date();
@@ -765,6 +767,20 @@
   // A 1x6 grid of slots. Tapping one opens its detail panel right below.
   var partySel = -1;   // -1 = nothing expanded
 
+  function statusColor(st) {
+    if (!st) return '';
+    var map = { brn: '#ff5f6d', psn: '#a855f7', tox: '#9333ea', par: '#facc15', slp: '#a2aac4', frz: '#7dd3fc' };
+    return map[st] || '#ff5f6d';
+  }
+  function statusBadgeClass(st) {
+    return st ? (' st-' + st) : '';
+  }
+  function statusBadgeHtml(st) {
+    if (!st) return '';
+    var col = statusColor(st);
+    var txtCol = (st === 'par') ? '#000' : '#fff';
+    return '<span class="ts-st' + statusBadgeClass(st) + '" style="background:' + col + ';color:' + txtCol + '">' + st.toUpperCase() + '</span>';
+  }
   function drawTeamStrip() {
     var strip = $('xTeam');
     if (!strip) return;
@@ -779,7 +795,7 @@
           '<span class="ts-art">' + animSprite(m.id, 46, 52, '', 1.4, m.shiny) + '</span>' +
           '<span class="ts-name">' + m.name + '</span>' +
           '<span class="ts-bar"><i style="width:' + pct + '%;background:' + col + '"></i></span>' +
-          (m.status ? '<span class="ts-st">' + m.status.toUpperCase() + '</span>' : '') +
+          statusBadgeHtml(m.status) +
           '</button>';
       } else {
         html += '<div class="tslot empty"><span class="dock-ball"></span></div>';
@@ -2087,14 +2103,49 @@
       allowed = {};
       engineOpts.forEach(function (o) { allowed[o.partyIndex] = o.slot; });
     }
+    // Build rich items mirroring crossroads team detail: big sprite, hp bar, status badge color, types, moves preview
     var items = run.party.map(function (m, i) {
       var ok = allowed ? (allowed[i] != null) : (!C.isFainted(m) && m !== activeMon);
-      return { name: m.name, hp: m.hpPct, fainted: C.isFainted(m), active: m === activeMon,
-               status: m.status, iconHtml: iconEl(m.id, 1, '', m.shiny), disabled: !ok };
+      var pct = pctHP(m.hpPct);
+      var hpCol = m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444';
+      var cur = C.curHP(m), mx = C.maxHP(m);
+      var stCol = statusColor(m.status);
+      var stTxtCol = (m.status === 'par') ? '#000' : '#fff';
+      // Build a detailed HTML blob for the battle switcher that mimics pd-card
+      var html = '<div class="pd-hero" style="margin:0">' +
+        '<div class="pd-art">' + bigSprite(m.id, '', 72, 72, 1, m.shiny) + '</div>' +
+        '<div class="pd-id" style="min-width:0">' +
+          '<div class="pd-species">' + speciesOf(m) + (m.shiny ? ' \u2728' : '') + '</div>' +
+          '<div class="pd-name" style="font-size:1.1rem">' + m.name + '</div>' +
+          '<div class="types" style="margin-top:2px">' + typeChips(m.types) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="pd-hp" style="margin-top:8px">' +
+        '<div class="hm-b big"><i style="width:' + pct + '%;background:' + hpCol + '"></i></div>' +
+        '<span>' + cur + ' / ' + mx + (m.status ? ' \u00b7 ' + m.status.toUpperCase() : '') + '</span>' +
+        (m.status ? '<span class="battle-st-badge" style="margin-left:6px;background:' + stCol + ';color:' + stTxtCol + ';padding:2px 6px;border-radius:999px;font-size:.62rem">' + m.status.toUpperCase() + '</span>' : '') +
+      '</div>';
+      return {
+        name: m.name,
+        species: speciesOf(m),
+        hp: m.hpPct,
+        fainted: C.isFainted(m),
+        active: m === activeMon,
+        status: m.status,
+        statusColor: stCol,
+        pct: pct,
+        hpCol: hpCol,
+        cur: cur,
+        mx: mx,
+        types: m.types.slice(),
+        iconHtml: animSprite(m.id, 46, 52, '', 1.4, m.shiny),
+        detailHtml: html,
+        disabled: !ok
+      };
     });
     ui.setPanel({
-      type: 'party', items: items,
-      title: forced ? 'Choose your next Pokemon' : 'Switch to',
+      type: 'party-rich', items: items,
+      title: forced ? 'Choose your next Pokemon' : 'Switch Pokemon',
       onPick: function (i) {
         ui.setPanel(null); ui.setMsg('...');
         if (allowed && allowed[i] != null) battle.chooseSwitchSlot(allowed[i]);
@@ -2642,6 +2693,10 @@
         stage.classList.add('done');
         $('evoText').innerHTML = mon.name + ' became <b>' + res.to + '</b>!';
         N.logMsg(run, res.from + ' changed forme to ' + res.to + '.');
+        if (mon.shiny) {
+          recordShiny(mon, 'forme');
+          toast('\u2728 Shiny ' + mon.name + ' (' + res.to + ') added to collection!');
+        }
         try { playCry(mon.id); } catch (e) {}
       } else {
         stage.classList.remove('morphing');
@@ -2717,6 +2772,10 @@
           ? ('Congratulations! <b>' + res.to + '</b> evolved into a ' + res.species + '!')
           : ('Congratulations! Your ' + res.fromSpecies + ' evolved into <b>' + res.species + '</b>!');
         N.logMsg(run, res.to + ' evolved into ' + res.species + '!');
+        if (mon.shiny) {
+          recordShiny(mon, 'evolved');
+          toast('\u2728 Shiny ' + mon.name + ' evolved into ' + res.species + '!');
+        }
         try { playCry(opt.id); } catch (e) {}
       } else {
         $('evoText').textContent = res.msg || 'The evolution failed.';
@@ -2818,6 +2877,9 @@
     if (!run || run.over) return null;
     var c = { __v: SAVE_VERSION };
     Object.keys(run).forEach(function (k) { if (k !== 'rand') c[k] = run[k]; });
+    try {
+      if (run.rand && run.rand.getState) c.randState = run.rand.getState();
+    } catch (e) {}
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(c)); }
     catch (e) { console.warn('save', e); }
     return c;
@@ -2893,8 +2955,26 @@
 
   function reviveRun(s) {
     var r = N.newRun(s.seed);
-    Object.keys(s).forEach(function (k) { if (k !== '__v') r[k] = s[k]; });
-    r.rand = C.mulberry32((s.seed ^ 0x9e3779b9) + (s.battlesWon || 0) * 7919);
+    Object.keys(s).forEach(function (k) { if (k !== '__v' && k !== 'randState') r[k] = s[k]; });
+    // Restore exact RNG state if available, so catch shakes and any remaining
+    // randomness stay stable across refreshes. Old saves fallback to the
+    // previous best-effort formula.
+    if (s.randState != null) {
+      try {
+        r.rand = C.mulberry32(s.seed ^ 0x9e3779b9);
+        if (r.rand.setState) r.rand.setState(s.randState);
+      } catch (e) {
+        r.rand = C.mulberry32((s.seed ^ 0x9e3779b9) + (s.battlesWon || 0) * 7919);
+      }
+    } else {
+      r.rand = C.mulberry32((s.seed ^ 0x9e3779b9) + (s.battlesWon || 0) * 7919);
+    }
+    // Keep revived randState in sync for future saves
+    try {
+      if (r.rand && r.rand.getState) {
+        // if save had randState bump it a little to avoid exact repeat after load? No, keep exact.
+      }
+    } catch (e) {}
     // Belt and braces: normalise anything a migration could not infer.
     r.party.forEach(function (m) {
       if (!m.species) m.species = C.cleanName(m.id);
@@ -2903,6 +2983,9 @@
       N.trackMon(r, m);
     });
     if (!r.sectionStats) N.resetSectionStats(r);
+    // Ensure _nextWild is cleared so it will be recomputed deterministically
+    // via pickWild (which is now hash-based, not rand-based) after refresh.
+    if (r._nextWild) delete r._nextWild;
     return r;
   }
 
@@ -2931,6 +3014,33 @@
     return null;
   }
 
+  // Helper to merge imported shiny collection into profile
+  function mergeShinies(imported) {
+    if (!Array.isArray(imported) || !imported.length) return;
+    loadProfile();
+    var existing = profile.shinies || [];
+    var seen = {};
+    existing.forEach(function (s) { seen[s.id + '|' + s.at] = true; });
+    imported.forEach(function (s) {
+      if (!s || !s.id) return;
+      var key = s.id + '|' + s.at;
+      if (seen[key]) return;
+      // basic sanitization
+      existing.push({
+        id: s.id,
+        species: s.species || s.id,
+        name: s.name || s.species || s.id,
+        types: Array.isArray(s.types) ? s.types.slice() : [],
+        how: s.how || 'imported',
+        section: s.section || 0,
+        at: s.at || Date.now()
+      });
+      seen[key] = true;
+    });
+    // keep newest first? profile stores chronological, showShinies reverses, so push is fine
+    saveProfile();
+  }
+
   // Apply a decoded save object: validate -> migrate -> revive -> persist.
   // Never throws; returns { ok: true } or { ok: false, error } for the UI.
   function loadGameState(saveData) {
@@ -2940,6 +3050,10 @@
       var migrated = migrateSave(saveData);
       if (!migrated) return { ok: false, error: 'That run has no Pokemon left to continue with.' };
       run = reviveRun(migrated);
+      // Merge shiny collection if present in save code
+      if (saveData._shiny || saveData._sh || saveData.shinies) {
+        mergeShinies(saveData._shiny || saveData._sh || saveData.shinies);
+      }
       saveGame();                          // persist to THIS device's storage
       setContinueState();                  // title button reflects the import
       return { ok: true };
@@ -2967,6 +3081,13 @@
     // The rolling battle log is never displayed, only bloats the QR payload.
     var slim = {};
     Object.keys(snap).forEach(function (k) { if (k !== 'log') slim[k] = snap[k]; });
+    // Include shiny collection in the save code/link/QR
+    try {
+      loadProfile();
+      if (profile && profile.shinies && profile.shinies.length) {
+        slim._shiny = profile.shinies;
+      }
+    } catch (e) {}
     var code = SC.encode(slim);
     if (!code) { toast('Could not create a save code.'); return; }
     saveShareUrl = SC.buildShareUrl(code);
@@ -2978,6 +3099,9 @@
     qrBox.hidden = !qr.ok;
     qrNote.hidden = qr.ok;
     if (!qr.ok) qrNote.textContent = qr.reason || 'QR code unavailable.';
+    // Wire up Save QR button visibility
+    var qrBtn = $('btnSaveQR');
+    if (qrBtn) qrBtn.hidden = !qr.ok;
     $('screenSaveExport').hidden = false;
   }
 
@@ -3131,6 +3255,34 @@
     $('btnCopyLink').addEventListener('click', function () {
       window.SaveCode.copyText(saveShareUrl)
         .then(function (ok) { copyFeedback($('btnCopyLink'), ok); });
+    });
+    var qrSaveBtn = $('btnSaveQR');
+    if (qrSaveBtn) qrSaveBtn.addEventListener('click', function () {
+      try {
+        var box = $('saveQrBox');
+        if (!box) { toast('No QR to save.'); return; }
+        var canvas = box.querySelector('canvas');
+        var dataUrl = '';
+        if (canvas && canvas.toDataURL) {
+          dataUrl = canvas.toDataURL('image/png');
+        } else {
+          // qrcodejs fallback renders a table: rasterize via temporary canvas
+          // Create a simple canvas from table is complex, so fallback to copying link
+          var img = box.querySelector('img');
+          if (img && img.src) dataUrl = img.src;
+        }
+        if (!dataUrl) { toast('QR image not ready.'); return; }
+        var a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = 'dailylocke-qr.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast('QR image saved!');
+      } catch (e) {
+        console.warn('save qr', e);
+        toast('Could not save QR image.');
+      }
     });
     $('btnSaveImportClose').addEventListener('click', closeSaveImport);
     $('screenSaveImport').addEventListener('click', function (e) {
