@@ -1269,8 +1269,10 @@ textarea.search.save-code {
 }
 .x-battle-btn .x-ic { width:30px; height:30px; position:relative; flex:0 0 auto; }
 .x-battle-btn.catchable {
-  background:linear-gradient(180deg,#ffc861,#f0972c);
-  color:#2b1d00; box-shadow:0 8px 28px rgba(255,180,70,.45), inset 0 1px 0 rgba(255,255,255,.35);
+  /* capture CTA now follows the same primary CTA style as other big buttons */
+  background:linear-gradient(180deg,var(--cta-hi),var(--cta));
+  color:var(--cta-text);
+  box-shadow:var(--e2), inset 0 1px 0 rgba(255,255,255,.22);
 }
 .x-battle-note {
   text-align:center; font-size:.86rem; color:var(--ink-2); margin-top:9px; min-height:1.2em;

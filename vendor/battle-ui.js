@@ -879,6 +879,7 @@ BattleUI.prototype._anim=function(){
 // sprite) through the camera; the resulting screen-space distance gives pixel
 // height that AUTOMATICALLY respects perspective (closer = bigger, farther =
 // smaller). Width = height * natural aspect ratio so proportions stay intact.
+// For the title showcase we use ultra-subtle, never-snapping motion.
 BattleUI.prototype._projectSprites=function(t,dt){
   if(!this.sprites||!this.host||!this.cam)return;
   var hr=this.host.getBoundingClientRect();
@@ -888,29 +889,83 @@ BattleUI.prototype._projectSprites=function(t,dt){
     var key=ik===0?'p':'e';
     var s=this.s[key];if(!s||!s.img||!s.grp)continue;
     var pl=key==='p';
-    // No idle bob — sprites rest still on their platforms.
+    // persistent smooth state
+    if(s.lungeCur==null)s.lungeCur=0;
+    if(s.shakeCur==null)s.shakeCur=0;
+    if(s.idlePhase==null)s.idlePhase=Math.random()*6.283+ik*2.1;
+    if(s.breathePhase==null)s.breathePhase=Math.random()*6.283+ik*1.7;
+    if(s.driftPhase==null)s.driftPhase=Math.random()*6.283+ik*3.3;
+
     var wx=s.pos.x,wy=s.pos.y,wz=s.pos.z;
     var mo=this.s.moment;
-    var dir=pl?1:-1;
+    var mt=this.s.mt;
     var shake=0,flash=1,lunge=0;
     if(s.hp<=0){
       // Faint = pure fade-out (no sink/tilt).
       if(s.fadeT<=0)s.fadeT=0.7;
       s.fadeT-=dt;
+      // ease lunge/shake back to zero even while fainting
+      s.lungeCur+=(0-s.lungeCur)*Math.min(1,dt*3);
+      s.shakeCur+=(0-s.shakeCur)*Math.min(1,dt*4);
     }else{
-      // Lunge = horizontal slide toward the opponent, plus a subtle 8% scale-up
-      // to read as a forward charge. No z (depth) movement so perspective doesn't
-      // fight the animation.
-      if(pl&&mo==='playerAttack'){
-        lunge=Math.min(1,this.s.mt/0.28);
-        wx+=1.5*lunge;                 // player is at x=-2, slides toward enemy (+x)
-      }else if(!pl&&mo==='enemyAttack'){
-        lunge=Math.min(1,this.s.mt/0.28);
-        wx-=1.5*lunge;                 // enemy is at x=+2.2, slides toward player (-x)
-      }else if(mo==='enemyHit'&&!pl){
-        shake=Math.sin(t*70)*0.2;var f2=(t*70%0.08)<0.04;flash=f2?1:0.3;
-      }else if(mo==='playerHit'&&pl){
-        shake=Math.sin(t*70)*0.2;var f3=(t*70%0.08)<0.04;flash=f3?1:0.3;
+      // ---- target lunge: 0 idle, 1 attacking ----
+      var lungeTarget=0;
+      if(pl&&mo==='playerAttack')lungeTarget=1;
+      else if(!pl&&mo==='enemyAttack')lungeTarget=1;
+      // showcase = much more subtle, real battle = moderate
+      var showcase=this.showcase;
+      var lungeScaleShowcase=0.28;
+      var lungeScaleBattle=1.5;
+      var lungeInSpeed=showcase?3.2:6.5;
+      var lungeOutSpeed=showcase?1.1:2.8;
+      // smooth spring toward target, never snaps
+      var spd=lungeTarget> s.lungeCur ? lungeInSpeed : lungeOutSpeed;
+      s.lungeCur+=(lungeTarget - s.lungeCur)*Math.min(1,dt*spd);
+      // ease curve for more natural feel (easeOutCubic for entry, easeInOut for exit)
+      var eased=s.lungeCur;
+      if(lungeTarget>0){
+        // easeOutCubic
+        var u=Math.min(1,mt/0.32);
+        eased=s.lungeCur * (1 - Math.pow(1-u,3));
+      }else{
+        // when returning, keep the smoothed value (no extra easing) so it glides back
+        eased=s.lungeCur;
+      }
+      lunge=eased;
+      var lungeAmp=showcase?lungeScaleShowcase:lungeScaleBattle;
+      wx+=(pl?1:-1)*lungeAmp*lunge;
+
+      // ---- subtle idle drift: continuous, never resetting ----
+      // Horizontal micro-sway and vertical breathe
+      var idleX = Math.sin(t*0.42 + s.idlePhase)*0.055 + Math.sin(t*0.17 + s.driftPhase)*0.032;
+      var idleY = Math.sin(t*0.78 + s.breathePhase)*0.018 + Math.sin(t*0.23 + s.idlePhase*0.7)*0.012;
+      var idleZ = Math.cos(t*0.31 + s.driftPhase)*0.04;
+      if(showcase){
+        idleX*=1.6; idleY*=1.4; idleZ*=1.3;
+      }else{
+        idleX*=0.6; idleY*=0.5; idleZ*=0.4;
+      }
+      wx+=idleX;
+      wy+=idleY;
+      wz+=idleZ;
+
+      // ---- hit shake: decaying sinusoid, smooth return ----
+      var hitTarget=0;
+      if((mo==='enemyHit'&&!pl)||(mo==='playerHit'&&pl))hitTarget=1;
+      // shake cur lerps to target quickly, then decays
+      var shakeIn=12, shakeOut=5;
+      s.shakeCur+=(hitTarget - s.shakeCur)*Math.min(1,dt*(hitTarget> s.shakeCur?shakeIn:shakeOut));
+      if(s.shakeCur>0.001){
+        // damped oscillation based on mt of the hit moment
+        var damping=Math.exp(-mt*4.2);
+        var freq= showcase? 28 : 52;
+        shake=Math.sin(mt*freq + s.idlePhase)*0.14 * s.shakeCur * damping;
+        // flash flicker decays with same damping
+        if(mt<0.28){
+          var flick=Math.sin(mt*70);
+          flash = (Math.abs(flick)>0.35)?1:0.65;
+          flash = flash * (0.5 + 0.5*damping) + (1-damping)*1;
+        }
       }
     }
     wx+=shake;

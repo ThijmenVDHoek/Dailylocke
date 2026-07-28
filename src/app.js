@@ -182,44 +182,68 @@
       // point is that the title looks like the game. `showcase` only strips
       // the HUD; it must not invent its own framing.
 
-      // A livelier loop: vary the beat so it never reads as a metronome, and
-      // mix in the flashier moments (mega flash, crits) the engine already
-      // has. Each cycle picks a different exchange.
+      // Title battle: ultra-subtle, never-snapping, feels like a real idle battle.
+      // The underlying BattleUI now smooth-longs lunge/shake with spring damping,
+      // so we keep attacks tiny and let the sprite drift handle most of the life.
       var beat = 0;
       function nextBeat() {
         if (!titleUI) return;
-        var atk = (beat % 2 === 0);
-        var seq = atk
-          ? [{ m: 'playerAttack', d: 0 }, { m: 'enemyHit', d: 480 }, { m: 'idle', d: 900 }]
-          : [{ m: 'enemyAttack',  d: 0 }, { m: 'playerHit', d: 480 }, { m: 'idle', d: 900 }];
+        // pick a pattern with weighted randomness: mostly idle sway, occasional small lunge
+        var roll = Math.random();
+        var seq;
+        var atkSide = null;
+        if (roll < 0.35) {
+          // pure idle – let the micro-sway breathe
+          seq = [{ m: 'idle', d: 1200 + Math.random()*800 }];
+        } else if (roll < 0.65) {
+          // player feint: small forward nudge then smooth glide back
+          atkSide = 'p';
+          seq = [
+            { m: 'idle', d: 400 + Math.random()*300 },
+            { m: 'playerAttack', d: 420 },
+            { m: 'idle', d: 700 + Math.random()*500 }
+          ];
+        } else {
+          // enemy feint
+          atkSide = 'e';
+          seq = [
+            { m: 'idle', d: 400 + Math.random()*300 },
+            { m: 'enemyAttack', d: 420 },
+            { m: 'idle', d: 700 + Math.random()*500 }
+          ];
+        }
         try {
           titleUI.queueMoments(seq);
-          // land an impact burst on the defender so hits actually read
-          var side = atk ? 'e' : 'p';
-          setTimeout(function () {
-            if (!titleUI) return;
-            try {
-              var col = atk ? 0xc07ce8 : 0x7fb2ff;
-              var sp = titleUI.s[side];
-              if (sp && sp.grp && titleUI._burst) {
-                var pos = new window.THREE.Vector3();
-                sp.grp.getWorldPosition(pos); pos.y += sp.h * 0.55;
-                titleUI._burst(pos, col, 16);
-              }
-            } catch (e) {}
-          }, 520);
-          // occasionally throw in a big flourish so the loop has a peak
-          if (beat % 6 === 5) {
+          // very subtle impact spark – smaller, rarer, no screen flash
+          if (atkSide && Math.random()<0.5) {
+            var side = atkSide==='p' ? 'e' : 'p';
+            var delay = 360 + Math.random()*80;
             setTimeout(function () {
-              if (titleUI && titleUI.trigMega) { try { titleUI.trigMega(atk ? 'p' : 'e'); } catch (e) {} }
-            }, 1500);
+              if (!titleUI) return;
+              try {
+                var col = atkSide==='p' ? 0xc07ce8 : 0x7fb2ff;
+                var sp = titleUI.s[side];
+                if (sp && sp.grp && titleUI._burst) {
+                  var pos = new window.THREE.Vector3();
+                  sp.grp.getWorldPosition(pos); pos.y += sp.h * 0.48 + Math.random()*0.15;
+                  // tiny burst, reads as contact but not explosive
+                  titleUI._burst(pos, col, 6 + Math.floor(Math.random()*4));
+                }
+              } catch (e) {}
+            }, delay);
+          }
+          // rare mega pulse – one every ~8 beats, still subtle
+          if (beat % 8 === 7 && Math.random()<0.6) {
+            setTimeout(function () {
+              if (titleUI && titleUI.trigMega) { try { titleUI.trigMega(Math.random()<0.5?'p':'e'); } catch (e) {} }
+            }, 900 + Math.random()*400);
           }
         } catch (e) {}
         beat++;
-        // irregular gaps read as a real fight rather than a loop
-        titleLoop = setTimeout(nextBeat, 1900 + Math.random() * 1300);
+        // irregular, longer gaps so it never feels metronomic
+        titleLoop = setTimeout(nextBeat, 1800 + Math.random() * 1700);
       }
-      titleLoop = setTimeout(nextBeat, 700);
+      titleLoop = setTimeout(nextBeat, 800 + Math.random()*400);
     } catch (e) { console.warn('title scene', e); }
   }
 
