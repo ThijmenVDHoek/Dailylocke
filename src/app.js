@@ -2810,14 +2810,19 @@
     saveProfile();
   }
 
-  function saveGame() {
-    try {
-      if (!run || run.over) return;
-      var c = { __v: SAVE_VERSION };
-      Object.keys(run).forEach(function (k) { if (k !== 'rand') c[k] = run[k]; });
-      localStorage.setItem(SAVE_KEY, JSON.stringify(c));
-    } catch (e) { console.warn('save', e); }
+  // Central serializer: snapshot the live run (minus the `rand` function
+  // handle, which reviveRun() rebuilds deterministically) and persist it to
+  // localStorage. Returns the snapshot so callers -- autosave AND the export
+  // modal -- always work from exactly the same object.
+  function saveGameState() {
+    if (!run || run.over) return null;
+    var c = { __v: SAVE_VERSION };
+    Object.keys(run).forEach(function (k) { if (k !== 'rand') c[k] = run[k]; });
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(c)); }
+    catch (e) { console.warn('save', e); }
+    return c;
   }
+  function saveGame() { saveGameState(); }
 
   function loadGame() {
     try {
@@ -2901,6 +2906,153 @@
     return r;
   }
 
+  // -------------------------------------------------- SAVE TRANSFER --------
+  // Cross-device saves: the same snapshot saveGameState() writes is compressed
+  // into a "Save Code" (src/savecode.js), shareable as text, link or QR.
+  // Importing goes through the exact localStorage load path -- validate,
+  // migrate, revive -- so a code can never smuggle in a state a normal save
+  // could not represent.
+
+  // Schema check for decoded save data. Returns null when usable, otherwise a
+  // human-readable reason -- every invalid/corrupt/foreign code fails here
+  // instead of crashing the run.
+  function validateImportedSave(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return 'That does not look like a save from this game.';
+    // tolerate numeric-string seeds from hand-edited codes
+    if (typeof data.seed === 'string' && data.seed.trim() !== '' && isFinite(Number(data.seed))) data.seed = Number(data.seed);
+    if (typeof data.seed !== 'number' || !isFinite(data.seed)) return 'The save data has no valid run seed.';
+    if ((data.__v || 1) > SAVE_VERSION) return 'This save was made with a newer version of the game and cannot be loaded here.';
+    if (!Array.isArray(data.party)) return 'The save data has no party information.';
+    if (!data.party.length) return 'That run has no Pokemon left to continue with.';
+    for (var i = 0; i < data.party.length; i++) {
+      var m = data.party[i];
+      if (!m || typeof m !== 'object' || typeof m.id !== 'string' || !m.id) return 'The save data has a corrupted party member.';
+    }
+    return null;
+  }
+
+  // Apply a decoded save object: validate -> migrate -> revive -> persist.
+  // Never throws; returns { ok: true } or { ok: false, error } for the UI.
+  function loadGameState(saveData) {
+    var err = validateImportedSave(saveData);
+    if (err) return { ok: false, error: err };
+    try {
+      var migrated = migrateSave(saveData);
+      if (!migrated) return { ok: false, error: 'That run has no Pokemon left to continue with.' };
+      run = reviveRun(migrated);
+      saveGame();                          // persist to THIS device's storage
+      setContinueState();                  // title button reflects the import
+      return { ok: true };
+    } catch (e) {
+      console.warn('import save', e);
+      return { ok: false, error: 'The save data could not be read.' };
+    }
+  }
+
+  // ---- EXPORT MODAL -------------------------------------------------------
+  var saveShareUrl = '';       // share link backing the current export modal
+
+  // The state a transfer should carry: the live run when one exists, else the
+  // run parked in storage (so "Transfer save" works from the title's Menu).
+  function exportSourceState() {
+    if (run && !run.over) return saveGameState();
+    return loadGame();
+  }
+
+  function openSaveExport() {
+    var SC = window.SaveCode;
+    if (!SC || !SC.enabled()) { toast('Save transfer is unavailable right now.'); return; }
+    var snap = exportSourceState();
+    if (!snap) { toast('No run in progress to save.'); return; }
+    // The rolling battle log is never displayed, only bloats the QR payload.
+    var slim = {};
+    Object.keys(snap).forEach(function (k) { if (k !== 'log') slim[k] = snap[k]; });
+    var code = SC.encode(slim);
+    if (!code) { toast('Could not create a save code.'); return; }
+    saveShareUrl = SC.buildShareUrl(code);
+    $('saveCodeOut').value = code;
+    $('saveExportMsg').textContent = '';
+    // The QR encodes the exact share URL so a phone camera opens it directly.
+    var qrBox = $('saveQrBox'), qrNote = $('saveQrNote');
+    var qr = SC.renderQR(qrBox, saveShareUrl);
+    qrBox.hidden = !qr.ok;
+    qrNote.hidden = qr.ok;
+    if (!qr.ok) qrNote.textContent = qr.reason || 'QR code unavailable.';
+    $('screenSaveExport').hidden = false;
+  }
+
+  function closeSaveExport() { $('screenSaveExport').hidden = true; }
+
+  function copyFeedback(btn, ok) {
+    var old = btn.textContent;
+    btn.textContent = ok ? 'Copied!' : 'Copy failed';
+    setTimeout(function () { btn.textContent = old; }, 1600);
+    $('saveExportMsg').textContent = ok ? 'Copied to clipboard!' : 'Copy failed \u2014 select the code above and copy it manually.';
+    if (ok) toast('Copied to clipboard!');
+    else { var ta = $('saveCodeOut'); ta.focus(); ta.select(); }
+  }
+
+  // ---- IMPORT MODAL -------------------------------------------------------
+  function openSaveImport() {
+    $('saveCodeIn').value = '';
+    $('saveImportMsg').textContent = '';
+    $('screenSaveImport').hidden = false;
+    setTimeout(function () { $('saveCodeIn').focus(); }, 60);
+  }
+  function closeSaveImport() { $('screenSaveImport').hidden = true; }
+
+  // Shared by the manual import box and the ?save= URL handler.
+  function importFromText(text) {
+    var SC = window.SaveCode;
+    if (!SC || !SC.enabled()) return { ok: false, error: 'Save transfer is unavailable right now.' };
+    var code = SC.extractCode(text);
+    if (!code) return { ok: false, error: 'That does not look like a save code or link.' };
+    var data = SC.decode(code);
+    if (!data) return { ok: false, error: 'Save code invalid or corrupted!' };
+    return loadGameState(data);
+  }
+
+  function performManualImport() {
+    var res = importFromText($('saveCodeIn').value);
+    if (!res.ok) { $('saveImportMsg').textContent = res.error; return; }
+    closeSaveImport();
+    closeMenu();
+    toast('Save loaded! Section ' + run.section + ', ' + run.party.length + ' Pokemon.');
+    // Jump straight into the imported run.
+    renderCrossroads(); show('Crossroads');
+  }
+
+  // ---- URL AUTO-IMPORT -----------------------------------------------------
+  // A share link (or scanned QR) opens the game with ?save=CODE. Called from
+  // boot() before the title renders so the Continue button reflects it.
+  function applySaveFromUrl() {
+    var SC = window.SaveCode;
+    if (!SC || !SC.enabled()) return;
+    var code = SC.readCodeFromUrl();
+    if (!code) return;
+    // Remove the param FIRST (even on failure) so refreshing the page never
+    // re-applies or re-prompts for the same code.
+    SC.stripCodeFromUrl();
+    var data = SC.decode(code);
+    if (!data) { toast('Save link invalid or corrupted.'); return; }
+    var err = validateImportedSave(data);
+    if (err) { toast(err); return; }
+    // Never silently destroy a run already in progress on this device.
+    var existing = loadGame();
+    if (existing) {
+      var same = existing.seed === data.seed && existing.battlesWon === data.battlesWon;
+      if (!same && !confirm('This link will replace your current run (Section ' +
+          (existing.section || 1) + ') with the shared run (Section ' + (data.section || 1) + '). Continue?')) {
+        toast('Import cancelled \u2014 your current run is safe.');
+        return;
+      }
+    }
+    var res = loadGameState(data);
+    toast(res.ok
+      ? 'Save imported! Section ' + run.section + ' \u00b7 tap Continue to play.'
+      : res.error);
+  }
+
   // The sub-screens are reachable mid-run AND from the title, so "Back" has
   // to return to whichever one the player actually came from.
   function backToRoute() {
@@ -2939,6 +3091,9 @@
       } catch (e) {}
     };
     loadProfile(); applyTheme(); updateMenuAvatar();
+    // A ?save=CODE link/QR applies the save before the title renders, so the
+    // Continue button it paints already describes the imported run.
+    applySaveFromUrl();
     initTitle();
 
     // Warm the learnsets chunk while the player is still on the title screen.
@@ -2954,6 +3109,31 @@
     $('btnGoBattle').addEventListener('click', startNextBattle);
     $('btnTutorBack').addEventListener('click', function () {
       svc = null; renderCrossroads(); show('Crossroads');
+    });
+    // "Save progress" lives on every battle/section finish screen.
+    $('btnRewardSave').addEventListener('click', openSaveExport);
+    $('btnCatchSave').addEventListener('click', openSaveExport);
+    $('btnSumSave').addEventListener('click', openSaveExport);
+    // Export + import modals (Save Codes / links / QR).
+    $('btnSaveExportClose').addEventListener('click', closeSaveExport);
+    $('screenSaveExport').addEventListener('click', function (e) {
+      if (e.target === $('screenSaveExport')) closeSaveExport();
+    });
+    $('btnCopyCode').addEventListener('click', function () {
+      window.SaveCode.copyText($('saveCodeOut').value)
+        .then(function (ok) { copyFeedback($('btnCopyCode'), ok); });
+    });
+    $('btnCopyLink').addEventListener('click', function () {
+      window.SaveCode.copyText(saveShareUrl)
+        .then(function (ok) { copyFeedback($('btnCopyLink'), ok); });
+    });
+    $('btnSaveImportClose').addEventListener('click', closeSaveImport);
+    $('screenSaveImport').addEventListener('click', function (e) {
+      if (e.target === $('screenSaveImport')) closeSaveImport();
+    });
+    $('btnImportLoad').addEventListener('click', performManualImport);
+    $('saveCodeIn').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); performManualImport(); }
     });
     $('btnCatchDone').addEventListener('click', afterBattleAdvance);
     $('btnEvoDone').addEventListener('click', function () {
@@ -2985,6 +3165,8 @@
     $('btnMenuShinies').addEventListener('click', showShinies);
     $('btnMenuHistory').addEventListener('click', showHistory);
     $('btnMenuRules').addEventListener('click', showRules);
+    $('btnMenuTransfer').addEventListener('click', function () { closeMenu(); openSaveExport(); });
+    $('btnMenuImport').addEventListener('click', function () { closeMenu(); openSaveImport(); });
     $('btnRulesBack').addEventListener('click', backToRoute);
     $('btnMenuQuit').addEventListener('click', function () {
       if (confirm('Abandon this run? Your team is lost.')) {

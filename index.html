@@ -216,6 +216,14 @@
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png" alt="">
           <span class="mi-t"><b>History</b><em id="miHistCount">No runs finished</em></span>
         </button>
+        <button type="button" id="btnMenuTransfer" class="menu-item">
+          <span class="mi-ic mi-glyph">&#8646;</span>
+          <span class="mi-t"><b>Transfer save</b><em id="miTransferSub">Code, link or QR for another device</em></span>
+        </button>
+        <button type="button" id="btnMenuImport" class="menu-item">
+          <span class="mi-ic mi-glyph">&#8681;</span>
+          <span class="mi-t"><b>Import save</b><em>Load a code from another device</em></span>
+        </button>
         <button type="button" id="btnMenuRules" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/tm-normal.png" alt="">
           <span class="mi-t"><b>How it works</b><em>The full rule set</em></span>
@@ -247,7 +255,10 @@
   <section id="screenReward" hidden>
     <h2 class="scr-title" id="rewardTitle">Victory!</h2>
     <div id="rewardBody" class="panel center"></div>
-    <button type="button" id="btnRewardDone" class="btn-primary wide">Continue</button>
+    <div class="footer-btns">
+      <button type="button" id="btnRewardSave" class="btn-secondary save-progress-btn">Save progress</button>
+      <button type="button" id="btnRewardDone" class="btn-primary">Continue</button>
+    </div>
   </section>
 
   <!-- ===================== CATCH ===================== -->
@@ -255,7 +266,10 @@
     <h2 class="scr-title" id="catchTitle">Gotcha!</h2>
     <div id="catchBody" class="panel center"></div>
     <div id="catchSwap"></div>
-    <button type="button" id="btnCatchDone" class="btn-primary wide">Continue</button>
+    <div class="footer-btns">
+      <button type="button" id="btnCatchSave" class="btn-secondary save-progress-btn">Save progress</button>
+      <button type="button" id="btnCatchDone" class="btn-primary">Continue</button>
+    </div>
   </section>
 
   <!-- ===================== SECTION SUMMARY ===================== -->
@@ -267,7 +281,10 @@
       <div class="sum-stats" id="sumStats"></div>
       <div class="sum-block" id="sumTeam"></div>
       <div class="sum-block" id="sumLost" hidden></div>
-      <button type="button" id="btnSumNext" class="btn-primary wide">Continue</button>
+      <div class="footer-btns">
+        <button type="button" id="btnSumSave" class="btn-secondary save-progress-btn">Save progress</button>
+        <button type="button" id="btnSumNext" class="btn-primary">Continue</button>
+      </div>
     </div>
   </section>
 
@@ -281,6 +298,44 @@
       <input id="nickInput" class="search nick-input" type="text" autocomplete="off"
              spellcheck="false" placeholder="Nickname"/>
       <button type="button" id="btnNickOk" class="btn-primary wide">Confirm name</button>
+    </div>
+  </div>
+
+  <!-- ===================== SAVE / EXPORT (overlay) ===================== -->
+  <!-- Transfer the current run to another device: compressed code, share link
+       and a QR code that encodes the exact share link. -->
+  <div id="screenSaveExport" class="overlay" hidden>
+    <div class="overlay-card save-card" role="dialog" aria-modal="true" aria-labelledby="saveExportTitle">
+      <h3 id="saveExportTitle" class="picker-title"><span>Save progress</span></h3>
+      <p class="hint center">Take this run anywhere &mdash; scan the QR with another
+        device, or send the code / link and import it there.</p>
+      <div id="saveQrBox" class="save-qr" hidden></div>
+      <p id="saveQrNote" class="hint center save-qr-note" hidden></p>
+      <label class="save-label" for="saveCodeOut">Save code</label>
+      <textarea id="saveCodeOut" class="search save-code" readonly rows="3"
+                autocomplete="off" spellcheck="false"
+                aria-label="Compressed save code"></textarea>
+      <div class="save-actions">
+        <button type="button" id="btnCopyCode" class="btn-secondary">Copy Code</button>
+        <button type="button" id="btnCopyLink" class="btn-secondary">Copy Link</button>
+      </div>
+      <p id="saveExportMsg" class="hint center save-msg" aria-live="polite"></p>
+      <button type="button" id="btnSaveExportClose" class="btn-secondary wide">Close</button>
+    </div>
+  </div>
+
+  <!-- ===================== SAVE / IMPORT (overlay) ===================== -->
+  <div id="screenSaveImport" class="overlay" hidden>
+    <div class="overlay-card save-card" role="dialog" aria-modal="true" aria-labelledby="saveImportTitle">
+      <h3 id="saveImportTitle" class="picker-title"><span>Import save</span></h3>
+      <p class="hint center">Paste a save code or share link from another device.</p>
+      <textarea id="saveCodeIn" class="search save-code" rows="4"
+                placeholder="Paste save code or link&#8230;"
+                autocomplete="off" autocapitalize="off" spellcheck="false"
+                aria-label="Save code or share link"></textarea>
+      <p id="saveImportMsg" class="hint center save-msg" aria-live="polite"></p>
+      <button type="button" id="btnImportLoad" class="btn-primary wide">Load Game</button>
+      <button type="button" id="btnSaveImportClose" class="btn-secondary wide">Cancel</button>
     </div>
   </div>
 
@@ -334,9 +389,12 @@
        battle-ui.js   -> window.BattleUI      (needs THREE)
        ui-patch.js    -> extends BattleUI
        audio.js       -> window.GameAudio     (music + sfx volume)
+       lz-string.min.js -> window.LZString    (save-code compression)
+       qrcode.js      -> window.QRCode        (save-code QR rendering)
        core.js        -> window.Core          (needs PS + PokeData)
        nuzlocke.js    -> window.Nuz           (needs Core)
        ...feature modules...
+       savecode.js    -> window.SaveCode      (needs LZString; QRCode optional)
        app.js         -> boots the game       (needs everything above)
 
      gen9 learnsets are NOT here: vendor/pkmn-learnsets.js is fetched on
@@ -348,6 +406,8 @@
 <script defer src="vendor/battle-ui.js"></script>
 <script defer src="src/ui-patch.js"></script>
 <script defer src="src/audio.js"></script>
+<script defer src="vendor/lz-string.min.js"></script>
+<script defer src="vendor/qrcode.js"></script>
 <script defer src="src/core.js"></script>
 <script defer src="src/nuzlocke.js"></script>
 <script defer src="src/evolution.js"></script>
@@ -356,6 +416,7 @@
 <script defer src="src/itemart.js"></script>
 <script defer src="src/tooltip.js"></script>
 <script defer src="src/battle.js"></script>
+<script defer src="src/savecode.js"></script>
 <script defer src="src/safari-compat.js"></script>
 <script defer src="src/app.js"></script>
 </body>

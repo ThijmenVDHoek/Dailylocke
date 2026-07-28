@@ -34,6 +34,7 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `tooltip.js` | — | move/ability/item tooltips |
 | `ui-patch.js` | — | extends `BattleUI` with the run action bar + ball rail |
 | `battle.js` | `RogueBattle` | wraps `@pkmn/sim`: HP/status/PP persistence, AI |
+| `savecode.js` | `SaveCode` | save-code codec, share links, QR + clipboard helpers |
 | `safari-compat.js` | — | iOS viewport quirks |
 | `app.js` | `Game` | screens, section flow, battle glue — boots the game |
 
@@ -44,7 +45,31 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `pkmn-sim.js` | **generated** — battle engine, gen 9 only, no learnsets |
 | `pkmn-learnsets.js` | **generated** — gen 9 learnsets, loaded on demand |
 | `three.min.js` | three.js r149 |
+| `lz-string.min.js` | lz-string 1.5.0 — save-code compression |
+| `qrcode.js` | qrcodejs 1.0.0 — QR rendering for share links |
 | `battle-ui.js` | hand-written 3D battle renderer — edit directly |
+
+## Save transfer (Save Codes)
+
+Runs persist to `localStorage` automatically, and can hop between devices
+with **no server and no accounts**: every battle/section finish screen has a
+**Save progress** button, and the Menu offers *Transfer save* / *Import save*.
+
+* The run state is serialised by `saveGameState()` (one central function,
+  same snapshot autosave writes), compressed with
+  `LZString.compressToEncodedURIComponent()`, and offered three ways:
+  * **Save Code** — copy/paste text for the *Import save* box.
+  * **Share link** — `https://<origin>/<path>?save=<code>`.
+  * **QR code** — encodes the exact share link, so a phone camera opens it
+    directly.
+* Opening a `?save=…` link auto-imports on page load (decompress → schema
+  validate → `loadGameState()` → migrate → `localStorage`), then strips the
+  param with `history.replaceState()` so refreshes don't re-import. A
+  pre-existing run is never replaced without a confirm.
+* Import never crashes on junk: garbage codes, truncated links, foreign JSON,
+  saves newer than the game and empty parties are all rejected with a friendly
+  message, and the battle log is dropped from exports so long runs still fit
+  in one QR (error-correction level steps down H→M→Q→L as needed).
 
 ## Audio
 
