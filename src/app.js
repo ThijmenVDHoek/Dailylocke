@@ -2149,7 +2149,6 @@
     });
     ui.setPanel({
       type: 'party-rich', items: items,
-      title: forced ? 'Choose your next Pokemon' : 'Switch Pokemon',
       onPick: function (i) {
         ui.setPanel(null); ui.setMsg('...');
         if (allowed && allowed[i] != null) battle.chooseSwitchSlot(allowed[i]);
