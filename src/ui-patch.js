@@ -305,31 +305,31 @@
         html += '</div><button class="ab bg-back">Back</button></div>';
       } else {
         html += '<div class="switch-panel"><div class="plist">';
-        for (var i = 0; i < p.items.length; i++) {
-          var it = p.items[i];
+        for (var itemIndex = 0; itemIndex < p.items.length; itemIndex++) {
+          var item = p.items[itemIndex];
           if (isList) {
             // simple item row: name + qty + note (no HP bar)
-            html += '<button class="pitem" data-i="' + i + '"' + (it.disabled ? ' disabled' : '') + '>' +
+            html += '<button class="pitem" data-i="' + itemIndex + '"' + (item.disabled ? ' disabled' : '') + '>' +
               '<div style="flex:1;min-width:0">' +
-                '<div class="pi-n">' + it.name + (it.qty ? ' <span class="qty">x' + it.qty + '</span>' : '') + '</div>' +
-                (it.note ? '<div class="pi-h">' + it.note + '</div>' : '') +
+                '<div class="pi-n">' + item.name + (item.qty ? ' <span class="qty">x' + item.qty + '</span>' : '') + '</div>' +
+                (item.note ? '<div class="pi-h">' + item.note + '</div>' : '') +
               '</div>' +
-              (it.right ? '<span class="pi-r">' + it.right + '</span>' : '') +
+              (item.right ? '<span class="pi-r">' + item.right + '</span>' : '') +
               '</button>';
           } else {
-            var col = it.hp > 0.5 ? '#4ade80' : it.hp > 0.2 ? '#facc15' : '#ef4444';
+            var hpColor = item.hp > 0.5 ? '#4ade80' : item.hp > 0.2 ? '#facc15' : '#ef4444';
             // status color mapping for legacy party panel
             var stm = { brn: '#ff5f6d', psn: '#a855f7', tox: '#9333ea', par: '#facc15', slp: '#a2aac4', frz: '#7dd3fc' };
-            var sc = it.status ? (stm[it.status] || '#ff5f6d') : '';
-            var stTxtC = (it.status === 'par') ? '#000' : '#fff';
-            var badge = it.status ? '<span style="margin-left:6px;background:' + sc + ';color:' + stTxtC + ';padding:1px 5px;border-radius:999px;font-size:.6rem">' + it.status.toUpperCase() + '</span>' : '';
-            html += '<button class="pitem" data-i="' + i + '"' + (it.disabled ? ' disabled' : '') + '>' +
-              (it.iconHtml ? it.iconHtml
-                            : (it.icon ? '<img src="' + it.icon + '" alt="">' : '')) +
+            var statusColor = item.status ? (stm[item.status] || '#ff5f6d') : '';
+            var stTxtC = (item.status === 'par') ? '#000' : '#fff';
+            var badge = item.status ? '<span style="margin-left:6px;background:' + statusColor + ';color:' + stTxtC + ';padding:1px 5px;border-radius:999px;font-size:.6rem">' + item.status.toUpperCase() + '</span>' : '';
+            html += '<button class="pitem" data-i="' + itemIndex + '"' + (item.disabled ? ' disabled' : '') + '>' +
+              (item.iconHtml ? item.iconHtml
+                            : (item.icon ? '<img src="' + item.icon + '" alt="">' : '')) +
               '<div style="flex:1;min-width:0">' +
-                '<div class="pi-n">' + it.name + (it.active ? ' <span style="opacity:.7">(out)</span>' : '') + '</div>' +
-                '<div class="pi-h">' + (it.fainted ? 'Fainted' : Math.round(it.hp * 100) + '%' + (it.status ? ' ' : '')) + badge + '</div>' +
-                '<div class="pbar"><i style="width:' + Math.round(it.hp * 100) + '%;background:' + col + '"></i></div>' +
+                '<div class="pi-n">' + item.name + (item.active ? ' <span style="opacity:.7">(out)</span>' : '') + '</div>' +
+                '<div class="pi-h">' + (item.fainted ? 'Fainted' : Math.round(item.hp * 100) + '%' + (item.status ? ' ' : '')) + badge + '</div>' +
+                '<div class="pbar"><i style="width:' + Math.round(item.hp * 100) + '%;background:' + hpColor + '"></i></div>' +
               '</div></button>';
           }
         }
@@ -349,11 +349,11 @@
 
     // ---- inspectable move buttons (hover / long-press) ----
     try {
-      var mbs = this.hud.querySelectorAll('.mb');
-      for (var mi2 = 0; mi2 < mbs.length; mi2++) {
-        var idx2 = parseInt(mbs[mi2].dataset.i, 10);
+      var moveButtons = this.hud.querySelectorAll('.mb');
+      for (var mi2 = 0; mi2 < moveButtons.length; mi2++) {
+        var idx2 = parseInt(moveButtons[mi2].dataset.i, 10);
         var mv2 = this.s.moves[idx2];
-        if (mv2 && mv2.id) mbs[mi2].setAttribute('data-tip', 'move:' + mv2.id);
+        if (mv2 && mv2.id) moveButtons[mi2].setAttribute('data-tip', 'move:' + mv2.id);
       }
     } catch (e) {}
 

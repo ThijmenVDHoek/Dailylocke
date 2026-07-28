@@ -1,6 +1,7 @@
 # vendor/
 
 Generated files — do not edit by hand (except `battle-ui.js`, see below).
+License texts and asset credits are collected in `../THIRD_PARTY_NOTICES.md`.
 
 | file | source |
 | --- | --- |

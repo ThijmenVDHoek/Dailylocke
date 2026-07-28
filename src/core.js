@@ -199,7 +199,7 @@
   }
 
   // Build a competent 4-move set: best STAB attacker moves + coverage.
-  async function autoMoveset(speciesId, rand) {
+  async function autoMoveset(speciesId) {
     var s = Dex.species.get(speciesId);
     var all = await legalMoves(speciesId);
     var physical = s.baseStats.atk >= s.baseStats.spa;
@@ -242,8 +242,7 @@
   async function makeMon(speciesId, opts) {
     opts = opts || {};
     var s = Dex.species.get(speciesId);
-    var rand = opts.rand || Math.random;
-    var moves = opts.moves || await autoMoveset(speciesId, rand);
+    var moves = opts.moves || await autoMoveset(speciesId);
     var abils = [];
     for (var k in s.abilities) if (s.abilities[k]) abils.push(s.abilities[k]);
     var mon = {

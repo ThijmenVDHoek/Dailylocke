@@ -64,7 +64,6 @@
     run.bag[id]--; if (run.bag[id] <= 0) delete run.bag[id];
     return true;
   }
-  function countItem(run, id) { return run.bag[id] || 0; }
   function alive(run) { return run.party.filter(function (m) { return !C.isFainted(m); }); }
   function logMsg(run, t) { run.log.push(t); if (run.log.length > 300) run.log.shift(); }
 
@@ -93,7 +92,6 @@
     return dead;
   }
 
-  function isSectionOver(run) { return run.battleInSection >= BATTLES_PER_SECTION; }
   function nextIsTrainer(run) { return run.battleInSection === BATTLES_PER_SECTION - 1; }
 
   function resetSectionStats(run) {
@@ -210,9 +208,7 @@
 
   async function makeWild(run, speciesId) {
     var tr = tier(run, false);
-    // Use a deterministic RNG for the moveset so same seed -> same moves
-    var moveRand = drand(run.seed + '|wildMoves|' + run.section + '|' + run.battleInSection + '|' + speciesId);
-    var mon = await C.makeMon(speciesId, { rand: moveRand });
+    var mon = await C.makeMon(speciesId);
     applyTraining(run, mon, tr, false, speciesId);
     if (rollShinyDeterministic(run, speciesId)) mon.shiny = true;
     return mon;
@@ -297,8 +293,7 @@
         if (rBoss() < 0.55) id = C.pick(megaPool, rBoss);
       }
       used[id] = 1;
-      var moveRand = drand(run.seed + '|trainerMoves|' + run.section + '|' + i + '|' + id);
-      var mon = await C.makeMon(id, { rand: moveRand });
+      var mon = await C.makeMon(id);
       applyTraining(run, mon, tr, true, id + '|' + i);
       team.push(mon);
     }
@@ -322,11 +317,6 @@
   function trainerReward(run) {
     return Math.round(BASE_REWARD * 2 * rewardMultiplier(run));
   }
-  // What the NEXT battle pays, for display on the crossroads screen.
-  function previewReward(run, isTrainer) {
-    return Math.round(BASE_REWARD * (isTrainer ? 2 : 1) * rewardMultiplier(run));
-  }
-
   // ------------------------------------------------------------- HEALING ---
   // There is no Poke Center. The team is restored for free after every
   // trainer battle (i.e. once per section) and never in between, so damage
@@ -533,15 +523,15 @@
 
   window.Nuz = {
     MAX_PARTY: MAX_PARTY, BATTLES_PER_SECTION: BATTLES_PER_SECTION,
-    newRun: newRun, addItem: addItem, useItem: useItem, countItem: countItem,
+    newRun: newRun, addItem: addItem, useItem: useItem,
     alive: alive, logMsg: logMsg, trackMon: trackMon, buryFainted: buryFainted,
     ownsItem: ownsItem,
-    isSectionOver: isSectionOver, nextIsTrainer: nextIsTrainer, advanceBattle: advanceBattle,
+    nextIsTrainer: nextIsTrainer, advanceBattle: advanceBattle,
     resetSectionStats: resetSectionStats,
     tier: tier, pickWild: pickWild, makeWild: makeWild,
     trainerFor: trainerFor, makeTrainerTeam: makeTrainerTeam,
     wildReward: wildReward, trainerReward: trainerReward,
-    previewReward: previewReward, rewardMultiplier: rewardMultiplier,
+    rewardMultiplier: rewardMultiplier,
     BASE_REWARD: BASE_REWARD, healAll: healAll,
     rollMart: rollMart, applyItem: applyItem,
     tutorOptions: tutorOptions, teachMove: teachMove, abilityOptions: abilityOptions,

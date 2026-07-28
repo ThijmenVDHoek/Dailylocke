@@ -40,7 +40,7 @@
   };
 
   function pokeApiName(id) {
-    if (NAME_OVERRIDE.hasOwnProperty(id)) return NAME_OVERRIDE[id];
+    if (Object.prototype.hasOwnProperty.call(NAME_OVERRIDE, id)) return NAME_OVERRIDE[id];
     var it = Dex.items.get(id);
     var base = it.exists ? it.name : id;
     return String(base).toLowerCase()

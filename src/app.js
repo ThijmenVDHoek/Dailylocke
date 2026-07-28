@@ -329,7 +329,7 @@
     $('starterGrid').innerHTML = '<p class="hint center">Loading...</p>';
     starterChoices = [];
     for (var i = 0; i < ids.length; i++) {
-      var sm = N.trainPlayerMon(await C.makeMon(ids[i], { rand: rand }));
+      var sm = N.trainPlayerMon(await C.makeMon(ids[i]));
       // A starter rolls for shiny on the same 1/512 odds as a wild.
       if (rand() < N.SHINY_ODDS) sm.shiny = true;
       starterChoices.push(sm);
@@ -397,7 +397,7 @@
     if (bc) bc.classList.toggle('catchable', catchOpen);
     var bi = $('xBattleIcon');
     if (bi) {
-      var art = '';
+      var art;
       if (isCapture) art = window.ItemArt ? window.ItemArt.itemImg('pokeball', 32, 'route-ball') : '';
       else if (trainerNext) {
         var trainerArt = N.trainerFor(run);
@@ -1104,7 +1104,6 @@
     {id:'steel',name:'Steel',dot:'#b7b7ce',p:{'--bg-0':'#101218','--bg-1':'#202633','--bg-2':'#353d4d','--gold':'#e2e7f2','--blue':'#aebcd8','--green':'#a8c8bd','--amber':'#d5bc7a','--red':'#df8490','--violet':'#b7b7ce'}},
     {id:'fairy',name:'Fairy',dot:'#d685ad',p:{'--bg-0':'#210d1d','--bg-1':'#3f1937','--bg-2':'#642956','--gold':'#ffd0ed','--blue':'#e98ec8','--green':'#b9debc','--amber':'#ffd075','--red':'#f577a4','--violet':'#e59ee9'}}
   ];
-  var CTA = {default:['#3358e0','#5f8dff'],normal:['#5e5d3d','#85845a'],fire:['#a93417','#d65228'],water:['#2458af','#4178d4'],electric:['#766000','#a58700'],grass:['#28733b','#459956'],ice:['#287477','#459da0'],fighting:['#9b2522','#c64038'],poison:['#792977','#9a4198'],ground:['#80601b','#a98531'],flying:['#6651ad','#8770cf'],psychic:['#ae285b','#d5497a'],bug:['#667410','#86961d'],rock:['#75651a','#998527'],ghost:['#4e396d','#6c518f'],dragon:['#4e25b3','#6c42d6'],dark:['#4e3c31','#6b5445'],steel:['#536174','#718298'],fairy:['#9d416e','#c45b90']};
   function avatarUrl(id) { return 'https://play.pokemonshowdown.com/sprites/trainers/' + id + '.png'; }
   var pendingAvatar = null;
   function openAvatarPicker() {
@@ -1115,7 +1114,7 @@
     $('screenAvatarPicker').hidden = false;
   }
   function closeAvatarPicker() { $('screenAvatarPicker').hidden = true; }
-  function applyTheme() { if (!profile) return; var choice = THEMES.filter(function (t) { return t.id === profile.theme; })[0] || THEMES[0], cta = CTA[choice.id] || CTA.default; profile.theme = choice.id; Object.keys(choice.p).forEach(function (k) { document.documentElement.style.setProperty(k, choice.p[k]); }); document.documentElement.style.setProperty('--cta', '#ffffff'); document.documentElement.style.setProperty('--cta-hi', '#ffffff'); document.documentElement.style.setProperty('--cta-text', '#080a12'); document.documentElement.style.setProperty('--title-ring', choice.id === 'default' ? '#ffffff' : (choice.p['--blue'] || '#ffffff')); }
+  function applyTheme() { if (!profile) return; var choice = THEMES.filter(function (t) { return t.id === profile.theme; })[0] || THEMES[0]; profile.theme = choice.id; Object.keys(choice.p).forEach(function (k) { document.documentElement.style.setProperty(k, choice.p[k]); }); document.documentElement.style.setProperty('--cta', '#ffffff'); document.documentElement.style.setProperty('--cta-hi', '#ffffff'); document.documentElement.style.setProperty('--cta-text', '#080a12'); document.documentElement.style.setProperty('--title-ring', choice.id === 'default' ? '#ffffff' : (choice.p['--blue'] || '#ffffff')); }
 
   function updateMenuAvatar() { var e = $('menuAvatar'); if (e) e.innerHTML = '<img src="' + avatarUrl((profile && profile.avatar) || 'red') + '" alt="">'; }
   function showProfile() {
@@ -2998,12 +2997,6 @@
     } else {
       r.rand = C.mulberry32((s.seed ^ 0x9e3779b9) + (s.battlesWon || 0) * 7919);
     }
-    // Keep revived randState in sync for future saves
-    try {
-      if (r.rand && r.rand.getState) {
-        // if save had randState bump it a little to avoid exact repeat after load? No, keep exact.
-      }
-    } catch (e) {}
     // Belt and braces: normalise anything a migration could not infer.
     r.party.forEach(function (m) {
       if (!m.species) m.species = C.cleanName(m.id);

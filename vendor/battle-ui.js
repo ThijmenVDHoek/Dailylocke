@@ -116,7 +116,7 @@ BattleUI.prototype.mount = function(host){
     // The host can legitimately be 0x0 for a frame or two right after its
     // screen is unhidden. Retry, but never give up entirely: fall back to the
     // window box so a battle always renders instead of hanging forever.
-    if(this._mountAttempts++<120){var self=this;requestAnimationFrame(function(){self.mount(host);});return;}
+    if(this._mountAttempts++<120){var retrySelf=this;requestAnimationFrame(function(){retrySelf.mount(host);});return;}
     w=window.innerWidth;h=window.innerHeight;
   }
   this._mountAttempts=0;
@@ -530,7 +530,7 @@ BattleUI.prototype._setTex=function(k,urls){
   s.img.style.opacity=0;s.img.style.width=0;s.img.style.height=0;s.img.style.filter='brightness(0)';
   // Kick off preload
   for(var pi=0;pi<urls.length;pi++)preload(urls[pi]);
-  var idx=0;var self=this;
+  var idx=0;
   function apply(u){
     var img=CACHE[u];if(!img){tryNext();return;}
     function ready(){
@@ -732,8 +732,7 @@ BattleUI.prototype.setHdr=function(h){Object.assign(this.s.hdr,h||{});this.rende
 // ===== Pokemon cries =====
 // Simple sequential queue: play each requested cry one at a time; only start
 // the next one when the current one ends OR a safety timeout fires OR all
-// URLs for a cry fail. Never creates overlapping Audio objects. Volume 0.35.
-var CRY_CACHE=Object.create(null);
+// URLs for a cry fail. Never creates overlapping Audio objects.
 BattleUI.prototype._drainCryQueue=function(){
   var self=this;
   if(this._cryPlaying||this._cryDrainScheduled)return;
@@ -742,12 +741,12 @@ BattleUI.prototype._drainCryQueue=function(){
   var job=this._cryQueue.shift();
   var urls=job.urls||[];
   if(!urls.length){this._cryPlaying=false;this._drainCryQueue();return;}
-  var audio=null,idx=0,finished=false;
+  var audio=null,readyHandler=null,idx=0,finished=false;
   function cleanup(){
     if(audio){
       try{audio.pause();audio.removeAttribute('src');audio.onerror=audio.onloadeddata=null;}catch(_){}
       try{audio.removeEventListener('ended',onEnd);}catch(_){}
-      try{audio.removeEventListener('canplaythrough',onReady);}catch(_){}
+      if(readyHandler){try{audio.removeEventListener('canplaythrough',readyHandler);}catch(_){}readyHandler=null;}
       audio=null;
     }
     if(safetyT){clearTimeout(safetyT);safetyT=null;}
@@ -777,8 +776,9 @@ BattleUI.prototype._drainCryQueue=function(){
         if(p&&typeof p.then==='function')p.catch(function(){err();});
       }catch(_){err();}
     }
+    readyHandler=onReady;
     a.addEventListener('ended',onEnd,{once:true});
-    a.addEventListener('canplaythrough',onReady,{once:true});
+    a.addEventListener('canplaythrough',readyHandler,{once:true});
     // onloadeddata as backup to canplaythrough
     a.onloadeddata=onReady;
     a.onerror=err;
@@ -922,7 +922,7 @@ BattleUI.prototype._projectSprites=function(t,dt){
       var spd=lungeTarget> s.lungeCur ? lungeInSpeed : lungeOutSpeed;
       s.lungeCur+=(lungeTarget - s.lungeCur)*Math.min(1,dt*spd);
       // ease curve for more natural feel (easeOutCubic for entry, easeInOut for exit)
-      var eased=s.lungeCur;
+      var eased;
       if(lungeTarget>0){
         // easeOutCubic
         var u=Math.min(1,mt/0.32);
@@ -994,7 +994,7 @@ BattleUI.prototype._projectSprites=function(t,dt){
     if(pxW>wCap){pxH=pxH*(wCap/pxW);pxW=Math.round(wCap);}
     pxH=Math.round(pxH);
     // Opacity / brightness fades
-    var op=flash;
+    var op;
     if(s.appearT>0&&s.appearT<0.35&&s.hp>0){
       s.appearT+=dt;
       var ap=Math.min(1,s.appearT/0.35);

@@ -9,22 +9,12 @@
 // else (the sim, the module graph, the run/battle glue) is the real code.
 // ============================================================================
 import { readFileSync, existsSync } from 'node:fs';
-import { dirname, resolve, join } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createRequire } from 'node:module';
+import { JSDOM } from 'jsdom';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..');
-
-// jsdom lives wherever it was installed; try local then global.
-const require = createRequire(import.meta.url);
-let JSDOM;
-try {
-  ({ JSDOM } = require('jsdom'));
-} catch {
-  const globalRoot = process.env.NODE_PATH || '/usr/local/lib/node_modules';
-  ({ JSDOM } = require(join(globalRoot, 'jsdom')));
-}
 
 let failures = 0;
 const results = [];
@@ -117,12 +107,13 @@ const V3 = class { constructor(x = 0, y = 0, z = 0) { Object.assign(this, { x, y
   setScalar(s) { return this.set(s, s, s); } multiplyScalar() { return this; } add() { return this; }
   normalize() { return this; } length() { return 1; }
   getWorldPosition(t) { return t ? t.set(this.x, this.y, this.z) : this; } };
-const Obj3 = class { constructor() { this.children = []; this.position = new V3(); this.rotation = new V3();
-    this.scale = new V3(1, 1, 1); this.material = null; this.geometry = null; this.userData = {}; this.visible = true; }
-  add(...c) { this.children.push(...c); return this; } remove() { return this; } traverse(f) { f(this); }
-  getWorldPosition(t) { return t ? t.set(0, 0, 0) : new V3(); } lookAt() {} };
 const mat = () => ({ dispose() {}, color: { lerp() {}, set() {} }, opacity: 1, needsUpdate: false, map: null });
 const geo = () => ({ dispose() {}, setAttribute() {}, attributes: { position: { array: new Float32Array(3000), needsUpdate: false } } });
+const Obj3 = class { constructor(g, m) { this.children = []; this.position = new V3(); this.rotation = new V3();
+    this.scale = new V3(1, 1, 1); this.color = { lerp() { return this; } };
+    this.material = m || mat(); this.geometry = g || geo(); this.userData = {}; this.visible = true; }
+  add(...c) { this.children.push(...c); return this; } remove() { return this; } traverse(f) { f(this); }
+  getWorldPosition(t) { return t ? t.set(0, 0, 0) : new V3(); } lookAt() {} };
 
 window.THREE = new Proxy({
   Vector3: V3, Group: Obj3, Scene: class extends Obj3 { constructor() { super(); this.background = null; this.fog = null; } },
@@ -278,9 +269,18 @@ check('window.PWA (install button)', !!window.PWA);
     "'/sw.js' would be out of scope on a project page");
   check('service worker precaches relative paths only',
     !/^\s*'\//m.test(swSrc), 'root-absolute shell entries 404 under /Dailylocke/');
+  const shellPaths = [...swSrc.matchAll(/^\s*'([^']+)',?$/gm)]
+    .map((m) => m[1]).filter((p) => p !== './');
+  const missingShell = shellPaths.filter((p) => !existsSync(resolve(repo, p)));
+  check('every service-worker app-shell entry exists',
+    missingShell.length === 0, missingShell.join(', '));
   check('service worker precaches the new pwa module', swSrc.includes('src/pwa.js'));
+  check('licenses and asset credits are linked and precached',
+    html.includes('href="THIRD_PARTY_NOTICES.md"') && swSrc.includes("'THIRD_PARTY_NOTICES.md'"));
   check('service worker precache tolerates a missing file',
     /cache\.add\(url\)\.catch/.test(swSrc), 'addAll() would fail install() wholesale');
+  check('service worker only deletes Dailylocke caches',
+    swSrc.includes('key.startsWith(CACHE_PREFIX)'), 'other apps may share this origin');
   check('app.js no longer registers the worker itself',
     !readFileSync(resolve(repo, 'src/app.js'), 'utf8').includes('serviceWorker.register'),
     'that moved to src/pwa.js');
@@ -399,16 +399,16 @@ const C = window.Core;
 const pool = C.speciesPool();
 check('species pool built', pool.length > 800, `${pool.length} entries`);
 
-const mon = await C.makeMon('gengar', { rand: C.mulberry32(7) });
+const mon = await C.makeMon('gengar');
 check('makeMon rolls a real moveset', mon.moves.length === 4, mon.moves.join(', '));
 check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.types.join('/'));
 
 // ----------------------------------------------------- a real live battle --
 const player = [
-  await C.makeMon('gengar', { rand: C.mulberry32(1) }),
-  await C.makeMon('garchomp', { rand: C.mulberry32(2) }),
+  await C.makeMon('gengar'),
+  await C.makeMon('garchomp'),
 ];
-const enemy = [await C.makeMon('snorlax', { rand: C.mulberry32(3) })];
+const enemy = [await C.makeMon('snorlax')];
 
 const battleResult = await new Promise((res) => {
   let requests = 0, logLines = 0;
@@ -464,12 +464,8 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
 const realErrors = consoleErrors.filter((e) => !/THREE|WebGL|cry|audio|sprite/i.test(e));
 check('no unexpected console errors', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
 
-// Render-loop errors are stubbed-THREE artifacts as often as real bugs, so
-// report them without failing the suite outright.
-if (rafErrors.length) {
-  const uniq = [...new Set(rafErrors)];
-  console.log(`  note  ${uniq.length} render-loop warning(s) under the THREE stub: ${uniq.slice(0, 2).join(' | ')}`);
-}
+check('battle render loop stays error-free', rafErrors.length === 0,
+  [...new Set(rafErrors)].slice(0, 2).join(' | '));
 
 console.log(`\n${results.length - failures}/${results.length} checks passed`);
 process.exit(failures ? 1 : 0);
