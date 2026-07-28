@@ -4,7 +4,7 @@
 // served from a GitHub Pages project subpath (/Dailylocke/), where '/src/...'
 // resolves outside the scope and every precache entry 404s -- which fails the
 // whole install() and leaves the app permanently uninstallable.
-const CACHE_NAME = 'dailylocke-v3';
+const CACHE_NAME = 'dailylocke-v4';
 const SCOPE = new URL('./', self.location).pathname;   // e.g. '/Dailylocke/'
 const APP_SHELL = [
   './',
