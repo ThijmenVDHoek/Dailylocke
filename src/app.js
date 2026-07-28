@@ -778,7 +778,7 @@
   function statusBadgeHtml(st) {
     if (!st) return '';
     var col = statusColor(st);
-    var txtCol = (st === 'par') ? '#000' : '#fff';
+    var txtCol = (st === 'par' || st === 'slp' || st === 'frz') ? '#000' : '#fff';
     return '<span class="ts-st' + statusBadgeClass(st) + '" style="background:' + col + ';color:' + txtCol + '">' + st.toUpperCase() + '</span>';
   }
   function drawTeamStrip() {
@@ -1986,11 +1986,12 @@
     if (!req.active) return;
     var info = battle.enemyInfo();
     var foeTypes = info.types || ['Normal'];
-    var moves = (req.active[0].moves || []).map(function (mv) {
+    var moves = (req.active[0].moves || []).map(function (mv, idx) {
       var d = Dex.moves.get(mv.id || mv.move);
       return { id: d.id, name: d.name, type: d.type, power: d.basePower || 0,
                pp: mv.pp, max: mv.maxpp, disabled: !!mv.disabled,
-               eff: d.category === 'Status' ? 1 : C.typeMod(d.type, foeTypes) };
+               eff: d.category === 'Status' ? 1 : C.typeMod(d.type, foeTypes),
+               _origIdx: idx };
     }).filter(function (m) { return m.id !== RB.IDLE_MOVE; });
 
     var mon = battle.activeMon();
@@ -2008,7 +2009,10 @@
     };
     ui.setMoves(moves, megaFlags, function (ch) {
       ui.setMsg('...');
-      battle.chooseMove(ch.moveIndex, ch.mega);
+      // Use the original engine index, not the filtered array index
+      var move = moves[ch.moveIndex];
+      var engineIdx = move ? move._origIdx : ch.moveIndex;
+      battle.chooseMove(engineIdx, ch.mega);
     });
 
     var ballCount = 0, itemCount = 0;
@@ -2415,10 +2419,12 @@
     $('catchTitle').textContent = (clone.shiny ? '\u2728 Shiny! ' : 'Gotcha! ') + clone.name + ' was caught!';
     var st = clone.status ? clone.status.toUpperCase() : 'none';
     $('catchBody').innerHTML =
-      '<div class="catch-new">' + bigSprite(clone.id, '', 118, 130, 1, clone.shiny) +
-      '<div><b>' + clone.name + '</b><div class="types">' + typeChips(clone.types) + '</div>' +
-      '<div class="statline">HP ' + pctHP(clone.hpPct) + '% \u00b7 Status ' + st + '</div>' +
-      '<div class="ability">' + clone.ability + '</div>' +
+      '<div class="catch-new">' + bigSprite(clone.id, '', 140, 154, 1, clone.shiny) +
+      '<div class="catch-info">' +
+      '<h3 style="margin:0 0 8px 0;">' + clone.name + '</h3>' +
+      '<div class="types" style="justify-content:center;">' + typeChips(clone.types) + '</div>' +
+      '<div class="statline" style="margin:8px 0;font-size:1rem;">HP ' + pctHP(clone.hpPct) + '% \u00b7 Status ' + st + '</div>' +
+      '<div class="ability" style="margin:6px 0;opacity:0.8;">' + clone.ability + '</div>' +
       '<div class="movelist">' + clone.moves.map(function (m) {
         var d = Dex.moves.get(m);
         return '<span class="mv-chip type-' + d.type + '">' + d.name + '</span>';
@@ -2514,12 +2520,12 @@
         var ss = run.sectionStats || (run.sectionStats = { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:run.section });
         ss.money = (Number(ss.money) || 0) + (Number(money) || 0);
         ss.won = (Number(ss.won) || 0) + 1;
-        dead.forEach(function (d) { ss.lost.push({ name: d.name, id: d.id }); });
+        dead.forEach(function (d) { ss.lost.push({ name: d.name, id: d.id, shiny: d.shiny }); });
         showReward(money, dead, false, missed, healed);
       } else {
         if (!N.alive(run).length) return gameOver();
         var ss2 = run.sectionStats || (run.sectionStats = { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:run.section });
-        dead.forEach(function (d) { ss2.lost.push({ name: d.name, id: d.id }); });
+        dead.forEach(function (d) { ss2.lost.push({ name: d.name, id: d.id, shiny: d.shiny }); });
         showReward(0, dead, true, missed);
       }
     });

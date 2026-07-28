@@ -110,7 +110,7 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 
 /* Two-button row on finish screens (Save progress + Continue). */
 .footer-btns {
-  display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);
+  display:grid; grid-template-columns:1fr;
   gap:10px; margin-top:12px;
 }
 
@@ -399,10 +399,23 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .starter-card .types { justify-content:center; }
 .statline { color:var(--ink-2); font-size:.9rem; }
 .ability { color:#8fd4ff; font-size:.92rem; margin:5px 0; }
-.movelist { display:flex; flex-wrap:wrap; gap:5px; justify-content:center; margin:10px 0 2px; }
+.movelist { 
+  display:grid; 
+  grid-template-columns:repeat(2, 1fr); 
+  gap:8px; 
+  margin:12px 0 2px;
+  max-width:320px;
+  margin-left:auto;
+  margin-right:auto;
+}
 .mv-chip {
-  font-size:.74rem; padding:4px 9px; border-radius:var(--r-pill); color:#fff;
+  font-size:.74rem; padding:8px 12px; border-radius:var(--r-pill); color:#fff;
   box-shadow:var(--e1);
+  text-align:center;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:32px;
 }
 .mv-chip b { color:rgba(255,255,255,.72); font-size:.68rem; }
 .pick-btn { margin-top:12px; }
@@ -526,7 +539,22 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .grave small { color:#565d78; font-size:.66rem; text-align:center; }
 
 /* -------------------------------------------------------------- catch/swap */
-.catch-new { display:flex; gap:16px; align-items:center; justify-content:center; margin-bottom:12px; }
+.catch-new { 
+  display:flex; 
+  flex-direction:column;
+  gap:12px; 
+  align-items:center; 
+  justify-content:center; 
+  margin-bottom:12px;
+  text-align:center;
+}
+.catch-info {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:4px;
+  width:100%;
+}
 .catch-new img {
   image-rendering:pixelated; image-rendering:-moz-crisp-edges; image-rendering:crisp-edges;
   filter:drop-shadow(0 8px 18px rgba(0,0,0,.5));

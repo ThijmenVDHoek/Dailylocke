@@ -69,7 +69,7 @@
   function logMsg(run, t) { run.log.push(t); if (run.log.length > 300) run.log.shift(); }
 
   function trackMon(run, mon) {
-    run.monMeta[mon.uid] = { name: mon.name, id: mon.id };
+    run.monMeta[mon.uid] = { name: mon.name, id: mon.id, shiny: mon.shiny };
     if (run.damageDealt[mon.uid] == null) run.damageDealt[mon.uid] = 0;
     if (run.knockouts[mon.uid] == null) run.knockouts[mon.uid] = 0;
   }
@@ -83,7 +83,8 @@
         run.graveyard.push({
           name: m.name, id: m.id, section: run.section,
           killedBy: killedByName || 'unknown',
-          damage: Math.round(run.damageDealt[m.uid] || 0)
+          damage: Math.round(run.damageDealt[m.uid] || 0),
+          shiny: m.shiny
         });
         dead.push(m);
       }
@@ -509,9 +510,9 @@
       if (d > bestDmg) { bestDmg = d; best = uid; }
     });
     if (!best || bestDmg <= 0) return null;
-    var meta = run.monMeta[best] || { name: '?', id: null };
+    var meta = run.monMeta[best] || { name: '?', id: null, shiny: false };
     var living = run.party.some(function (m) { return String(m.uid) === String(best); });
-    return { uid: best, name: meta.name, id: meta.id,
+    return { uid: best, name: meta.name, id: meta.id, shiny: meta.shiny,
              damage: Math.round(bestDmg), kos: run.knockouts[best] || 0, survived: living };
   }
 
@@ -519,11 +520,13 @@
     // living + dead, with their damage numbers, for the results screen
     var out = run.party.map(function (m) {
       return { name: m.name, id: m.id, alive: true, hpPct: m.hpPct,
-               damage: Math.round(run.damageDealt[m.uid] || 0), kos: run.knockouts[m.uid] || 0 };
+               damage: Math.round(run.damageDealt[m.uid] || 0), kos: run.knockouts[m.uid] || 0,
+               shiny: m.shiny };
     });
     run.graveyard.forEach(function (g) {
       out.push({ name: g.name, id: g.id, alive: false, hpPct: 0,
-                 damage: g.damage || 0, kos: 0, section: g.section, killedBy: g.killedBy });
+                 damage: g.damage || 0, kos: 0, section: g.section, killedBy: g.killedBy,
+                 shiny: g.shiny });
     });
     return out;
   }

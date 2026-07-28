@@ -39,7 +39,7 @@
       'margin:0 2px 8px;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.9);}',
     '.battle-hud .pbar{height:5px;border-radius:999px;background:rgba(0,0,0,.45);margin-top:4px;overflow:hidden;}',
     '.battle-hud .pbar i{display:block;height:100%;border-radius:999px;}',
-    '.battle-hud .bg-back{grid-column:1/-1;padding:11px 0;border-radius:.85rem;border:none;',
+    '.battle-hud .bg-back{display:block;width:100%;padding:11px 0;border-radius:.85rem;border:none;margin-top:8px;',
       'background:rgba(0,0,0,.42);color:#fff;cursor:pointer;font-family:inherit;font-size:.95rem;letter-spacing:.5px;',
       'backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}',
     '.battle-hud .bg-back:hover{background:rgba(0,0,0,.6);}',
@@ -77,6 +77,30 @@
     '.battle-hud .pitem.rich .pd-id{flex:1;min-width:0;}',
     '.battle-hud .pitem.rich .pd-species{font-size:.7rem;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:1px;}',
     '.battle-hud .pitem.rich .pd-name{font-size:1.05rem;color:#fff;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    // Grid-style party switcher (matches overview team strip)
+    '.battle-hud .party-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px;}',
+    '.battle-hud .party-grid .tslot{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;',
+      'overflow:visible;padding:8px 3px 7px;border-radius:var(--r-md,8px);min-width:0;',
+      'background:rgba(255,255,255,.16);color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.28);',
+      'backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3);',
+      'transition:background-color .15s,transform .12s,box-shadow .15s;border:none;cursor:pointer;font-family:inherit;}',
+    '.battle-hud .party-grid .tslot:hover:not(:disabled):not(.empty){background:rgba(255,255,255,.3);transform:translateY(-2px);}',
+    '.battle-hud .party-grid .tslot:disabled{opacity:.36;cursor:not-allowed;}',
+    '.battle-hud .party-grid .tslot.active{box-shadow:0 0 0 2px #ffd76e,0 4px 16px rgba(0,0,0,.28);}',
+    '.battle-hud .party-grid .ts-art{height:46px;display:flex;align-items:flex-end;justify-content:center;overflow:visible;}',
+    '.battle-hud .party-grid .ts-name{font-size:.66rem;color:#fff;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    '.battle-hud .party-grid .ts-bar{display:block;width:88%;height:3px;border-radius:999px;background:rgba(0,0,0,.5);overflow:hidden;}',
+    '.battle-hud .party-grid .ts-bar i{display:block;height:100%;border-radius:999px;}',
+    '.battle-hud .party-grid .ts-lead{position:absolute;top:-4px;left:50%;transform:translateX(-50%);',
+      'font-size:.48rem;letter-spacing:.6px;padding:1px 5px;border-radius:999px;background:#ffd76e;color:#241a00;}',
+    '.battle-hud .party-grid .ts-st{position:absolute;top:4px;right:3px;font-size:.48rem;',
+      'padding:0 3px;border-radius:999px;background:#888;color:#fff;}',
+    '.battle-hud .party-grid .ts-st.st-brn{background:#ff5f6d;color:#fff;}',
+    '.battle-hud .party-grid .ts-st.st-psn{background:#a855f7;color:#fff;}',
+    '.battle-hud .party-grid .ts-st.st-tox{background:#9333ea;color:#fff;}',
+    '.battle-hud .party-grid .ts-st.st-par{background:#facc15;color:#000;}',
+    '.battle-hud .party-grid .ts-st.st-slp{background:#a2aac4;color:#000;}',
+    '.battle-hud .party-grid .ts-st.st-frz{background:#7dd3fc;color:#000;}',
     '.battle-hud .types{margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;}',
     '.battle-hud .type{font-size:.58rem;padding:2px 6px;border-radius:999px;color:#fff;text-transform:uppercase;}',
     '.battle-hud .hm-b.big{height:7px;background:rgba(0,0,0,.45);border-radius:999px;overflow:hidden;flex:1;}',
@@ -250,62 +274,64 @@
       var isRich = p.type === 'party-rich';
       var html = '';
       if (p.title) html += '<div class="ptitle">' + p.title + '</div>';
-      html += '<div class="plist">';
-      for (var i = 0; i < p.items.length; i++) {
-        var it = p.items[i];
-        if (isList) {
-          // simple item row: name + qty + note (no HP bar)
-          html += '<button class="pitem" data-i="' + i + '"' + (it.disabled ? ' disabled' : '') + '>' +
-            '<div style="flex:1;min-width:0">' +
-              '<div class="pi-n">' + it.name + (it.qty ? ' <span class="qty">x' + it.qty + '</span>' : '') + '</div>' +
-              (it.note ? '<div class="pi-h">' + it.note + '</div>' : '') +
-            '</div>' +
-            (it.right ? '<span class="pi-r">' + it.right + '</span>' : '') +
-            '</button>';
-        } else if (isRich) {
-          // Rich battle switcher: mimics crossroads team detail
+      
+      // Use grid layout for party-rich (battle switcher) to match overview
+      if (isRich) {
+        html += '<div class="party-grid">';
+        for (var i = 0; i < p.items.length; i++) {
+          var it = p.items[i];
           var st = it.status || '';
-          var stMap = { brn: '#ff5f6d', psn: '#a855f7', tox: '#9333ea', par: '#facc15', slp: '#a2aac4', frz: '#7dd3fc' };
-          var stCol = it.statusColor || stMap[st] || '#ff5f6d';
-          var stTxt = (st === 'par') ? '#000' : '#fff';
-          var typesHtml = '';
-          if (it.types) { typesHtml = '<div class="types">' + it.types.map(function(t){ return '<span class="type type-'+t+'">'+t+'</span>'; }).join('') + '</div>'; }
           var pct = it.pct != null ? it.pct : Math.round((it.hp||0)*100);
-          var hpCol = it.hpCol || (it.hp > 0.5 ? '#4ade80' : it.hp > 0.2 ? '#facc15' : '#ef4444');
-          var cur = it.cur != null ? it.cur : '';
-          var mx = it.mx != null ? it.mx : '';
-          html += '<button class="pitem rich" data-i="' + i + '"' + (it.disabled ? ' disabled' : '') + '>' +
-            '<div class="pd-hero">' +
-              '<div class="pd-art">' + (it.iconHtml || '') + '</div>' +
-              '<div class="pd-id"><div class="pd-species">' + (it.species || '') + (it.fainted ? '' : '') + '</div>' +
-              '<div class="pd-name">' + it.name + (it.active ? ' <span style="opacity:.6">(active)</span>' : '') + '</div>' +
-              typesHtml + '</div>' +
-            '</div>' +
-            '<div class="pd-hp"><div class="hm-b big"><i style="width:' + pct + '%;background:' + hpCol + '"></i></div>' +
-            '<span>' + (cur!==''? cur + ' / ' + mx : pct + '%') + (st ? ' \u00b7 ' + st.toUpperCase() : '') + '</span>' +
-            (st ? '<span class="battle-st-badge" style="background:' + stCol + ';color:' + stTxt + '">' + st.toUpperCase() + '</span>' : '') +
-            '</div>' +
-            '</button>';
-        } else {
-          var col = it.hp > 0.5 ? '#4ade80' : it.hp > 0.2 ? '#facc15' : '#ef4444';
-          // status color mapping for legacy party panel
-          var stm = { brn: '#ff5f6d', psn: '#a855f7', tox: '#9333ea', par: '#facc15', slp: '#a2aac4', frz: '#7dd3fc' };
-          var sc = it.status ? (stm[it.status] || '#ff5f6d') : '';
-          var stTxtC = (it.status === 'par') ? '#000' : '#fff';
-          var badge = it.status ? '<span style="margin-left:6px;background:' + sc + ';color:' + stTxtC + ';padding:1px 5px;border-radius:999px;font-size:.6rem">' + it.status.toUpperCase() + '</span>' : '';
-          html += '<button class="pitem" data-i="' + i + '"' + (it.disabled ? ' disabled' : '') + '>' +
-            (it.iconHtml ? it.iconHtml
-                          : (it.icon ? '<img src="' + it.icon + '" alt="">' : '')) +
-            '<div style="flex:1;min-width:0">' +
-              '<div class="pi-n">' + it.name + (it.active ? ' <span style="opacity:.7">(out)</span>' : '') + '</div>' +
-              '<div class="pi-h">' + (it.fainted ? 'Fainted' : Math.round(it.hp * 100) + '%' + (it.status ? ' ' : '')) + badge + '</div>' +
-              '<div class="pbar"><i style="width:' + Math.round(it.hp * 100) + '%;background:' + col + '"></i></div>' +
-            '</div></button>';
+          var col = it.hpCol || (it.hp > 0.5 ? '#4ade80' : it.hp > 0.2 ? '#facc15' : '#ef4444');
+          var classes = 'tslot';
+          if (it.active) classes += ' active';
+          if (it.fainted) classes += ' empty';
+          html += '<button class="' + classes + '" data-i="' + i + '"' + (it.disabled ? ' disabled' : '') + '>';
+          if (i === 0 && !it.fainted) html += '<span class="ts-lead">LEAD</span>';
+          if (st && !it.fainted) html += '<span class="ts-st st-' + st + '">' + st.toUpperCase() + '</span>';
+          html += '<span class="ts-art">' + (it.iconHtml || '') + '</span>';
+          html += '<span class="ts-name">' + it.name + '</span>';
+          if (!it.fainted) {
+            html += '<span class="ts-bar"><i style="width:' + pct + '%;background:' + col + '"></i></span>';
+          }
+          html += '</button>';
         }
+        html += '</div>';
+      } else {
+        html += '<div class="plist">';
+        for (var i = 0; i < p.items.length; i++) {
+          var it = p.items[i];
+          if (isList) {
+            // simple item row: name + qty + note (no HP bar)
+            html += '<button class="pitem" data-i="' + i + '"' + (it.disabled ? ' disabled' : '') + '>' +
+              '<div style="flex:1;min-width:0">' +
+                '<div class="pi-n">' + it.name + (it.qty ? ' <span class="qty">x' + it.qty + '</span>' : '') + '</div>' +
+                (it.note ? '<div class="pi-h">' + it.note + '</div>' : '') +
+              '</div>' +
+              (it.right ? '<span class="pi-r">' + it.right + '</span>' : '') +
+              '</button>';
+          } else {
+            var col = it.hp > 0.5 ? '#4ade80' : it.hp > 0.2 ? '#facc15' : '#ef4444';
+            // status color mapping for legacy party panel
+            var stm = { brn: '#ff5f6d', psn: '#a855f7', tox: '#9333ea', par: '#facc15', slp: '#a2aac4', frz: '#7dd3fc' };
+            var sc = it.status ? (stm[it.status] || '#ff5f6d') : '';
+            var stTxtC = (it.status === 'par') ? '#000' : '#fff';
+            var badge = it.status ? '<span style="margin-left:6px;background:' + sc + ';color:' + stTxtC + ';padding:1px 5px;border-radius:999px;font-size:.6rem">' + it.status.toUpperCase() + '</span>' : '';
+            html += '<button class="pitem" data-i="' + i + '"' + (it.disabled ? ' disabled' : '') + '>' +
+              (it.iconHtml ? it.iconHtml
+                            : (it.icon ? '<img src="' + it.icon + '" alt="">' : '')) +
+              '<div style="flex:1;min-width:0">' +
+                '<div class="pi-n">' + it.name + (it.active ? ' <span style="opacity:.7">(out)</span>' : '') + '</div>' +
+                '<div class="pi-h">' + (it.fainted ? 'Fainted' : Math.round(it.hp * 100) + '%' + (it.status ? ' ' : '')) + badge + '</div>' +
+                '<div class="pbar"><i style="width:' + Math.round(it.hp * 100) + '%;background:' + col + '"></i></div>' +
+              '</div></button>';
+          }
+        }
+        html += '</div>';
       }
-      html += '<button class="bg-back">Back</button></div>';
+      html += '<button class="bg-back">Back</button>';
       mv.innerHTML = html;
-      mv.querySelectorAll('.pitem').forEach(function (b) {
+      mv.querySelectorAll('.pitem, .tslot').forEach(function (b) {
         b.addEventListener('click', function () {
           var idx = parseInt(b.dataset.i, 10);
           if (p.onPick) p.onPick(idx);

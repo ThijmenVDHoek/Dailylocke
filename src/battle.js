@@ -229,8 +229,17 @@
         for (var i = 0; i < moves.length; i++) {
           var id = moves[i].id || moves[i].move;
           if (id === IDLE_MOVE) continue;         // hidden slot, never shown
-          if (locked) moves[i].disabled = (id !== locked);
-          else if (moves[i].disabled && wasSkipDisabled) moves[i].disabled = false;
+          if (locked) {
+            moves[i].disabled = (id !== locked);
+          } else if (wasSkipDisabled) {
+            // After using an item/throwing a ball (passTurn), the engine may
+            // incorrectly mark moves as disabled because it thinks the player
+            // last used Celebrate. Re-enable them unless they're disabled for
+            // a legitimate reason (PP = 0 or explicitly marked as such).
+            if (moves[i].disabled && moves[i].pp > 0) {
+              moves[i].disabled = false;
+            }
+          }
         }
       } catch (e) {}
     }
