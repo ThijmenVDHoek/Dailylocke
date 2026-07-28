@@ -8,8 +8,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="format-detection" content="telephone=no"/>
 <meta name="theme-color" content="#0a0c14"/>
-<link rel="manifest" href="/manifest.json"/>
-<link rel="apple-touch-icon" href="/icons/icon-192.png"/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="apple-touch-icon" href="icons/icon-192.png"/>
 <title>Dailylocke</title>
 
 <!-- Warm up the third-party origins the game pulls sprites, cries and music
@@ -41,6 +41,18 @@
     <div class="title-veil"></div>
 
     <button type="button" id="btnTitleMenu" class="title-menu">Menu</button>
+
+    <!-- Floating install pill. Hidden until the browser tells us the app is
+         installable (or we detect an iOS/Safari device, which never fires the
+         event but can still install by hand). src/pwa.js owns its state. -->
+    <div id="installDock" class="install-dock" hidden>
+      <button type="button" id="btnInstall" class="install-pill">
+        <span class="install-ic" aria-hidden="true"></span>
+        <span class="install-txt"><b>Install app</b><em>Play offline, full screen</em></span>
+      </button>
+      <button type="button" id="btnInstallHide" class="install-x"
+              aria-label="Hide the install button">&#215;</button>
+    </div>
 
     <div class="title-brand">
       <h1 class="game-title">DAILY<span>LOCKE</span></h1>
@@ -341,6 +353,20 @@
     </div>
   </div>
 
+  <!-- ===================== INSTALL HOW-TO (overlay) ===================== -->
+  <!-- iOS/iPadOS and desktop Safari expose no install API, so the same pill
+       opens this instead of calling prompt(). Steps are filled by src/pwa.js
+       because they differ per platform. -->
+  <div id="screenInstall" class="overlay" hidden>
+    <div class="overlay-card install-card" role="dialog" aria-modal="true" aria-labelledby="installTitle">
+      <h3 id="installTitle" class="picker-title"><span>Install Dailylocke</span></h3>
+      <p class="hint center">Add it to your device and it opens full screen,
+        works offline, and keeps your run.</p>
+      <ol id="installSteps" class="install-steps"></ol>
+      <button type="button" id="btnInstallClose" class="btn-secondary wide">Got it</button>
+    </div>
+  </div>
+
   <!-- ===================== ITEM TARGET PICKER (overlay) ===================== -->
   <div id="screenPicker" class="overlay" hidden>
     <div class="overlay-card">
@@ -397,6 +423,7 @@
        nuzlocke.js    -> window.Nuz           (needs Core)
        ...feature modules...
        savecode.js    -> window.SaveCode      (needs LZString; QRCode optional)
+       pwa.js         -> window.PWA           (service worker + install button)
        app.js         -> boots the game       (needs everything above)
 
      gen9 learnsets are NOT here: vendor/pkmn-learnsets.js is fetched on
@@ -420,6 +447,7 @@
 <script defer src="src/battle.js"></script>
 <script defer src="src/savecode.js"></script>
 <script defer src="src/safari-compat.js"></script>
+<script defer src="src/pwa.js"></script>
 <script defer src="src/app.js"></script>
 </body>
 </html>

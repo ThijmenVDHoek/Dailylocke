@@ -36,6 +36,7 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `battle.js` | `RogueBattle` | wraps `@pkmn/sim`: HP/status/PP persistence, AI |
 | `savecode.js` | `SaveCode` | save-code codec, share links, QR + clipboard helpers |
 | `safari-compat.js` | — | iOS viewport quirks |
+| `pwa.js` | `PWA` | service worker registration + the install button |
 | `app.js` | `Game` | screens, section flow, battle glue — boots the game |
 
 ### `vendor/`
@@ -48,6 +49,42 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `lz-string.min.js` | lz-string 1.5.0 — save-code compression |
 | `qrcode.js` | qrcodejs 1.0.0 — QR rendering for share links |
 | `battle-ui.js` | hand-written 3D battle renderer — edit directly |
+
+## Installing (PWA)
+
+The game is installable, and `src/pwa.js` owns every part of that.
+
+* **The floating Install pill** sits at the top-left of the title screen,
+  opposite Menu. It is inside `#screenTitle`, so it vanishes as soon as a run
+  starts — the offer never covers the game.
+* **Chrome / Edge / Android:** `beforeinstallprompt` is captured and
+  `preventDefault()`ed, which suppresses the browser's own mini-infobar and
+  re-offers it on our terms. Tapping the pill calls `prompt()`. The event is
+  single-use, so the pill hides after one tap and returns on the next visit if
+  the player backed out.
+* **iOS / iPadOS, and Safari 17+ on macOS** never fire that event but can still
+  install by hand, so there the same pill opens a short how-to sheet
+  ("Add to Home Screen" / "Add to Dock") instead.
+* **It goes away and stays away.** `appinstalled` and every `display-mode`
+  check retire it permanently; the little `x` snoozes it for two weeks in
+  `nuzlocke-install`.
+* **Nothing here can break the game.** An unsupported browser, a blocked
+  service worker, or a `localStorage` that throws (Safari private mode) all
+  degrade to "no button".
+
+### Paths must stay relative
+
+This deploys to a GitHub Pages **project** site
+(`https://<user>.github.io/Dailylocke/`), not a root domain. Root-absolute URLs
+like `/manifest.json` or `/sw.js` resolve to the *user* site and 404 there,
+which silently makes the app un-installable: no manifest, no worker, so
+`beforeinstallprompt` never fires. Accordingly the manifest link, its
+`start_url` / `scope` / icons, the `register('sw.js')` call and every
+`APP_SHELL` entry are relative, and the smoke test guards each of them.
+
+The worker also precaches with `cache.add()` per file rather than `addAll()`,
+because `addAll()` is atomic — one 404 would reject `install()` and leave the
+app permanently offline-less.
 
 ## Save transfer (Save Codes)
 
@@ -136,7 +173,9 @@ npm run build     # regenerates vendor/pkmn-sim.js + vendor/pkmn-learnsets.js
 `tools/smoke-test.mjs` loads `index.html` in JSDOM using the real script order,
 then boots the game and fights an actual battle through the engine. It checks
 module wiring, that the trimmed bundle kept its data, that learnsets load on
-demand, and that the battle reaches a conclusion.
+demand, that the install button appears/prompts/retires correctly on every
+platform path, that the PWA paths stay subpath-safe, and that the battle
+reaches a conclusion.
 
 ```sh
 npm --prefix tools install     # or: npm i -g jsdom

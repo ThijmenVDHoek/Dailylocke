@@ -3062,18 +3062,9 @@
   }
 
   // ---------------------------------------------------------------- PWA ----
-  // Register after the page has loaded so downloading the offline cache never
-  // competes with the game's critical first render. Service workers require a
-  // secure context (HTTPS, or localhost while developing).
-  function registerServiceWorker() {
-    if (!('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.register('/sw.js').catch(function (err) {
-      // The game remains fully usable if registration is blocked (private
-      // browsing, an unsupported browser, or a transient network failure).
-      console.warn('[pwa] service worker registration failed', err);
-    });
-  }
-  window.addEventListener('load', registerServiceWorker, { once: true });
+  // Installability -- the service worker and the title-screen install pill --
+  // lives in src/pwa.js, which owns its own state and needs nothing from the
+  // game beyond `Game.toast`.
 
   // ---------------------------------------------------------------- BOOT ---
   function boot() {
@@ -3196,7 +3187,7 @@
   else boot();
 
   window.Game = { get run() { return run; }, show: show, startNextBattle: startNextBattle,
-                  redrawRoute: renderCrossroads,
+                  redrawRoute: renderCrossroads, toast: toast,
                   // the live 3D battle UI, for debugging field effects
                   get ui() { return ui; } };
 

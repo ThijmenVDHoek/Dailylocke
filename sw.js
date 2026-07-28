@@ -1,38 +1,50 @@
 // Dailylocke service worker: app-shell precache plus same-origin runtime cache.
-const CACHE_NAME = 'dailylocke-v1';
+//
+// Paths are RELATIVE to the worker's own URL, not root-absolute: the game is
+// served from a GitHub Pages project subpath (/Dailylocke/), where '/src/...'
+// resolves outside the scope and every precache entry 404s -- which fails the
+// whole install() and leaves the app permanently uninstallable.
+const CACHE_NAME = 'dailylocke-v2';
+const SCOPE = new URL('./', self.location).pathname;   // e.g. '/Dailylocke/'
 const APP_SHELL = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/assets/css/app.css',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/vendor/pkmn-sim.js',
-  '/vendor/pkmn-learnsets.js',
-  '/vendor/three.min.js',
-  '/vendor/battle-ui.js',
-  '/vendor/lz-string.min.js',
-  '/vendor/qrcode.js',
-  '/src/pokedata.js',
-  '/src/core.js',
-  '/src/nuzlocke.js',
-  '/src/evolution.js',
-  '/src/mega.js',
-  '/src/forme.js',
-  '/src/itemart.js',
-  '/src/audio.js',
-  '/src/tooltip.js',
-  '/src/ui-patch.js',
-  '/src/battle.js',
-  '/src/savecode.js',
-  '/src/safari-compat.js',
-  '/src/app.js'
-];
+  './',
+  'index.html',
+  'manifest.json',
+  'assets/css/app.css',
+  'icons/icon-192.png',
+  'icons/icon-512.png',
+  'vendor/pkmn-sim.js',
+  'vendor/pkmn-learnsets.js',
+  'vendor/three.min.js',
+  'vendor/battle-ui.js',
+  'vendor/lz-string.min.js',
+  'vendor/qrcode.js',
+  'src/pokedata.js',
+  'src/core.js',
+  'src/nuzlocke.js',
+  'src/evolution.js',
+  'src/mega.js',
+  'src/forme.js',
+  'src/itemart.js',
+  'src/audio.js',
+  'src/tooltip.js',
+  'src/ui-patch.js',
+  'src/battle.js',
+  'src/savecode.js',
+  'src/safari-compat.js',
+  'src/pwa.js',
+  'src/app.js'
+].map((path) => new URL(path, self.location).href);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
+      // addAll() is atomic: a single 404 rejects the install and the app is
+      // never installable. Cache what we can and let the runtime handler pick
+      // up the rest on first use.
+      .then((cache) => Promise.all(APP_SHELL.map(
+        (url) => cache.add(url).catch((err) => console.warn('[sw] skipped', url, err))
+      )))
       .then(() => self.skipWaiting())
   );
 });
@@ -65,7 +77,7 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => caches.match(request).then((cached) => cached || caches.match('/')))
+        .catch(() => caches.match(request).then((cached) => cached || caches.match(SCOPE)))
     );
     return;
   }

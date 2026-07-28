@@ -151,6 +151,22 @@ window.THREE = new Proxy({
   },
 });
 
+// -------------------------------------------- lazy learnsets interception --
+// Emulate the <script> the loader injects, since JSDOM won't fetch it for us.
+// This has to be installed BEFORE the modules run: app.js prefetches the
+// learnsets chunk from boot(), and PS.learnsetsReady() caches the very first
+// promise it creates -- if that one is left dangling, every later await of it
+// hangs forever.
+const learnsetsSrc = readFileSync(resolve(repo, 'vendor/pkmn-learnsets.js'), 'utf8');
+const origAppend = window.document.head.appendChild.bind(window.document.head);
+window.document.head.appendChild = function (el) {
+  if (el.tagName === 'SCRIPT' && /pkmn-learnsets/.test(el.src || '')) {
+    setTimeout(() => { window.eval(learnsetsSrc); el.onload && el.onload(); }, 0);
+    return el;
+  }
+  return origAppend(el);
+};
+
 for (const src of scriptSrcs) {
   if (src.includes('three.min.js')) continue;    // stubbed above
   const code = readFileSync(resolve(repo, src), 'utf8');
@@ -167,6 +183,108 @@ check('window.RogueBattle', !!window.RogueBattle);
 check('window.GameAudio', !!window.GameAudio);
 check('window.SaveCode', !!window.SaveCode);
 check('window.Game (app booted)', !!window.Game);
+check('window.PWA (install button)', !!window.PWA);
+
+// --------------------------------------------------- installability / PWA --
+// The floating install button on the title screen, plus the path rules that
+// decide whether the browser ever considers the app installable at all.
+{
+  // pwa.js defers its wiring to DOMContentLoaded, exactly like app.js.
+  if (window.document.readyState === 'loading') {
+    await new Promise((res) => window.document.addEventListener('DOMContentLoaded', res, { once: true }));
+  }
+
+  const dock = window.document.getElementById('installDock');
+  const btn = window.document.getElementById('btnInstall');
+  const hideBtn = window.document.getElementById('btnInstallHide');
+
+  check('install dock exists', !!dock && !!btn && !!hideBtn);
+  check('install dock lives on the title screen',
+    !!dock && dock.closest('section#screenTitle') !== null,
+    'so it hides with the title once a run starts');
+  check('install dock is hidden until the browser offers an install',
+    dock.hidden === true && window.PWA.mode === '');
+
+  // ---- Chrome/Android path: capture the event, show our own button.
+  let promptCalls = 0;
+  const bip = new window.Event('beforeinstallprompt', { cancelable: true });
+  bip.prompt = () => { promptCalls++; };
+  bip.userChoice = Promise.resolve({ outcome: 'dismissed' });
+  window.dispatchEvent(bip);
+
+  check('beforeinstallprompt is suppressed in favour of our button',
+    bip.defaultPrevented === true);
+  check('install dock appears once installable',
+    dock.hidden === false && window.PWA.mode === 'prompt');
+
+  btn.click();
+  check('tapping Install fires the captured browser prompt', promptCalls === 1);
+  check('the pill hides after prompting (the event is single-use)',
+    dock.hidden === true && window.PWA.mode === '');
+
+  // ---- the dismiss "x" snoozes rather than nagging every visit.
+  const bip2 = new window.Event('beforeinstallprompt', { cancelable: true });
+  bip2.prompt = () => { promptCalls++; };
+  window.dispatchEvent(bip2);
+  check('a fresh prompt event re-offers the pill', dock.hidden === false);
+  hideBtn.click();
+  check('dismissing snoozes the pill', dock.hidden === true && window.PWA.snoozed === true);
+
+  // ---- installed for real: gone for good, snooze cleared.
+  window.dispatchEvent(new window.Event('appinstalled'));
+  check('appinstalled retires the pill permanently',
+    dock.hidden === true && window.PWA.installed === true && window.PWA.snoozed === false);
+
+  // ---- iOS/Safari have no install API; the pill opens a how-to sheet.
+  const sheet = window.document.getElementById('screenInstall');
+  const steps = window.document.getElementById('installSteps');
+  check('install how-to sheet exists and starts hidden', !!sheet && sheet.hidden === true);
+  window.PWA.openSheet();
+  check('how-to sheet lists concrete steps',
+    sheet.hidden === false && steps.children.length >= 2, `${steps.children.length} steps`);
+  window.PWA.closeSheet();
+  check('how-to sheet closes', sheet.hidden === true);
+}
+
+// --------------------------------------------------------- install paths ---
+// This deploys to a GitHub Pages PROJECT site (/Dailylocke/). Root-absolute
+// URLs 404 there, which silently makes the app un-installable: no manifest,
+// no service worker, so `beforeinstallprompt` never fires and the button above
+// can never appear. Guard every path that feeds installability.
+{
+  const manifest = JSON.parse(readFileSync(resolve(repo, 'manifest.json'), 'utf8'));
+  const swSrc = readFileSync(resolve(repo, 'sw.js'), 'utf8');
+
+  const manifestHref = (html.match(/<link rel="manifest" href="([^"]+)"/) || [])[1];
+  check('index.html links the manifest relatively',
+    !!manifestHref && !manifestHref.startsWith('/'), manifestHref);
+  check('manifest start_url + scope are relative',
+    !manifest.start_url.startsWith('/') && !String(manifest.scope || '').startsWith('/'),
+    `${manifest.start_url} / ${manifest.scope}`);
+
+  const iconPaths = manifest.icons.map((i) => i.src);
+  check('manifest icons are relative and present',
+    iconPaths.every((p) => !p.startsWith('/') && existsSync(resolve(repo, p))), iconPaths.join(', '));
+  // Chrome needs a >=192px "any" icon to install, and a maskable one to avoid
+  // a letterboxed launcher badge. One entry marked "any maskable" satisfies
+  // neither cleanly, so the two purposes are listed separately.
+  check('manifest declares a purpose:any icon >= 192px',
+    manifest.icons.some((i) => /(^|\s)any(\s|$)/.test(i.purpose || 'any') && parseInt(i.sizes, 10) >= 192));
+  check('manifest declares a maskable icon',
+    manifest.icons.some((i) => /(^|\s)maskable(\s|$)/.test(i.purpose || '')));
+
+  check('service worker registers with a relative URL',
+    /register\((['"])sw\.js\1/.test(readFileSync(resolve(repo, 'src/pwa.js'), 'utf8')),
+    "'/sw.js' would be out of scope on a project page");
+  check('service worker precaches relative paths only',
+    !/^\s*'\//m.test(swSrc), 'root-absolute shell entries 404 under /Dailylocke/');
+  check('service worker precaches the new pwa module', swSrc.includes('src/pwa.js'));
+  check('service worker precache tolerates a missing file',
+    /cache\.add\(url\)\.catch/.test(swSrc), 'addAll() would fail install() wholesale');
+  check('app.js no longer registers the worker itself',
+    !readFileSync(resolve(repo, 'src/app.js'), 'utf8').includes('serviceWorker.register'),
+    'that moved to src/pwa.js');
+}
 
 // ------------------------------------------------------ save code transfer --
 // Cross-device saves: compress -> share -> decompress -> validate. The codec
@@ -268,17 +386,6 @@ check('learnsets are NOT in the core bundle', Object.keys(PS.Dex.data.Learnsets)
 check('PS.learnsetsReady exists', typeof PS.learnsetsReady === 'function');
 
 // ------------------------------------------------- lazy learnsets loading --
-// Emulate the <script> the loader injects, since JSDOM won't fetch it for us.
-const learnsetsSrc = readFileSync(resolve(repo, 'vendor/pkmn-learnsets.js'), 'utf8');
-const origAppend = window.document.head.appendChild.bind(window.document.head);
-window.document.head.appendChild = function (el) {
-  if (el.tagName === 'SCRIPT' && /pkmn-learnsets/.test(el.src || '')) {
-    setTimeout(() => { window.eval(learnsetsSrc); el.onload && el.onload(); }, 0);
-    return el;
-  }
-  return origAppend(el);
-};
-
 await PS.learnsetsReady();
 check('learnsets chunk loads on demand', Object.keys(PS.Dex.data.Learnsets).length > 1000,
   `${Object.keys(PS.Dex.data.Learnsets).length} entries`);
