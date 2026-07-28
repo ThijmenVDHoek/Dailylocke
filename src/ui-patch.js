@@ -270,7 +270,8 @@
       var isList = p.type === 'list';
       var isRich = p.type === 'party-rich';
       var html = '';
-      if (p.title) html += '<div class="ptitle">' + p.title + '</div>';
+      // Only show title for list and party panels, NOT for party-rich (battle switcher)
+      if (p.title && !isRich) html += '<div class="ptitle">' + p.title + '</div>';
       
       // Use grid layout for party-rich (battle switcher) to match overview
       if (isRich) {
