@@ -225,7 +225,8 @@
       newPP[m] = mon.pp[m] != null ? mon.pp[m] : Math.floor(Dex.moves.get(m).pp * 1.6);
     });
     if (kept.length < 4) {
-      var auto = await C.autoMoveset(sp.id, run.rand);
+      var dr = C.mulberry32(C.hashString((run ? run.seed : 'forme') + '|' + sp.id + '|' + (mon.uid || '')));
+      var auto = await C.autoMoveset(sp.id, dr);
       for (var i = 0; i < auto.length && kept.length < 4; i++) {
         if (kept.indexOf(auto[i]) >= 0) continue;
         kept.push(auto[i]);
