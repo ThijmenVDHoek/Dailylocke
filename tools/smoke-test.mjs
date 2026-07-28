@@ -165,7 +165,43 @@ check('window.Core', !!window.Core);
 check('window.Nuz', !!window.Nuz);
 check('window.RogueBattle', !!window.RogueBattle);
 check('window.GameAudio', !!window.GameAudio);
+check('window.SaveCode', !!window.SaveCode);
 check('window.Game (app booted)', !!window.Game);
+
+// ------------------------------------------------------ save code transfer --
+// Cross-device saves: compress -> share -> decompress -> validate. The codec
+// must round-trip perfectly and must never throw on garbage input.
+{
+  const SC = window.SaveCode;
+  check('lz-string loaded', typeof window.LZString !== 'undefined');
+  check('qrcode.js loaded', typeof window.QRCode !== 'undefined');
+  check('SaveCode.enabled with lz-string present', SC.enabled() === true);
+
+  const state = {
+    __v: 2, seed: 42, section: 3, battleInSection: 1,
+    party: [{ id: 'gengar', species: 'Gengar', name: 'Casper', hpPct: 0.618,
+              moves: ['shadowball', 'sludgebomb', 'focusblast', 'nastyplot'],
+              pp: { shadowball: 12 }, sp: { hp: 2, atk: 0, def: 0, spa: 32, spd: 0, spe: 32 } }],
+    bag: { pokeball: 5, potion: 3 }, money: 4000, battlesWon: 9, trainersBeaten: 2,
+    damageDealt: { 1: 8123 }, sectionStats: { money: 2400, won: 3, caught: null, lost: [], damage: 8123, kos: 2, startedAt: 1 },
+  };
+  const code = SC.encode(state);
+  check('save state compresses to a URL-safe code', /^[A-Za-z0-9+\-$]{40,}$/.test(code),
+    `${code.length} chars from ${JSON.stringify(state).length} JSON bytes`);
+  check('code round-trips to identical state',
+    JSON.stringify(SC.decode(code)) === JSON.stringify(state));
+  check('corrupted codes decode to null, never throw',
+    SC.decode('not-a-real-code') === null && SC.decode('') === null
+    && SC.decode('$$$') === null && SC.decode(null) === null);
+
+  const url = SC.buildShareUrl(code);
+  check('share url carries ?save=', url.includes('?save=' + code), url.slice(0, 80));
+  check('extractCode parses a full share link', SC.extractCode(url) === code);
+  check('extractCode unwraps messy pastes',
+    SC.extractCode('  ' + code.slice(0, 40) + '\n' + code.slice(40) + ' ') === code);
+  check('extractCode rejects plain junk',
+    SC.extractCode('hello world!') === '' && SC.extractCode('') === '');
+}
 
 // ----------------------------------------------------------------- audio ---
 // Music must be quiet by default, must only play during a battle, and must

@@ -108,6 +108,12 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 
 .wide { display:block; width:100%; margin-top:12px; }
 
+/* Two-button row on finish screens (Save progress + Continue). */
+.footer-btns {
+  display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);
+  gap:10px; margin-top:12px;
+}
+
 .btn-mini {
   background:var(--surface-hi); color:var(--ink);
   padding:8px 14px; font-size:.9rem; border-radius:var(--r-pill);
@@ -549,6 +555,39 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 }
 .search::placeholder { color:var(--ink-3); }
 .search:focus { outline:none; box-shadow:inset 0 1px 3px rgba(0,0,0,.4), 0 0 0 2px rgba(91,140,255,.5); }
+
+/* ------------------------------------------------- save codes / transfer */
+.save-card { max-width:440px; text-align:center; }
+.save-qr {
+  display:flex; align-items:center; justify-content:center;
+  width:max-content; margin:16px auto 4px; padding:12px;
+  background:#fff; border-radius:var(--r-md);
+  box-shadow:var(--e2);
+}
+/* qrcodejs renders a canvas (with an img on top) or a table fallback. */
+.save-qr canvas, .save-qr img { display:block; width:192px; height:192px; }
+.save-qr table { border-collapse:collapse; }
+.save-qr td { border:0; padding:0; width:4px; height:4px; }
+.save-qr-note { margin:14px 10px 2px; color:var(--gold); }
+.save-label {
+  display:block; text-align:left; margin:14px 0 6px 2px;
+  font-size:.74rem; color:var(--ink-3); text-transform:uppercase; letter-spacing:1.4px;
+}
+textarea.search.save-code {
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:.78rem; line-height:1.5; word-break:break-all;
+  resize:none; user-select:all;
+}
+.save-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:2px; }
+.save-msg { min-height:1.2em; margin:10px 4px 2px; font-size:.86rem; }
+.save-msg:empty::before { content:'\00a0'; } /* keep the modal from jumping */
+.save-msg.bad { color:#ff8b95; }
+.mi-glyph {
+  display:flex; align-items:center; justify-content:center;
+  font-size:1.25rem; line-height:1; color:var(--gold);
+}
+#btnImportLoad { margin-top:6px; }
+#screenSaveImport .btn-secondary.wide { margin-top:10px; }
 
 .opt-list { display:flex; flex-direction:column; gap:8px; max-height:52vh; overflow-y:auto; }
 .opt-row {
