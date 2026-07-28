@@ -39,7 +39,7 @@
       'margin:0 2px 8px;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.9);}',
     '.battle-hud .pbar{height:5px;border-radius:999px;background:rgba(0,0,0,.45);margin-top:4px;overflow:hidden;}',
     '.battle-hud .pbar i{display:block;height:100%;border-radius:999px;}',
-    '.battle-hud .bg-back{display:block;width:100%;margin-top:8px;}',
+    '.battle-hud .bg-back{display:block;width:100%;margin-top:0;}',
     '.battle-hud .runinfo{display:flex;gap:12px;align-items:center;font-size:.95rem;}',
     '.battle-hud .runinfo b{color:#ffd76e;}',
     // --- floating ball rail (right edge, thumb reachable) ---
@@ -75,7 +75,11 @@
     '.battle-hud .pitem.rich .pd-species{font-size:.7rem;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:1px;}',
     '.battle-hud .pitem.rich .pd-name{font-size:1.05rem;color:#fff;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
     // Grid-style party switcher (matches overview team strip)
-    '.battle-hud .party-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px;}',
+    // Full-width grid + full-width back button stacked vertically.
+    // The battle log above already says \"Send out which Pokemon?\" so no extra title is shown.
+    '.battle-hud .mv:has(.party-grid),.battle-hud .mv:has(.switch-panel){display:flex !important;flex-direction:column;width:100% !important;gap:8px;grid-template-columns:1fr !important;}',
+    '.battle-hud .switch-panel{display:flex;flex-direction:column;gap:8px;width:100%;grid-column:1/-1;}',
+    '.battle-hud .party-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;width:100%;grid-column:1/-1;margin-top:0;}',
     '.battle-hud .party-grid .tslot{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;',
       'overflow:visible;padding:8px 3px 7px;border-radius:var(--r-md,8px);min-width:0;',
       'background:rgba(255,255,255,.16);color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.28);',
@@ -92,6 +96,8 @@
       'font-size:.48rem;letter-spacing:.6px;padding:1px 5px;border-radius:999px;background:#ffd76e;color:#241a00;}',
     '.battle-hud .party-grid .ts-st{position:absolute;top:4px;right:3px;font-size:.48rem;',
       'padding:0 3px;border-radius:999px;background:#888;color:#fff;}',
+    '.battle-hud .switch-panel .bg-back{width:100% !important;grid-column:1/-1;}',
+    '.battle-hud .switch-panel .plist{width:100%;grid-column:1/-1;}',
     '.battle-hud .party-grid .ts-st.st-brn{background:#ff5f6d;color:#fff;}',
     '.battle-hud .party-grid .ts-st.st-psn{background:#a855f7;color:#fff;}',
     '.battle-hud .party-grid .ts-st.st-tox{background:#9333ea;color:#fff;}',
@@ -274,8 +280,10 @@
       if (p.title && !isRich) html += '<div class="ptitle">' + p.title + '</div>';
       
       // Use grid layout for party-rich (battle switcher) to match overview
+      // Layout requirement: grid fills width of container, back button below grid and also fills width.
+      // No extra text – the battle log above is sufficient.
       if (isRich) {
-        html += '<div class="party-grid">';
+        html += '<div class="switch-panel"><div class="party-grid">';
         for (var i = 0; i < p.items.length; i++) {
           var it = p.items[i];
           var st = it.status || '';
@@ -294,9 +302,9 @@
           }
           html += '</button>';
         }
-        html += '</div>';
+        html += '</div><button class="ab bg-back">Back</button></div>';
       } else {
-        html += '<div class="plist">';
+        html += '<div class="switch-panel"><div class="plist">';
         for (var i = 0; i < p.items.length; i++) {
           var it = p.items[i];
           if (isList) {
@@ -325,9 +333,8 @@
               '</div></button>';
           }
         }
-        html += '</div>';
+        html += '</div><button class="ab bg-back">Back</button></div>';
       }
-      html += '<button class="ab bg-back">Back</button>';
       mv.innerHTML = html;
       mv.querySelectorAll('.pitem, .tslot').forEach(function (b) {
         b.addEventListener('click', function () {
