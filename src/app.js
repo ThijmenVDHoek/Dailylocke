@@ -3059,6 +3059,15 @@
       if (saveData._shiny || saveData._sh || saveData.shinies) {
         mergeShinies(saveData._shiny || saveData._sh || saveData.shinies);
       }
+      // Restore avatar and theme if present in save code
+      if (saveData._avatar || saveData._theme) {
+        loadProfile();
+        if (saveData._avatar) profile.avatar = saveData._avatar;
+        if (saveData._theme) profile.theme = saveData._theme;
+        saveProfile();
+        applyTheme();
+        updateMenuAvatar();
+      }
       saveGame();                          // persist to THIS device's storage
       setContinueState();                  // title button reflects the import
       return { ok: true };
@@ -3086,11 +3095,19 @@
     // The rolling battle log is never displayed, only bloats the QR payload.
     var slim = {};
     Object.keys(snap).forEach(function (k) { if (k !== 'log') slim[k] = snap[k]; });
-    // Include shiny collection in the save code/link/QR
+    // Include shiny collection, avatar, and theme in the save code/link/QR
     try {
       loadProfile();
-      if (profile && profile.shinies && profile.shinies.length) {
-        slim._shiny = profile.shinies;
+      if (profile) {
+        if (profile.shinies && profile.shinies.length) {
+          slim._shiny = profile.shinies;
+        }
+        if (profile.avatar) {
+          slim._avatar = profile.avatar;
+        }
+        if (profile.theme) {
+          slim._theme = profile.theme;
+        }
       }
     } catch (e) {}
     var code = SC.encode(slim);

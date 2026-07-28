@@ -39,10 +39,7 @@
       'margin:0 2px 8px;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.9);}',
     '.battle-hud .pbar{height:5px;border-radius:999px;background:rgba(0,0,0,.45);margin-top:4px;overflow:hidden;}',
     '.battle-hud .pbar i{display:block;height:100%;border-radius:999px;}',
-    '.battle-hud .bg-back{display:block;width:100%;padding:11px 0;border-radius:.85rem;border:none;margin-top:8px;',
-      'background:rgba(0,0,0,.42);color:#fff;cursor:pointer;font-family:inherit;font-size:.95rem;letter-spacing:.5px;',
-      'backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}',
-    '.battle-hud .bg-back:hover{background:rgba(0,0,0,.6);}',
+    '.battle-hud .bg-back{display:block;width:100%;margin-top:8px;}',
     '.battle-hud .runinfo{display:flex;gap:12px;align-items:center;font-size:.95rem;}',
     '.battle-hud .runinfo b{color:#ffd76e;}',
     // --- floating ball rail (right edge, thumb reachable) ---
@@ -329,7 +326,7 @@
         }
         html += '</div>';
       }
-      html += '<button class="bg-back">Back</button>';
+      html += '<button class="ab bg-back">Back</button>';
       mv.innerHTML = html;
       mv.querySelectorAll('.pitem, .tslot').forEach(function (b) {
         b.addEventListener('click', function () {
