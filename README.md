@@ -9,11 +9,11 @@ Deployed to GitHub Pages from `main` by `.github/workflows/static.yml`.
 ## Project layout
 
 ```
-index.html              markup + script/style tags only (~16 KB)
+index.html              markup + script/style tags only (~22 KB)
 assets/css/app.css      all UI styling
 src/                    game code, loaded in order by index.html
 vendor/                 third-party + generated bundles
-tools/                  build + test tooling (not deployed)
+tools/                  development-only build, lint + test tooling
 ```
 
 ### `src/` — load order matters
@@ -152,11 +152,13 @@ Now:
 
 ## Development
 
-Everything is static — serve the repo root and open it:
+The game itself is static — serve the repo root and open it:
 
 ```sh
 python3 -m http.server 8000
 ```
+
+The development tools require Node.js 22.22.2 or newer.
 
 ### Rebuilding the engine bundles
 
@@ -168,16 +170,23 @@ npm install
 npm run build     # regenerates vendor/pkmn-sim.js + vendor/pkmn-learnsets.js
 ```
 
-### Tests
+### Quality checks
 
 `tools/smoke-test.mjs` loads `index.html` in JSDOM using the real script order,
 then boots the game and fights an actual battle through the engine. It checks
 module wiring, that the trimmed bundle kept its data, that learnsets load on
 demand, that the install button appears/prompts/retires correctly on every
 platform path, that the PWA paths stay subpath-safe, and that the battle
-reaches a conclusion.
+reaches a conclusion. ESLint covers the hand-written JavaScript and catches
+unused code as part of the same command.
 
 ```sh
-npm --prefix tools install     # or: npm i -g jsdom
-node tools/smoke-test.mjs
+npm ci --prefix tools
+npm run check --prefix tools
 ```
+
+## Third-party software and assets
+
+See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for bundled software
+licenses, remote asset credits, and the fan-project disclaimer. The repository
+does not currently declare a project-level license for Dailylocke's own code.

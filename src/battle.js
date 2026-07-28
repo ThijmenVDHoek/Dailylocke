@@ -21,7 +21,7 @@
   }
 
   // ---- Heuristic AI for the opposing side --------------------------------
-  function chooseAIMove(request, myTypes, foeTypes, foeHpFrac) {
+  function chooseAIMove(request, myTypes, foeTypes) {
     if (!request || !request.active || !request.active[0]) return 'default';
     var moves = request.active[0].moves || [];
     var best = null, bestScore = -1;
@@ -405,7 +405,7 @@
               continue;
             }
             if (req.active) {
-              streams.p2.write(chooseAIMove(req, state.enemyTypes, state.playerTypes, state.playerHp));
+              streams.p2.write(chooseAIMove(req, state.enemyTypes, state.playerTypes));
             }
           }
         }

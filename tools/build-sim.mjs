@@ -1,8 +1,8 @@
 // ============================================================================
 // build-sim.mjs — produces the two @pkmn/sim bundles the game loads.
 //
-//   vendor/pkmn-sim.js        core engine + gen9 data, NO learnsets  (~5 MB)
-//   vendor/pkmn-learnsets.js  gen9 learnsets, fetched on demand      (~5.4 MB)
+//   vendor/pkmn-sim.js        core engine + gen9 data, NO learnsets  (~2.2 MB)
+//   vendor/pkmn-learnsets.js  gen9 learnsets, fetched on demand      (~3 MB)
 //
 // The stock @pkmn/sim browser bundle is 10.7 MB because it statically pulls in
 // every generation's data tables. This game only ever runs `gen9customgame`,
@@ -18,7 +18,7 @@
 import * as esbuild from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, relative } from 'node:path';
-import { mkdirSync, statSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -198,28 +198,5 @@ await esbuild.build({
 
 report(resolve(outDir, 'pkmn-sim.js'));
 report(resolve(outDir, 'pkmn-learnsets.js'));
-
-writeFileSync(
-  resolve(outDir, 'README.md'),
-  [
-    '# vendor/',
-    '',
-    'Generated files — do not edit by hand.',
-    '',
-    '| file | source |',
-    '| --- | --- |',
-    '| `pkmn-sim.js` | `tools/build-sim.mjs` (@pkmn/sim, gen9 only, learnsets split out) |',
-    '| `pkmn-learnsets.js` | `tools/build-sim.mjs` (gen9 learnsets, loaded on demand) |',
-    '| `three.min.js` | three.js r149 UMD build |',
-    '| `battle-ui.js` | hand-written 3D battle renderer (edit this one directly) |',
-    '',
-    'Rebuild the @pkmn/sim bundles with:',
-    '',
-    '```sh',
-    'cd tools && npm install && npm run build',
-    '```',
-    '',
-  ].join('\n'),
-);
 
 console.log('done.');
