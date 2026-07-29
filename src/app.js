@@ -1411,7 +1411,7 @@
   // Map each theme to a battlefield biome for "Match theme" mode.
   var THEME_BIOME = {
     'default': 'meadow', 'normal': 'plains', 'fire': 'volcano',
-    'water': 'beach', 'electric': 'factory', 'grass': 'forest',
+    'water': 'beach', 'electric': 'powerplant', 'grass': 'forest',
     'ice': 'snow', 'fighting': 'dojo', 'poison': 'swamp',
     'ground': 'canyon', 'flying': 'skyclouds', 'psychic': 'psychic',
     'bug': 'garden', 'rock': 'rocky', 'ghost': 'graveyard',
