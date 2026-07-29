@@ -1090,7 +1090,7 @@ function injectCSS(){
     '.battle-hud .pc{pointer-events:auto;align-self:flex-end;width:240px;padding:9px 12px;margin:0 10px 4px auto;}',
     '.battle-hud .pr{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}',
     '.battle-hud .pl{font-size:0.75rem;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:1px;}',
-    '.battle-hud .pn{font-size:1.35rem;font-weight:400;line-height:1.05;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    '.battle-hud .pn{font-size:1.35rem;font-weight:400;line-height:1.05;margin-top:2px;white-space:nowrap;}',
     '.battle-hud .ll{font-size:0.7rem;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:1px;text-align:right;}',
     '.battle-hud .lv{font-size:1.1rem;color:rgba(255,255,255,.92);line-height:1;text-align:right;}',
     '.battle-hud .ts{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;}',
