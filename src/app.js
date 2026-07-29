@@ -1251,6 +1251,7 @@
 
     host.innerHTML =
       gridHtml +
+      (partySel > 0 ? '<button class="btn-secondary wide pd-lead" style="margin-bottom:10px">Make lead</button>' : '') +
       '<div class="party-detail">' +
         '<div class="pd-hero">' +
           '<div class="pd-art">' + bigSprite(mon.id, '', 104, 104, 1, mon.shiny) + '</div>' +
@@ -1276,7 +1277,6 @@
 
         '<div class="pd-actions">' +
           '<button class="btn-primary pd-train"><img class="ic-train-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/power-bracer.png" alt="">' + trainLabel + '</button>' +
-          (partySel > 0 ? '<button class="btn-secondary pd-lead">Make lead</button>' : '') +
         '</div>' +
 
         '<div class="pd-sec"><div class="pd-label">Moves</div>' +
@@ -2061,6 +2061,15 @@
         rp.hpPct = (bp.maxhp > 0) ? Math.max(0, bp.hp / bp.maxhp) : 0;
         rp.status = bp.status || '';
       }
+      // Also sync enemy state into _battleCfg for resume
+      if (run._battleCfg && run._battleCfg.enemies && run._battleCfg.enemies[0]) {
+        var p2 = battle.battle.p2;
+        if (p2 && p2.active && p2.active[0]) {
+          var ea = p2.active[0];
+          run._battleCfg.enemies[0].hpPct = (ea.maxhp > 0) ? Math.max(0, ea.hp / ea.maxhp) : 1;
+          run._battleCfg.enemies[0].status = ea.status || '';
+        }
+      }
     } catch (e) {}
   }
 
@@ -2142,6 +2151,16 @@
     run._inBattle = true;
     saveGame();
 
+    // Save battle config so we can resume if the app is closed mid-battle.
+    run._battleCfg = {
+      enemies: cfg.enemies.map(function (e) { return { id: e.id, name: e.name, species: e.species, types: e.types.slice(), moves: e.moves.slice(), ability: e.ability, nature: e.nature, shiny: !!e.shiny, hpPct: e.hpPct, status: e.status, pp: e.pp ? JSON.parse(JSON.stringify(e.pp)) : {} }; }),
+      isWild: cfg.isWild,
+      catchable: cfg.catchable,
+      trainer: cfg.trainer ? { name: cfg.trainer.name, tag: cfg.trainer.tag, sprite: cfg.trainer.sprite, boss: cfg.trainer.boss } : null,
+      clause: cfg.clause || null
+    };
+    run._battleCfgJSON = JSON.stringify(run._battleCfg);
+
     bctx = { cfg: cfg, enemies: cfg.enemies, caught: false, ended: false };
     run.trainingPaidThisRound = false;
     // A fresh, randomly chosen track per battle — rival themes for wilds,
@@ -2167,7 +2186,7 @@
       player: { name: p.name, lv: 100, types: p.types.slice(), hp: p.hpPct, max: 100, st: p.status || null,
                 h: worldH(p.id), sid: Dex.species.get(p.id).spriteid || p.id, num: Dex.species.get(p.id).num,
                 u: spriteUrls(p.id, true, p.shiny) },
-      enemy: { name: e.name, lv: 100, types: e.types.slice(), hp: 1, max: 100, st: null,
+      enemy: { name: e.name, lv: 100, types: e.types.slice(), hp: (e.hpPct != null && e.hpPct < 1) ? e.hpPct : 1, max: 100, st: e.status || null,
                h: worldH(e.id), sid: Dex.species.get(e.id).spriteid || e.id, num: Dex.species.get(e.id).num,
                u: spriteUrls(e.id, false, e.shiny) },
       biomeSeed: run.seed + '|' + run.section + '|' + run.battleInSection,
@@ -2660,6 +2679,22 @@
     // Sync live battle state to run.party before handing control to the player.
     // This ensures closing the app mid-battle preserves damage taken so far.
     syncBattleToRun(); saveGame();
+    // On resume, override the engine's HP/status with saved values after the
+    // opening switch events have been processed.
+    if (run._isResume && bctx && bctx.cfg) {
+      run._isResume = false;
+      var p = run.party[0];
+      var e = bctx.cfg.enemies[0];
+      if (p && ui.s.p) {
+        ui.setHp('p', p.hpPct || 1);
+        if (p.status) ui.setStatus('p', p.status);
+      }
+      if (e && ui.s.e) {
+        var eHp = (e.hpPct != null && e.hpPct < 1) ? e.hpPct : 1;
+        ui.setHp('e', eHp);
+        if (e.status) ui.setStatus('e', e.status);
+      }
+    }
     // While the intro is still flushing, render immediately so Fight/Bag/Ball
     // /Party are usable from the very first frame of the battle.
     if (!opening && (evQ.length || evTimer)) { pendingRequest = req; return; }
@@ -2747,7 +2782,7 @@
     if (!bctx || bctx.ended || !bctx.cfg.isWild) return;
     bctx.ended = true;
     bctx.fled = true;
-    run._inBattle = false;
+    run._inBattle = false; run._battleCfg = null;
     syncBattleToRun(); saveGame();
     ui.setPanel(null);
     ui.setBallRail(null);
@@ -3085,7 +3120,7 @@
     // a literal 0 (it was caught, so it can't join the party already fainted).
     if (clone.hpPct <= 0) clone.hpPct = 1 / Math.max(1, C.maxHP(clone));
     bctx.caught = true;
-    run._inBattle = false;
+    run._inBattle = false; run._battleCfg = null;
     syncBattleToRun(); saveGame();
     // A shiny caught OUTSIDE the designated capture encounter is a bonus: it
     // must not consume this section's one legitimate catch.
@@ -3193,7 +3228,7 @@
     if (bctx.ended) return;
     if (res.result === 'caught') return;
     bctx.ended = true;
-    run._inBattle = false;
+    run._inBattle = false; run._battleCfg = null;
     syncBattleToRun(); saveGame();
     // Wait for the event queue to ACTUALLY drain (the faint animation is the
     // last thing in it) instead of guessing a duration. `win` arrives on the
@@ -4138,6 +4173,52 @@
 
     $('btnGoBattle').addEventListener('click', startNextBattle);
     $('btnStarterBack').addEventListener('click', function () { show('Title'); setContinueState(); });
+
+    // ---- AUTO-RESUME: if a run was mid-battle when the app was closed,
+    // go directly back to that battle instead of showing the title.
+    try {
+      var resumeRun = null;
+      var resumeMode = null;
+      var saved = loadGame('free');
+      if (saved && saved._inBattle && saved._battleCfg) { resumeRun = saved; resumeMode = 'free'; }
+      if (!resumeRun) {
+        saved = loadGame('daily');
+        if (saved && saved._inBattle && saved._battleCfg) { resumeRun = saved; resumeMode = 'daily'; }
+      }
+      if (resumeRun) {
+        run = reviveRun(resumeRun);
+        var cfg = run._battleCfg;
+        // Restore enemy data from the saved config
+        if (cfg.enemies && cfg.enemies[0]) {
+          var eData = cfg.enemies[0];
+          // Rebuild the enemy mon from saved data
+          var resumeEnemy = {
+            id: eData.id, name: eData.name, species: eData.species || eData.name,
+            types: eData.types, moves: eData.moves, ability: eData.ability || 'No Ability',
+            nature: eData.nature || 'Serious', shiny: !!eData.shiny,
+            hpPct: eData.hpPct != null ? eData.hpPct : 1, status: eData.status || '',
+            pp: eData.pp || {}, level: 100,
+            uid: 'e' + Date.now(), evs: {hp:0,atk:0,def:0,spa:0,spd:0,spe:0},
+            ivs: {hp:31,atk:31,def:31,spa:31,spd:31,spe:31},
+            sp: null, item: '', section: run.section || 1
+          };
+          show('Battle');
+          var resumeCfg = {
+            enemies: [resumeEnemy],
+            isWild: cfg.isWild,
+            catchable: cfg.catchable,
+            trainer: cfg.trainer || null,
+            clause: cfg.clause || null,
+            fieldEffect: null
+          };
+          // Mark that we're resuming so beginBattle can set HP correctly
+          run._isResume = true;
+          beginBattle(resumeCfg);
+          run._isResume = false;
+          toast('Resuming battle...');
+        }
+      }
+    } catch (e) { console.warn('[boot] auto-resume failed', e); }
     $('btnTutorBack').addEventListener('click', function () {
       svc = null; renderCrossroads(); show('Crossroads');
     });
