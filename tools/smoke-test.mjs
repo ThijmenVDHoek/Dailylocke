@@ -526,6 +526,67 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
     SC.extractCode('hello world!') === '' && SC.extractCode('') === '');
 }
 
+// The title has no live `run` object after a reload, so transfer must discover
+// ongoing runs in storage. Daily and Free Play use different slots; this is the
+// regression path that used to inspect only Free Play and reject a valid Daily.
+{
+  const mem = new Map();
+  const originalLocalStorage = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+      setItem: (k, v) => mem.set(k, String(v)),
+      removeItem: (k) => mem.delete(k),
+      clear: () => mem.clear(),
+    },
+  });
+
+  const S = window.Storage;
+  const savedRun = (mode, section) => ({
+    __v: S.SAVE_VERSION,
+    mode,
+    dailyDate: mode === 'daily' ? window.Daily.dayKey() : null,
+    seed: mode === 'daily' ? 101 : 202,
+    section,
+    battlesWon: section,
+    party: [{ id: 'gengar', species: 'Gengar', name: 'Casper', hpPct: 1 }],
+  });
+  S.putRun('daily', savedRun('daily', 3));
+
+  window.document.getElementById('btnTitleMenu').click();
+  window.document.getElementById('btnMenuTransfer').click();
+  const exportScreen = window.document.getElementById('screenSaveExport');
+  const exportedDaily = window.SaveCode.decode(
+    window.document.getElementById('saveCodeOut').value);
+  check('an ongoing Daily can be transferred from the title menu',
+    !exportScreen.hidden && exportedDaily && exportedDaily.mode === 'daily' &&
+    exportedDaily.section === 3);
+  check('a single ongoing run needs no transfer picker',
+    window.document.getElementById('saveRunPickerWrap').hidden === true);
+  window.Modal.close('screenSaveExport');
+
+  // If both independent slots exist, neither should be silently selected on
+  // the player's behalf: the same export dialog exposes both choices.
+  S.putRun('free', savedRun('free', 8));
+  window.document.getElementById('btnTitleMenu').click();
+  window.document.getElementById('btnMenuTransfer').click();
+  const picker = window.document.getElementById('saveRunPicker');
+  check('both ongoing runs are offered for transfer',
+    !window.document.getElementById('saveRunPickerWrap').hidden &&
+    picker.options.length === 2);
+  picker.value = '1';
+  picker.dispatchEvent(new window.Event('change'));
+  const exportedFree = window.SaveCode.decode(
+    window.document.getElementById('saveCodeOut').value);
+  check('choosing Free Play updates the transferred save',
+    exportedFree && exportedFree.mode === 'free' && exportedFree.section === 8);
+  window.Modal.close('screenSaveExport');
+  S.clearRun('daily');
+  S.clearRun('free');
+  Object.defineProperty(window, 'localStorage', originalLocalStorage);
+}
+
 // -------------------------------------------------------------- storage ----
 // Step 1 of the app.js split: persistence + migrations moved to their own
 // module. These test it directly, without a DOM or a live run.

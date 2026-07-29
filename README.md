@@ -102,6 +102,9 @@ app permanently offline-less.
 Runs persist to `localStorage` automatically, and can hop between devices
 with **no server and no accounts**: every battle/section finish screen has a
 **Save progress** button, and the Menu offers *Transfer save* / *Import save*.
+An unfinished Daily or Free Play run can also be transferred directly from the
+title Menu; if both slots are in progress, the export dialog lets you choose
+which run to send.
 
 * The run state is serialised by `saveGameState()` (one central function,
   same snapshot autosave writes), compressed with
