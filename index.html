@@ -160,6 +160,7 @@
     <h2 class="scr-title">Choose your first partner</h2>
     <p class="hint center">Choose carefully. If it faints, it's gone.</p>
     <div id="starterGrid" class="starter-grid"></div>
+    <button type="button" id="btnStarterBack" class="btn-secondary wide" style="margin-top:16px">Back</button>
   </section>
 
   <!-- ===================== CROSSROADS ===================== -->
@@ -246,7 +247,6 @@
   <!-- ===================== MENU (overlay) ===================== -->
   <div id="screenMenu" class="overlay" hidden>
     <div class="overlay-card menu-card">
-      <h3 class="picker-title"><span>Menu</span></h3>
       <div class="menu-list">
         <button type="button" id="btnMenuProfile" class="menu-item">
           <span id="menuAvatar" class="mi-ic avatar-ic"></span>
@@ -272,9 +272,9 @@
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/tm-normal.png" alt="">
           <span class="mi-t"><b>How it works</b><em>The full rule set</em></span>
         </button>
-        <button type="button" id="btnMenuQuit" class="menu-item danger">
+        <button type="button" id="btnMenuQuit" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/escape-rope.png" alt="">
-          <span class="mi-t"><b>Quit run</b><em>Abandon this run for good</em></span>
+          <span class="mi-t"><b>Back to title</b><em>Save is kept — continue anytime</em></span>
         </button>
       </div>
       <button type="button" id="btnMenuClose" class="btn-secondary wide">Close</button>

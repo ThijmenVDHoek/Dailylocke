@@ -132,6 +132,9 @@
       img.style.transformOrigin = '50% 100%';
       img.style.transform = 'scale(0.05)';
       img.style.opacity = '0';
+      // Also shrink the ground shadow disc to zero
+      var sh = this.s.e.sh;
+      if (sh) { sh.material.opacity = 0; sh.scale.set(0, 0, 1); }
     } catch (e) {}
   };
 
@@ -168,6 +171,9 @@
     if (!mg || !(mg.cm || mg.cx || mg.cy)) this._megaPick = null;
     return _origSetMoves.call(this, mv, mg, cb);
   };
+
+  // biomeKey is now handled by calling buildBiome directly after
+  // setupBattle in app.js, avoiding conflicts with _whenMounted.
 
   BU.prototype.setActions = function (cfg) {
     // cfg: {onFight,onBag,onBall,onSwitch,onRun, canRun, ballCount, itemCount, mode}

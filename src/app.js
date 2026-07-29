@@ -18,19 +18,36 @@
   // Sprite fallback chain. `shiny` swaps in Showdown's parallel -shiny
   // directories and PokeAPI's /shiny/ path; every tier of the chain has a
   // shiny twin, so a shiny never silently falls back to normal colours.
+  // True when a species is an alternate forme whose sprite differs from its
+  // base species. PokeAPI sprites are keyed by national dex number, so they
+  // always show the DEFAULT forme -- using them as a fallback for e.g.
+  // Sneasel-Hisui would silently show regular Sneasel.
+  function isForme(sp) {
+    return sp.exists && sp.baseSpecies && sp.baseSpecies !== sp.name;
+  }
+
   function spriteUrls(speciesId, isBack, shiny) {
     var urls = [];
     var sp = Dex.species.get(speciesId);
     var sd = String((sp.exists && sp.spriteid) || speciesId || 'unknown').toLowerCase().replace(/[^a-z0-9-]+/g, '');
     var num = sp.exists ? sp.num : 0;
+    var forme = isForme(sp);
     var bs = isBack ? '-back' : '';
     var sh = shiny ? '-shiny' : '';
     var pa = shiny ? 'shiny/' : '';
     function add(u) { if (u && urls.indexOf(u) < 0) urls.push(u); }
     add('https://play.pokemonshowdown.com/sprites/ani' + bs + sh + '/' + sd + '.gif');
-    if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/' + (isBack ? 'back/' : '') + pa + num + '.gif');
     add('https://play.pokemonshowdown.com/sprites/gen5' + bs + sh + '/' + sd + '.png');
-    if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + (isBack ? 'back/' : '') + pa + num + '.png');
+    // PokeAPI sprites use the national dex number which is identical across all
+    // formes of a species.  For alternate formes (Hisui, Alola, Galar, Paldea,
+    // regional variants, Rotom-Wash, Deoxys-Attack, etc.) these URLs always
+    // return the DEFAULT forme's sprite, so we skip them entirely.
+    if (!forme) {
+      if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/' + (isBack ? 'back/' : '') + pa + num + '.gif');
+      if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + (isBack ? 'back/' : '') + pa + num + '.png');
+      // Official artwork as last resort before the silhouette
+      if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/' + pa + num + '.png');
+    }
     // last resort: the non-shiny art, so something always renders
     if (shiny) spriteUrls(speciesId, isBack, false).forEach(add);
     return urls;
@@ -76,9 +93,13 @@
   // Still needed for <img> fallbacks on the big artwork sprites.
   function iconUrl(id) {
     var sp = Dex.species.get(id);
-    return sp.exists && sp.num
-      ? 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + sp.num + '.png'
-      : 'https://play.pokemonshowdown.com/sprites/gen5/' + id + '.png';
+    // Alternate formes share the national dex number with the base species,
+    // so the PokeAPI URL always returns the default forme's sprite.
+    // Prefer Showdown's gen5 static sprite which is keyed by spriteid.
+    if (isForme(sp) || !sp.num) {
+      return 'https://play.pokemonshowdown.com/sprites/gen5/' + id + '.png';
+    }
+    return 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + sp.num + '.png';
   }
 
   // The END of every sprite fallback chain: a bundled, offline-safe silhouette.
@@ -114,6 +135,19 @@
 
   function typeChips(types) {
     return types.map(function (t) { return '<span class="type type-' + t + '">' + t + '</span>'; }).join('');
+  }
+
+  // Small roster row for history tiles: party sprites in a tight row, with
+  // the MVP marked by a tiny gold pill.
+  function rosterRowHtml(roster, mvpId) {
+    if (!roster || !roster.length) return '';
+    return '<div class="hr-roster">' + roster.map(function (p) {
+      var isMvp = mvpId && p.id === mvpId;
+      return '<div class="hr-roster-mon">' +
+        animSprite(p.id, 28, 32, '', 1.4, p.shiny) +
+        (isMvp ? '<span class="hr-mvp-pill">MVP</span>' : '') +
+      '</div>';
+    }).join('') + '</div>';
   }
 
   // A large sprite that degrades through the whole fallback chain instead of
@@ -198,6 +232,10 @@
       var pick2 = C.pickN(pool, 2, Math.random);
       var A = pick2[0] || 'gengar', B = pick2[1] || 'nidorino';
       var sa = Dex.species.get(A), sb = Dex.species.get(B);
+      var titleBiomeKey = null;
+      if (profile && (profile.battlefield || 'dynamic') === 'match') {
+        titleBiomeKey = THEME_BIOME[(profile && profile.theme) || 'default'] || 'meadow';
+      }
       titleUI.setupBattle({
         player: { name: sa.name, lv: 100, types: sa.types.slice(), hp: 1, max: 100, st: null,
                   h: worldH(A), sid: sa.spriteid || A, num: sa.num, u: spriteUrls(A, true) },
@@ -206,6 +244,7 @@
         biomeSeed: 'title|' + A + '|' + B,
         biomeTypes: sa.types
       });
+      if (titleBiomeKey) titleUI.buildBiome(titleBiomeKey);
       titleUI.setMsg('');
       // Use the REAL battle slots and the real battle camera -- the whole
       // point is that the title looks like the game. `showcase` only strips
@@ -382,31 +421,22 @@
         try {
           fmt = D.parseKey(today).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
         } catch (e) {}
-        // Build Pokemon images for the glass button
-        var monsHtml = '';
-        if (result.mvp && result.mvp.id) {
-          monsHtml += '<div class="daily-mon">' + bigSprite(result.mvp.id, '', 38, 38, 1, false) + '</div>';
-        }
-        if (result.starter && result.starter.id) {
-          monsHtml += '<div class="daily-mon">' + bigSprite(result.starter.id, '', 38, 38, 1, false) + '</div>';
-        }
-        // Show party Pokemon if available in the result (we store lastDailyRun)
-        if (window._lastDailyParty) {
-          var party = window._lastDailyParty;
-          for (var pi = 0; pi < Math.min(party.length, 2); pi++) {
-            if (party[pi] && party[pi].id) {
-              monsHtml += '<div class="daily-mon">' + bigSprite(party[pi].id, '', 38, 38, 1, party[pi].shiny) + '</div>';
-            }
-          }
-        }
-        main.innerHTML = (monsHtml ? '<div class="daily-mons">' + monsHtml + '</div>' : '') +
-          '<div>' +
-          '<span class="daily-result-badge ' + result.outcome + '">' +
-          (result.outcome === 'complete' ? 'Cleared' : 'Fell at S' + result.sections) +
-          '</span>' +
-          '<div style="color:var(--ink-2);font-size:.78rem;margin-top:2px">' + fmt + '</div>' +
-          '</div>';
-        sub.innerHTML = '<span class="daily-score">Puzzle #' + result.n + ' \u00b7 Score: ' + result.score.toLocaleString() + '</span>';
+        // Build the hist-row style tile inside the button
+        var rosterHtml = rosterRowHtml(result.roster, result.mvp ? result.mvp.id : null);
+        main.innerHTML = '<div class="hr-main">' +
+          '<div class="hr-top">' +
+            '<b>' + fmt + '</b>' +
+            '<span class="hr-badge ' + result.outcome + '">' +
+              (result.outcome === 'complete' ? 'Cleared' : 'Fell at S' + result.sections) +
+            '</span>' +
+          '</div>' +
+          '<div class="hr-sub">' +
+            result.battles + ' battles \u00b7 ' +
+            result.caught + ' caught \u00b7 ' +
+            result.lost + ' lost' +
+          '</div>' +
+        '</div>' + rosterHtml;
+        sub.textContent = '';
       } else if (dailySave) {
         main.textContent = 'Resume Daily';
         sub.textContent = 'Section ' + (dailySave.section || 1) + ' of ' + D.SECTIONS +
@@ -494,6 +524,7 @@
     run.dailyNumber = opts.dailyNumber || 0;
     run.maxSections = opts.maxSections || 0;    // 0 = endless
     run.sectionMarks = [];                      // share-card squares
+    run.trainingPaidThisRound = false;
     var rand = C.mulberry32(seed ^ 0x1234);
     var pool = C.speciesPool().filter(function (id) {
       var b = C.bst(id);
@@ -526,7 +557,11 @@
         '<div class="ability">' + mon.ability + '</div>' +
         '<div class="movelist">' + mon.moves.map(function (m) {
           var d = Dex.moves.get(m);
-          return '<span class="mv-chip type-' + d.type + '" data-tip="move:' + d.id + '" tabindex="0">' + d.name + '</span>';
+          var pw = d.category === 'Status' ? 'Status' : (d.basePower ? 'Pow ' + d.basePower : '');
+          return '<div class="move-card-inline" data-tip="move:' + d.id + '" tabindex="0">' +
+            '<div class="mci-top"><span class="mv-chip type-' + d.type + '">' + d.type + '</span>' +
+            '<span class="mci-pw">' + pw + '</span></div>' +
+            '<span class="mci-name">' + d.name + '</span></div>';
         }).join('') + '</div>' +
         '<button class="btn-primary pick-btn">Choose</button>';
       card.querySelector('.pick-btn').addEventListener('click', function () {
@@ -808,17 +843,25 @@
   var SERVICE_PRICE = 2000;
 
   var NATURES = [
-    ['Adamant','Atk','SpA'], ['Modest','SpA','Atk'], ['Jolly','Spe','SpA'],
-    ['Timid','Spe','Atk'],   ['Bold','Def','Atk'],   ['Calm','SpD','Atk'],
-    ['Impish','Def','SpA'],  ['Careful','SpD','SpA'],['Brave','Atk','Spe'],
-    ['Quiet','SpA','Spe'],   ['Relaxed','Def','Spe'],['Sassy','SpD','Spe'],
-    ['Naive','Spe','SpD'],   ['Hasty','Spe','Def'],  ['Serious','\u2014','\u2014']
+    ['Hardy','\u2014','\u2014'],  ['Lonely','Atk','Def'],  ['Brave','Atk','Spe'],
+    ['Adamant','Atk','SpA'],    ['Naughty','Atk','SpD'],
+    ['Bold','Def','Atk'],       ['Docile','\u2014','\u2014'],['Relaxed','Def','Spe'],
+    ['Impish','Def','SpA'],     ['Lax','Def','SpD'],
+    ['Timid','Spe','Atk'],      ['Hasty','Spe','Def'],    ['Serious','\u2014','\u2014'],
+    ['Jolly','Spe','SpA'],      ['Naive','Spe','SpD'],
+    ['Modest','SpA','Atk'],     ['Mild','SpA','Def'],     ['Quiet','SpA','Spe'],
+    ['Bashful','\u2014','\u2014'],['Rash','SpA','SpD'],
+    ['Calm','SpD','Atk'],       ['Gentle','SpD','Def'],   ['Sassy','SpD','Spe'],
+    ['Careful','SpD','SpA'],    ['Quirky','\u2014','\u2014']
   ];
   var STAT_KEYS = [['hp','HP'],['atk','Atk'],['def','Def'],['spa','SpA'],['spd','SpD'],['spe','Spe']];
 
   function openTrainer(mon) {
-    if (run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
-    run.money -= SERVICE_PRICE;
+    if (!run.trainingPaidThisRound) {
+      if (run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
+      run.money -= SERVICE_PRICE;
+      run.trainingPaidThisRound = true;
+    }
     svc = { mon: mon, tab: 'moves', replaceSlot: null, all: null };
     renderHud(); saveGame();
     $('btnTutorBack').textContent = 'Done';
@@ -978,9 +1021,46 @@
     var MAXP = C.SP_MAX, TOTAL = C.SP_TOTAL;
     function used() { return C.spUsed(mon); }
 
+    // Compute base stats and final stats
+    var sp = Dex.species.get(mon.id);
+    var base = sp.exists ? sp.baseStats : {hp:100,atk:100,def:100,spa:100,spd:100,spe:100};
+    var natArr = NATURES.filter(function (n) { return n[0] === (mon.nature || 'Serious'); });
+    var natPlus = natArr.length ? natArr[0][1] : '\u2014';
+    var natMinus = natArr.length ? natArr[0][2] : '\u2014';
+
+    function finalStat(key) {
+      var b = base[key] || 100;
+      var ev = C.spToEv(mon.sp ? mon.sp[key] : 0);
+      var iv = 31;
+      if (key === 'hp') return Math.floor(((2 * b + iv + Math.floor(ev / 4)) * 100) / 100) + 100 + 10;
+      var nat = 1;
+      var label = {atk:'Atk',def:'Def',spa:'SpA',spd:'SpD',spe:'Spe'}[key];
+      if (natPlus === label) nat = 1.1;
+      else if (natMinus === label) nat = 0.9;
+      return Math.floor((Math.floor(((2 * b + iv + Math.floor(ev / 4)) * 100) / 100) + 5) * nat);
+    }
+
+    var statsTable = '<div class="stats-table">' +
+      '<div class="st-row st-head"><span></span><span class="st-base">Base</span><span class="st-ev">EVs</span><span class="st-fin">Final</span></div>' +
+      STAT_KEYS.map(function (k) {
+        var ev = mon.sp ? (mon.sp[k[0]] || 0) : 0;
+        var fin = finalStat(k[0]);
+        var label = {hp:'HP',atk:'Atk',def:'Def',spa:'SpA',spd:'SpD',spe:'Spe'}[k[0]];
+        var isPlus = natPlus === label, isMinus = natMinus === label;
+        var natClass = isPlus ? ' st-plus' : (isMinus ? ' st-minus' : '');
+        return '<div class="st-row' + natClass + '">' +
+          '<span class="st-name">' + k[1] + '</span>' +
+          '<span class="st-base">' + (base[k[0]] || 0) + '</span>' +
+          '<span class="st-ev">' + ev + '</span>' +
+          '<span class="st-fin">' + fin + '</span>' +
+          '</div>';
+      }).join('') +
+      '</div>';
+
     // Build once, then only patch values on input: re-rendering the whole
     // block mid-drag would tear the slider out from under the pointer.
     body.innerHTML =
+      statsTable +
       '<div class="sp-head">Stat Points left <b id="spLeft">0</b> <span>/ ' + TOTAL + '</span></div>' +
       STAT_KEYS.map(function (k) {
         var v = mon.sp[k[0]] || 0;
@@ -996,6 +1076,7 @@
 
     var leftEl = body.querySelector('#spLeft');
     var rows = [].slice.call(body.querySelectorAll('.sp-range'));
+    var stRows = [].slice.call(body.querySelectorAll('.st-row:not(.st-head)'));
 
     function paint() {
       var left = TOTAL - used();
@@ -1009,6 +1090,15 @@
         r.style.setProperty('--fill', (v / MAXP * 100) + '%');
         // a stat that cannot go any higher is worth showing as capped
         r.parentNode.classList.toggle('maxed', v >= MAXP);
+      });
+      // Update final stats in the table
+      stRows.forEach(function (row, idx) {
+        var k = STAT_KEYS[idx];
+        if (!k) return;
+        var evCell = row.querySelector('.st-ev');
+        var finCell = row.querySelector('.st-fin');
+        if (evCell) evCell.textContent = mon.sp ? (mon.sp[k[0]] || 0) : 0;
+        if (finCell) finCell.textContent = finalStat(k[0]);
       });
     }
 
@@ -1104,8 +1194,55 @@
     var dmg = Math.round(run.damageDealt[mon.uid] || 0);
     var kos = run.knockouts[mon.uid] || 0;
 
+    // Quick-switch party grid
+    var gridHtml = '<div class="pd-party-strip">';
+    for (var gi = 0; gi < run.party.length; gi++) {
+      var gm = run.party[gi];
+      var gSel = gi === partySel ? ' sel' : '';
+      var gPct = pctHP(gm.hpPct);
+      var gCol = gm.hpPct > 0.5 ? '#4ade80' : gm.hpPct > 0.2 ? '#facc15' : '#ef4444';
+      gridHtml += '<button class="pd-pslot' + gSel + '" data-gi="' + gi + '">' +
+        animSprite(gm.id, 34, 38, '', 1.4, gm.shiny) +
+        '<span class="pd-pslot-bar"><i style="width:' + gPct + '%;background:' + gCol + '"></i></span>' +
+        '</button>';
+    }
+    gridHtml += '</div>';
+
+    // Potion suggestion
+    var potionHtml = '';
+    if (mon.hpPct < 1 && !C.isFainted(mon)) {
+      var bestPotion = null;
+      var potionOrder = ['maxpotion', 'fullrestore', 'hyperpotion', 'superpotion', 'potion'];
+      for (var pi = 0; pi < potionOrder.length; pi++) {
+        if (run.bag[potionOrder[pi]] && run.bag[potionOrder[pi]] > 0) { bestPotion = potionOrder[pi]; break; }
+      }
+      if (bestPotion) {
+        potionHtml = '<button class="btn-secondary wide pd-potion-btn" data-potion="' + bestPotion + '">' +
+          (window.ItemArt ? window.ItemArt.itemImg(bestPotion, 18) : '') +
+          'Use ' + itemName(bestPotion) + '</button>';
+      }
+    }
+
+    // Ether suggestion
+    var etherHtml = '';
+    var needsEther = mon.moves.some(function (m) { return (mon.pp[m] || 0) <= 0; });
+    if (needsEther) {
+      var bestEther = run.bag['maxether'] ? 'maxether' : (run.bag['ether'] ? 'ether' : null);
+      if (bestEther) {
+        etherHtml = '<button class="btn-secondary wide pd-ether-btn" data-ether="' + bestEther + '">' +
+          (window.ItemArt ? window.ItemArt.itemImg(bestEther, 18) : '') +
+          'Use ' + itemName(bestEther) + '</button>';
+      }
+    }
+
+    // Train button text
+    var trainLabel = run.trainingPaidThisRound
+      ? 'Train more \u00b7 already paid this round'
+      : 'Train Pokemon \u00b7 $' + SERVICE_PRICE.toLocaleString();
+
     host.innerHTML =
       '<div class="party-detail">' +
+        gridHtml +
         '<div class="pd-hero">' +
           '<div class="pd-art">' + bigSprite(mon.id, '', 104, 104, 1, mon.shiny) + '</div>' +
           '<div class="pd-id">' +
@@ -1119,6 +1256,7 @@
           '<div class="hm-b big"><i style="width:' + pct + '%;background:' + col + '"></i></div>' +
           '<span>' + cur + ' / ' + mx + (mon.status ? '  \u00b7  ' + mon.status.toUpperCase() : '') + '</span>' +
         '</div>' +
+        potionHtml +
 
         '<div class="pd-facts">' +
           '<div class="pd-fact" data-tip="ability:' + mon.ability + '" tabindex="0"><span class="k">Ability</span><span class="v">' + mon.ability + '</span></div>' +
@@ -1126,6 +1264,31 @@
           '<div class="pd-fact"><span class="k">Damage</span><span class="v">' + dmg.toLocaleString() + '</span></div>' +
           '<div class="pd-fact"><span class="k">KOs</span><span class="v">' + kos + '</span></div>' +
         '</div>' +
+
+        '<div class="pd-actions">' +
+          '<button class="btn-primary pd-train"><img class="ic-train-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/power-bracer.png" alt="">' + trainLabel + '</button>' +
+          (partySel > 0 ? '<button class="btn-secondary pd-lead">Make lead</button>' : '') +
+        '</div>' +
+
+        '<div class="pd-sec"><div class="pd-label">Moves</div>' +
+          '<div class="pd-moves">' + mon.moves.map(function (m) {
+            var mv = Dex.moves.get(m);
+            var mxpp = Math.floor(mv.pp * 1.6);
+            var have = mon.pp[m] != null ? mon.pp[m] : mxpp;
+            var low = have / mxpp < 0.25;
+            var frac = mxpp ? have / mxpp : 0;
+            var ppCol = low ? '#ef4444' : '#fff';
+            var pw = mv.category === 'Status' ? 'Status' : (mv.basePower ? 'Pow ' + mv.basePower : '');
+            return '<div class="pd-move" data-tip="move:' + mv.id + '" tabindex="0">' +
+              '<div class="pd-move-top"><span class="mv-chip type-' + mv.type + '">' + mv.type + '</span>' +
+              '<span class="pd-mv-pw">' + pw + '</span></div>' +
+              '<span class="pd-mn">' + mv.name + '</span>' +
+              '<div class="pd-mp-bar"><div class="pd-mp-track"><div class="pd-mp-fill" style="width:' + (frac * 100) + '%;background:' + ppCol + '"></div></div>' +
+              '<span class="pd-mp' + (low ? ' low' : '') + '">' + have + '/' + mxpp + '</span></div>' +
+              '</div>';
+          }).join('') + '</div>' +
+        '</div>' +
+        etherHtml +
 
         '<div class="pd-sec"><div class="pd-label">Held item</div>' +
           (mon.item
@@ -1135,34 +1298,57 @@
             : '<div class="pd-empty">Nothing held \u2014 give one from your Bag.</div>') +
         '</div>' +
 
-        '<div class="pd-sec"><div class="pd-label">Moves</div>' +
-          '<div class="pd-moves">' + mon.moves.map(function (m) {
-            var mv = Dex.moves.get(m);
-            var mxpp = Math.floor(mv.pp * 1.6);
-            var have = mon.pp[m] != null ? mon.pp[m] : mxpp;
-            var low = have / mxpp < 0.25;
-            return '<div class="pd-move" data-tip="move:' + mv.id + '" tabindex="0">' +
-              '<span class="mv-chip type-' + mv.type + '">' + mv.type + '</span>' +
-              '<span class="pd-mn">' + mv.name + '</span>' +
-              '<span class="pd-mp' + (low ? ' low' : '') + '">' + have + '/' + mxpp + '</span>' +
-              '</div>';
-          }).join('') + '</div>' +
-        '</div>' +
-        '<button type="button" class="btn-secondary wide pd-close">Close</button>' +
-
         evoRowHtml(mon, partySel) +
         formeRowHtml(mon) +
 
-        '<div class="pd-actions">' +
-          '<button class="btn-primary pd-train"><span class="ic-train"></span>Train Pokemon \u00b7 $' +
-            SERVICE_PRICE.toLocaleString() + '</button>' +
-          (partySel > 0 ? '<button class="btn-secondary pd-lead">Make lead</button>' : '') +
-        '</div>' +
+        '<button type="button" class="btn-secondary wide pd-close">Close</button>' +
       '</div>';
 
+    // Party grid click handlers
+    host.querySelectorAll('.pd-pslot').forEach(function (b) {
+      b.addEventListener('click', function () {
+        partySel = +b.dataset.gi;
+        drawPartyDetail();
+      });
+    });
     var close = host.querySelector('.pd-close');
     if (close) close.addEventListener('click', function () {
       window.Modal.close('xTeamDetail');
+    });
+    // Potion button
+    var potionBtn = host.querySelector('.pd-potion-btn');
+    if (potionBtn) potionBtn.addEventListener('click', function () {
+      var itemId = potionBtn.dataset.potion;
+      var h = C.HEAL_ITEMS[itemId];
+      if (!h || !h.healPct) return;
+      var amount = Math.max(1, Math.round(mx * h.healPct));
+      var got = Math.min(mx - cur, amount);
+      if (got <= 0) { toast('Already at full HP.'); return; }
+      N.useItem(run, itemId);
+      mon.hpPct = Math.min(1, mon.hpPct + got / mx);
+      toast(mon.name + ' recovered ' + got + ' HP!');
+      saveGame(); drawPartyDetail(); drawTeamStrip(); renderHud();
+    });
+    // Ether button
+    var etherBtn = host.querySelector('.pd-ether-btn');
+    if (etherBtn) etherBtn.addEventListener('click', function () {
+      var itemId = etherBtn.dataset.ether;
+      var h = C.HEAL_ITEMS[itemId];
+      if (!h) return;
+      var restored = false;
+      for (var ei = 0; ei < mon.moves.length; ei++) {
+        var mvId = mon.moves[ei];
+        if ((mon.pp[mvId] || 0) <= 0) {
+          var maxpp = Math.floor(Dex.moves.get(mvId).pp * 1.6);
+          mon.pp[mvId] = h.pp === 999 ? maxpp : Math.min(maxpp, (h.pp || 10));
+          restored = true;
+          break;
+        }
+      }
+      if (!restored) { toast('All moves have PP.'); return; }
+      N.useItem(run, itemId);
+      toast('PP restored!');
+      saveGame(); drawPartyDetail();
     });
     // Backdrop clicks and Escape are handled by the shared modal controller.
     var take = host.querySelector('[data-take]');
@@ -1170,11 +1356,11 @@
       N.addItem(run, mon.item, 1);
       toast('Took the ' + itemName(mon.item) + '.');
       mon.item = '';
-      renderCrossroads(); saveGame();
+      renderCrossroads(); saveGame(); drawPartyDetail();
     });
     var train = host.querySelector('.pd-train');
     if (train) train.addEventListener('click', function () {
-      if (run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
+      if (!run.trainingPaidThisRound && run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
       window.Modal.close('xTeamDetail');
       openTrainer(mon);
     });
@@ -1351,7 +1537,33 @@
     window.Modal.open('screenAvatarPicker');
   }
   function closeAvatarPicker() { window.Modal.close('screenAvatarPicker'); }
-  function applyTheme() { if (!profile) return; var choice = THEMES.filter(function (t) { return t.id === profile.theme; })[0] || THEMES[0]; profile.theme = choice.id; Object.keys(choice.p).forEach(function (k) { document.documentElement.style.setProperty(k, choice.p[k]); }); document.documentElement.style.setProperty('--cta', '#ffffff'); document.documentElement.style.setProperty('--cta-hi', '#ffffff'); document.documentElement.style.setProperty('--cta-text', '#080a12'); document.documentElement.style.setProperty('--title-ring', choice.id === 'default' ? '#ffffff' : (choice.p['--blue'] || '#ffffff')); }
+  function applyTheme() {
+    if (!profile) return;
+    var choice = THEMES.filter(function (t) { return t.id === profile.theme; })[0] || THEMES[0];
+    profile.theme = choice.id;
+    Object.keys(choice.p).forEach(function (k) { document.documentElement.style.setProperty(k, choice.p[k]); });
+    // CTA buttons use the theme's accent color (dot) instead of always white.
+    // Default theme stays white for the classic look.
+    var cta = choice.dot || '#ffffff';
+    document.documentElement.style.setProperty('--cta', cta);
+    document.documentElement.style.setProperty('--cta-hi', cta);
+    // Readable text: dark on light accents, white on dark accents.
+    var isLight = choice.id === 'default' || choice.id === 'electric' ||
+                  choice.id === 'ground' || choice.id === 'ice' ||
+                  choice.id === 'normal' || choice.id === 'steel';
+    document.documentElement.style.setProperty('--cta-text', isLight ? '#080a12' : '#ffffff');
+    document.documentElement.style.setProperty('--title-ring', choice.id === 'default' ? '#ffffff' : (choice.p['--blue'] || '#ffffff'));
+  }
+
+  // Map each theme to a battlefield biome for "Match theme" mode.
+  var THEME_BIOME = {
+    'default': 'meadow', 'normal': 'plains', 'fire': 'volcano',
+    'water': 'beach', 'electric': 'powerplant', 'grass': 'forest',
+    'ice': 'snow', 'fighting': 'dojo', 'poison': 'swamp',
+    'ground': 'canyon', 'flying': 'skyclouds', 'psychic': 'psychic',
+    'bug': 'garden', 'rock': 'rocky', 'ghost': 'graveyard',
+    'dragon': 'ruins', 'dark': 'void', 'steel': 'factory', 'fairy': 'glade'
+  };
 
   function updateMenuAvatar() {
     var src = avatarUrl((profile && profile.avatar) || 'red');
@@ -1363,15 +1575,22 @@
     closeMenu(); loadProfile(); applyTheme(); updateMenuAvatar();
     var shinies = profile.shinies.length, av = profile.avatar || 'red';
     var cur = run && !run.over ? '<div class="prof-now"><div class="pd-label">Current run</div><div class="prof-grid">' + statCard(run.battlesWon || 0, 'Battles won') + statCard('S' + (run.section || 1), 'Section') + statCard(run.caught || 0, 'Caught') + statCard('$' + (run.money || 0).toLocaleString(), 'Cash') + '</div></div>' : '<p class="hint center">No run in progress.</p>';
+    var bf = profile.battlefield || 'dynamic';
     $('profBody').innerHTML = '<div class="profile-hero"><div class="profile-avatar"><img src="' + avatarUrl(av) + '" alt="Avatar"></div><div style="flex:1"><div class="profile-name">Trainer Profile</div><div class="profile-sub">Customize your look and game theme</div></div><button id="editAvatar" class="btn-mini">Edit sprite</button></div>' +
       '' +
       '<div class="profile-section">Theme</div><div class="theme-grid">' + THEMES.map(function (t) { return '<button class="theme-choice' + (t.id === (profile.theme || 'default') ? ' on' : '') + '" data-theme="' + t.id + '" style="--theme-dot:' + t.dot + '"><span class="theme-dot"></span>' + t.name + '</button>'; }).join('') + '</div>' +
+      '<div class="profile-section">Battlefield</div>' +
+      '<div class="bf-toggle">' +
+        '<button class="bf-btn' + (bf === 'dynamic' ? ' on' : '') + '" data-bf="dynamic"><b>Dynamic</b><span>Biome from enemy types</span></button>' +
+        '<button class="bf-btn' + (bf === 'match' ? ' on' : '') + '" data-bf="match"><b>Match theme</b><span>Battlefield follows your theme</span></button>' +
+      '</div>' +
       '<div class="profile-section">Sound</div><div class="vol-group">' + volumeRow('music', 'Music', 'Battle themes') + volumeRow('sfx', 'Sound effects', 'Cries and battle sounds') + '</div>' +
       '<div class="profile-section">Career</div><div class="prof-grid big">' + statCard(profile.totalRuns, 'Runs played') + statCard(profile.bestBattles, 'Best battles') + statCard('S' + profile.bestSection, 'Furthest') + statCard(shinies, 'Shinies') + '</div>' + cur;
     $('editAvatar').onclick = openAvatarPicker;
     wireVolumeRows($('profBody'));
     // Full gallery is rendered only inside the dedicated sheet.
     $('profBody').querySelectorAll('[data-theme]').forEach(function (b) { b.onclick = function () { profile.theme = b.dataset.theme; saveProfile(); applyTheme(); showProfile(); }; });
+    $('profBody').querySelectorAll('[data-bf]').forEach(function (b) { b.onclick = function () { profile.battlefield = b.dataset.bf; saveProfile(); showProfile(); }; });
     show('Profile');
   }
 
@@ -1526,22 +1745,18 @@
       return '<div class="hist-row">' +
         '<div class="hr-main">' +
           '<div class="hr-top">' +
+            '<b>' + fmt + '</b>' +
             '<span class="hr-badge ' + r.outcome + '">' +
               (r.outcome === 'complete' ? 'Cleared' : 'Fell at S' + r.sections) +
             '</span>' +
-            '<b>' + fmt + '</b>' +
           '</div>' +
           '<div class="hr-sub">' +
-            'Puzzle #' + r.n + ' \u00b7 ' +
-            'Score: ' + r.score.toLocaleString() + ' \u00b7 ' +
             r.battles + ' battles \u00b7 ' +
             r.caught + ' caught \u00b7 ' +
             r.lost + ' lost' +
           '</div>' +
-          (r.marks && r.marks.length ? '<div class="hr-marks">' + r.marks.join('') + '</div>' : '') +
         '</div>' +
-        (r.mvp ? '<div class="hr-mvp">' + animSprite(r.mvp.id, 40, 46, '', 1.45) +
-                 '<span>' + escapeHtml(r.mvp.name) + '</span></div>' : '') +
+        rosterRowHtml(r.roster, r.mvp ? r.mvp.id : null) +
       '</div>';
     }).join('');
     return html;
@@ -1559,8 +1774,8 @@
       return '<div class="hist-row">' +
         '<div class="hr-main">' +
           '<div class="hr-top">' +
-            '<span class="hr-badge wipe">Fell at S' + r.section + '</span>' +
             '<b>' + fmt + '</b>' +
+            '<span class="hr-badge wipe">Fell at S' + r.section + '</span>' +
           '</div>' +
           '<div class="hr-sub">' +
             'Run #' + (h.length - i) + ' \u00b7 ' +
@@ -1569,8 +1784,7 @@
             r.trainers + ' trainers' +
           '</div>' +
         '</div>' +
-        (r.mvp ? '<div class="hr-mvp">' + animSprite(r.mvp.id, 40, 46, '', 1.45) +
-                 '<span>' + escapeHtml(r.mvp.name) + '</span></div>' : '') +
+        rosterRowHtml(r.roster, r.mvp ? r.mvp.id : null) +
       '</div>';
     }).join('');
   }
@@ -1813,7 +2027,13 @@
     if (!host) throw new Error('battle host element is missing');
     if (!window.BattleUI) throw new Error('battle renderer failed to load');
     host.innerHTML = '';
-    host._bm = null;                    // clear any stale mount marker
+    host._bm = null;
+    // Force a reflow so the host reports real dimensions. Without this,
+    // show('Battle') just removed [hidden] and the browser hasn't laid out
+    // #battleHost yet — mount() would see 0×0 and defer via rAF, causing
+    // setupBattle to queue and the battle to appear stuck (no biome, no
+    // sprites, no moves).
+    void host.offsetHeight;
     ui = new window.BattleUI(); ui.mount(host);
     return ui;
   }
@@ -1894,6 +2114,7 @@
     run.party.forEach(function (m) { N.trackMon(run, m); });
 
     bctx = { cfg: cfg, enemies: cfg.enemies, caught: false, ended: false };
+    run.trainingPaidThisRound = false;
     // A fresh, randomly chosen track per battle — rival themes for wilds,
     // trainer themes for trainers, the two "final" themes for bosses.
     if (window.GameAudio) {
@@ -1923,6 +2144,12 @@
       biomeSeed: run.seed + '|' + run.section + '|' + run.battleInSection,
       biomeTypes: e.types
     });
+    // "Match theme" overrides the random biome after setupBattle picks one.
+    try {
+      var biomeKey = profile && (profile.battlefield || 'dynamic') === 'match'
+        ? THEME_BIOME[profile.theme || 'default'] || 'meadow' : null;
+      if (biomeKey) u.buildBiome(biomeKey);
+    } catch (_) { /* profile may be null on first run */ }
     if (!cfg.isWild) u.log(cfg.trainer.name + ' ' + cfg.trainer.tag);
     if (cfg.isWild && cfg.enemies[0] && cfg.enemies[0].shiny) {
       // A shiny outranks the ordinary catch banner: it is always catchable and
@@ -2018,7 +2245,7 @@
       case '-boost': case '-unboost': return 700;
       case '-weather': case '-fieldstart': case '-fieldend': return 800;
       case '-start': case '-end': case '-activate': case '-item': case '-enditem':
-      case '-ability': case '-sidestart': case '-sideend': case '-singleturn':
+      case '-ability': case '-sidestart': case '-sideend': case '-singleturn': case '-transform':
         return 750;
       case 'cant': return 900;
       case 'turn': return 120;
@@ -2149,7 +2376,8 @@
         var swMon = isP ? battle.activeMon() : (bctx && bctx.enemies && bctx.enemies[0]);
         var swShiny = !!(swMon && swMon.shiny);
         var pay = { name: shown, types: sp.types.slice(), h: worldH(sp.id),
-                    sid: sp.spriteid || sp.id, num: sp.num, u: spriteUrls(sp.id, isP, swShiny) };
+                    sid: sp.spriteid || sp.id, num: sp.num, u: spriteUrls(sp.id, isP, swShiny),
+                    silent: opening };
         if (isP) ui.setPlayer(pay); else ui.setEnemy(pay);
       }
       ui.setHp(isP ? 'p' : 'e', RB.parseHp(p[3]));
@@ -2182,6 +2410,33 @@
         var mon2 = dIsP ? battle.activeMon() : null;
         if (mon2) { mon2.megaForme = dsp.id; mon2.types = dsp.types.slice(); }
       }
+    } else if (cmd === '-transform') {
+      // Transform (move) or Imposter: copy the target's visual appearance onto
+      // the source Pokemon.  The engine already updated its internal state; we
+      // just need to sync the 3D sprite, types, height and species label.
+      var tSrcP = sideOf(p[1]) === 'p';
+      var tTgtP = sideOf(p[2]) === 'p';
+      var tSrc = tSrcP ? ui.s.p : ui.s.e;
+      var tTgt = tTgtP ? ui.s.p : ui.s.e;
+      if (tSrc && tTgt && tTgt.sid) {
+        var tIsShiny = !!(tSrc.url && tSrc.url.indexOf('shiny') >= 0);
+        var tPay = {
+          name: tSrc.name,
+          types: (tTgt.types || []).slice(),
+          h: tTgt.h || 2.4,
+          sid: tTgt.sid,
+          num: tTgt.num,
+          u: spriteUrls(tTgt.sid, tSrcP, tIsShiny)
+        };
+        if (tSrcP) ui.setPlayer(tPay); else ui.setEnemy(tPay);
+        if (ui.setSpeciesLabels) {
+          var tSp = C.cleanName(tTgt.sid);
+          if (tSrcP) ui.setSpeciesLabels(tSp, null);
+          else ui.setSpeciesLabels(null, (bctx && bctx.cfg && bctx.cfg.isWild ? 'Wild ' : '') + tSp);
+        }
+        if (ui.render) ui.render();
+      }
+      say(nameFromIdent(p[1]) + ' transformed!');
     } else if (cmd === '-mega') {
       var mIsP = sideOf(p[1]) === 'p';
       var mSide = mIsP ? 'p' : 'e';
@@ -2213,6 +2468,31 @@
       say(nameFromIdent(p[1]) + ' ' + (START_TEXT[sk] || ('was affected by ' + effectText(p[2]))) + '!');
     } else if (cmd === '-end') {
       var ek = volatileKey(p[2]);
+      // Illusion breaking: the disguised Pokemon reverts to its real species.
+      // Update the 3D sprite, types, and species label to match.
+      if (ek === 'illusion') {
+        var ilIsP = sideOf(p[1]) === 'p';
+        var ilMon = ilIsP ? battle.activeMon() : (bctx && bctx.enemies && bctx.enemies[0]);
+        if (ilMon) {
+          var ilSp = Dex.species.get(ilMon.id || ilMon.species);
+          if (ilSp && ilSp.exists) {
+            var ilPay = {
+              name: ilMon.name || C.cleanName(ilSp.id),
+              types: ilSp.types.slice(),
+              h: worldH(ilSp.id),
+              sid: ilSp.spriteid || ilSp.id,
+              num: ilSp.num,
+              u: spriteUrls(ilSp.id, ilIsP, !!ilMon.shiny)
+            };
+            if (ilIsP) ui.setPlayer(ilPay); else ui.setEnemy(ilPay);
+            if (ui.setSpeciesLabels) {
+              if (ilIsP) ui.setSpeciesLabels(C.cleanName(ilSp.id), null);
+              else ui.setSpeciesLabels(null, (bctx && bctx.cfg && bctx.cfg.isWild ? 'Wild ' : '') + C.cleanName(ilSp.id));
+            }
+            if (ui.render) ui.render();
+          }
+        }
+      }
       say(nameFromIdent(p[1]) + ' ' + (END_TEXT[ek] || ('is no longer affected by ' + effectText(p[2]))) + '.');
     } else if (cmd === '-activate') {
       say(nameFromIdent(p[1]) + ': ' + effectText(p[2]) + '!');
@@ -2648,6 +2928,9 @@
   }
 
   function ballAnim(ballId, shakes, caught, done) {
+    // Cap visual shakes at 3 — the engine uses 4 checks for probability but
+    // the player only ever sees at most 3 wobbles.
+    shakes = Math.min(3, shakes);
     var host = $('battleHost');
     var target = enemyRect();
     if (!host || !target) { done(); return; }
@@ -2804,7 +3087,11 @@
       '<div class="ability" style="margin:6px 0;opacity:0.8;">' + clone.ability + '</div>' +
       '<div class="movelist">' + clone.moves.map(function (m) {
         var d = Dex.moves.get(m);
-        return '<span class="mv-chip type-' + d.type + '">' + d.name + '</span>';
+        var pw = d.category === 'Status' ? 'Status' : (d.basePower ? 'Pow ' + d.basePower : '');
+        return '<div class="move-card-inline">' +
+          '<div class="mci-top"><span class="mv-chip type-' + d.type + '">' + d.type + '</span>' +
+          '<span class="mci-pw">' + pw + '</span></div>' +
+          '<span class="mci-name">' + d.name + '</span></div>';
       }).join('') + '</div></div></div>' +
       '<p class="hint">It keeps the HP, PP and status it had when caught.</p>' +
       '<p class="reward-money">+$' + money + '</p>';
@@ -3081,7 +3368,10 @@
       score: Math.max(0, score),
       starter: run.starterMeta || null,
       mvp: m ? { id: m.id, name: m.name, damage: m.damage } : null,
-      marks: (run.sectionMarks || []).filter(Boolean)
+      marks: (run.sectionMarks || []).filter(Boolean),
+      roster: (run.party || []).concat(run.graveyard || []).map(function (p) {
+        return { id: p.id, name: p.name, shiny: !!p.shiny };
+      })
     });
 
     // The all-time profile still records it, exactly like a Free Play run.
@@ -3408,7 +3698,10 @@
       at: Date.now(), battles: run.battlesWon || 0, section: run.section || 0,
       caught: run.caught || 0, trainers: run.trainersBeaten || 0,
       mvp: m ? { id: m.id, name: m.name, damage: m.damage } : null,
-      seed: run.seed
+      seed: run.seed,
+      roster: (run.party || []).concat(run.graveyard || []).map(function (p) {
+        return { id: p.id, name: p.name, shiny: !!p.shiny };
+      })
     });
     // a long history is just noise; keep the most recent 50 runs
     if (profile.history.length > 50) profile.history.length = 50;
@@ -3518,6 +3811,25 @@
     saveProfile();
   }
 
+  // Merge imported history into the profile, deduplicating by timestamp.
+  function mergeHistory(imported) {
+    if (!Array.isArray(imported) || !imported.length) return;
+    loadProfile();
+    var existing = profile.history || [];
+    var seen = {};
+    existing.forEach(function (r) { seen[r.at] = true; });
+    imported.forEach(function (r) {
+      if (!r || !r.at) return;
+      if (seen[r.at]) return;
+      existing.push(r);
+      seen[r.at] = true;
+    });
+    existing.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+    if (existing.length > 50) existing.length = 50;
+    profile.history = existing;
+    saveProfile();
+  }
+
   // Apply a decoded save object: validate -> migrate -> revive -> persist.
   // Never throws; returns { ok: true } or { ok: false, error } for the UI.
   function loadGameState(saveData) {
@@ -3539,6 +3851,10 @@
         saveProfile();
         applyTheme();
         updateMenuAvatar();
+      }
+      // Merge history if present in save code
+      if (saveData._history) {
+        mergeHistory(saveData._history);
       }
       saveGame();                          // persist to THIS device's storage
       setContinueState();                  // title button reflects the import
@@ -3587,6 +3903,7 @@
         if (profile.shinies && profile.shinies.length) slim._shiny = profile.shinies;
         if (profile.avatar) slim._avatar = profile.avatar;
         if (profile.theme) slim._theme = profile.theme;
+        if (profile.history && profile.history.length) slim._history = profile.history;
       }
     } catch (e) {}
     var code = SC.encode(slim);
@@ -3762,6 +4079,7 @@
     }
 
     $('btnGoBattle').addEventListener('click', startNextBattle);
+    $('btnStarterBack').addEventListener('click', function () { show('Title'); setContinueState(); });
     $('btnTutorBack').addEventListener('click', function () {
       svc = null; renderCrossroads(); show('Crossroads');
     });
@@ -3859,9 +4177,7 @@
     $('btnMenuImport').addEventListener('click', function () { closeMenu(); openSaveImport(); });
     $('btnRulesBack').addEventListener('click', backToRoute);
     $('btnMenuQuit').addEventListener('click', function () {
-      if (confirm('Abandon this run? Your team is lost.')) {
-        closeMenu(); clearSave(); run = null; show('Title'); setContinueState();
-      }
+      closeMenu(); show('Title'); setContinueState();
     });
     $('btnProfBack').addEventListener('click', backToRoute);
     $('btnShinyBack').addEventListener('click', backToRoute);
