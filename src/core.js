@@ -198,43 +198,137 @@
     return out;
   }
 
-  // Build a competent 4-move set: best STAB attacker moves + coverage.
-  async function autoMoveset(speciesId) {
+  // ------------------------------------------------------------- ROLES -----
+  // Four damaging moves on everything made every Pokemon play the same. A ROLE
+  // reserves slots for the utility that actually creates decisions: recovery
+  // on a wall, a setup move on a sweeper, a pivot's switch move, hazards on a
+  // lead. STAB is always required so a set never loses its identity.
+  //
+  // Each role declares how many attacks it wants and which utility categories
+  // it will spend the remaining slots on, in priority order.
+  var ROLES = {
+    sweeper:   { attacks: 3, wants: ['setup'] },
+    wall:      { attacks: 2, wants: ['recovery', 'status', 'hazard'] },
+    pivot:     { attacks: 3, wants: ['pivot'] },
+    disruptor: { attacks: 2, wants: ['status', 'disrupt', 'recovery'] },
+    weather:   { attacks: 3, wants: ['weather'] },
+    hazard:    { attacks: 2, wants: ['hazard', 'status', 'pivot'] },
+    priority:  { attacks: 4, wants: [] },
+    setup:     { attacks: 3, wants: ['setup'] },
+    attacker:  { attacks: 4, wants: [] }
+  };
+
+  // Status moves worth a slot, grouped by what they DO. Anything not listed
+  // stays out of generated sets -- a random Splash helps nobody.
+  var UTILITY = {
+    recovery: ['recover', 'roost', 'softboiled', 'moonlight', 'morningsun', 'synthesis',
+               'slackoff', 'milkdrink', 'shoreup', 'rest', 'strengthsap', 'wish'],
+    setup:    ['swordsdance', 'nastyplot', 'dragondance', 'calmmind', 'bulkup', 'quiverdance',
+               'shellsmash', 'irondefense', 'agility', 'rockpolish', 'growth', 'workup',
+               'honeclaws', 'curse', 'bellydrum', 'tailglow', 'victorydance'],
+    status:   ['thunderwave', 'willowisp', 'toxic', 'glare', 'sleeppowder', 'spore',
+               'hypnosis', 'yawn', 'confuseray', 'leechseed', 'darkvoid'],
+    disrupt:  ['taunt', 'encore', 'disable', 'haze', 'roar', 'whirlwind', 'trick',
+               'switcheroo', 'destinybond', 'perishsong', 'trickroom', 'painsplit'],
+    pivot:    ['uturn', 'voltswitch', 'flipturn', 'partingshot', 'teleport', 'batonpass'],
+    hazard:   ['stealthrock', 'spikes', 'toxicspikes', 'stickyweb', 'defog', 'rapidspin'],
+    weather:  ['sunnyday', 'raindance', 'sandstorm', 'snowscape', 'chillyreception']
+  };
+
+  // Score a damaging move for a given species/role.
+  function scoreAttack(m, s, physical, role) {
+    if (m.category === 'Status') return -1;
+    if (!m.basePower) return -1;
+    if (TRAP_MOVES[m.id]) return -1;
+    var acc = m.accuracy === true ? 100 : m.accuracy;
+    if (acc < 75) return -1;
+    if (m.selfdestruct) return -1;
+    if (m.flags && m.flags.recharge) return -1;
+    if (m.flags && m.flags.charge) return -1;
+    var fits = (m.category === 'Physical') === physical;
+    var bp = m.basePower;
+    if (m.multihit) bp *= (typeof m.multihit === 'number' ? m.multihit : 3);
+    var sc = bp * (acc / 100) * (fits ? 1.35 : 0.7);
+    if (s.types.indexOf(m.type) >= 0) sc *= 1.5;
+    if (m.recoil) sc *= 0.85;
+    if (m.priority > 0) sc *= (role === 'priority' ? 1.45 : 1.1);
+    if (m.secondary || m.secondaries) sc *= 1.05;
+    // A wall that carries one strong attack is better served by a reliable
+    // one than a glass-cannon nuke it will never survive to use twice.
+    if (role === 'wall' && m.basePower > 110) sc *= 0.8;
+    return sc;
+  }
+
+  // Pick the best available move from a utility category the species can learn.
+  function pickUtility(category, learnable, chosen, s) {
+    var list = UTILITY[category] || [];
+    for (var i = 0; i < list.length; i++) {
+      var id = list[i];
+      if (chosen.indexOf(id) >= 0) continue;
+      if (!learnable[id]) continue;
+      var m = Dex.moves.get(id);
+      if (!m || !m.exists) continue;
+      // Rest without a way to wake up is a trap; only give it to a wall that
+      // has nothing better, which the ordering above already handles.
+      if (id === 'rest' && s.baseStats.hp < 70) continue;
+      return id;
+    }
+    return null;
+  }
+
+  // Build a competent 4-move set. With no role this is the old behaviour
+  // (best STAB attackers + coverage); with one it reserves utility slots.
+  async function autoMoveset(speciesId, opts) {
+    opts = opts || {};
+    var role = opts.role && ROLES[opts.role] ? opts.role : null;
+    var spec = role ? ROLES[role] : null;
     var s = Dex.species.get(speciesId);
     var all = await legalMoves(speciesId);
     var physical = s.baseStats.atk >= s.baseStats.spa;
+
+    var learnable = {};
+    for (var n = 0; n < all.length; n++) learnable[all[n]] = 1;
+
     var scored = [];
     for (var i = 0; i < all.length; i++) {
       var m = Dex.moves.get(all[i]);
-      if (m.category === 'Status') continue;
-      if (!m.basePower) continue;
-      if (TRAP_MOVES[m.id]) continue;
-      var acc = m.accuracy === true ? 100 : m.accuracy;
-      if (acc < 75) continue;
-      if (m.selfdestruct) continue;
-      if (m.flags && m.flags.recharge) continue;
-      if (m.flags && m.flags.charge) continue;
-      var fits = (m.category === 'Physical') === physical;
-      var bp = m.basePower;
-      if (m.multihit) bp *= (typeof m.multihit === 'number' ? m.multihit : 3);
-      var sc = bp * (acc / 100) * (fits ? 1.35 : 0.7);
-      if (s.types.indexOf(m.type) >= 0) sc *= 1.5;
-      if (m.recoil) sc *= 0.85;
-      if (m.priority > 0) sc *= 1.1;
-      if (m.secondary || m.secondaries) sc *= 1.05;
-      scored.push({ id: m.id, type: m.type, sc: sc });
+      var sc = scoreAttack(m, s, physical, role);
+      if (sc < 0) continue;
+      scored.push({ id: m.id, type: m.type, sc: sc, stab: s.types.indexOf(m.type) >= 0 });
     }
     scored.sort(function (a, b) { return b.sc - a.sc; });
-    var out = [], typesUsed = {};
+
+    var out = [];
+    // 1. STAB is mandatory. A Fire type without a Fire move is not a Fire type.
+    var bestStab = null;
+    for (var q = 0; q < scored.length; q++) if (scored[q].stab) { bestStab = scored[q]; break; }
+    if (bestStab) out.push(bestStab.id);
+
+    // 2. Utility slots, in the role's own priority order.
+    if (spec) {
+      var slots = Math.max(0, 4 - spec.attacks);
+      for (var w = 0; w < spec.wants.length && out.length < 1 + slots; w++) {
+        var pick = pickUtility(spec.wants[w], learnable, out, s);
+        if (pick) out.push(pick);
+      }
+    }
+
+    // 3. Fill what's left with the best attacks, preferring type coverage.
+    var typesUsed = {};
+    out.forEach(function (id) {
+      var mv = Dex.moves.get(id);
+      if (mv && mv.basePower) typesUsed[mv.type] = 1;
+    });
     for (var j = 0; j < scored.length && out.length < 4; j++) {
       var c = scored[j];
+      if (out.indexOf(c.id) >= 0) continue;
       if (typesUsed[c.type] && out.length < 3) continue; // encourage coverage
       typesUsed[c.type] = 1; out.push(c.id);
     }
     for (var k = 0; k < scored.length && out.length < 4; k++)
       if (out.indexOf(scored[k].id) < 0) out.push(scored[k].id);
     if (!out.length) out = ['tackle'];
-    return out;
+    return out.slice(0, 4);
   }
 
   // ------------------------------------------------------- MON FACTORY ----
@@ -242,7 +336,7 @@
   async function makeMon(speciesId, opts) {
     opts = opts || {};
     var s = Dex.species.get(speciesId);
-    var moves = opts.moves || await autoMoveset(speciesId);
+    var moves = opts.moves || await autoMoveset(speciesId, { role: opts.role });
     var abils = [];
     for (var k in s.abilities) if (s.abilities[k]) abils.push(s.abilities[k]);
     var mon = {
@@ -259,6 +353,9 @@
       evs: opts.evs || { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
       sp: opts.sp || null,   // Stat Points; derived from evs on first use
       ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 },
+      // The strategic role this set was built around ('sweeper', 'wall', ...).
+      // The AI reads it to play the set the way it was designed.
+      role: opts.role || null,
       // persistent run state
       hpPct: 1,
       status: '',
@@ -274,13 +371,15 @@
   }
 
   // ---------------------------------------------------- STAT POINTS (SP) ---
-  // Pokemon Champions replaced EVs with Stat Points: 66 total, 32 per stat,
-  // and 1 SP = +1 to that stat at Lv50. The battle engine underneath still
-  // speaks EVs, so SP is what the player edits and EVs are DERIVED from it.
+  // Dailylocke's training system: 66 Stat Points total, 32 per stat. It is a
+  // deliberately simpler front-end for EVs -- a 66-point budget is something a
+  // player can reason about on a phone, where "508 EVs in multiples of 4" is
+  // not. The battle engine underneath still speaks EVs, so SP is what the
+  // player edits and EVs are DERIVED from it.
   //
-  // Bulbapedia's official conversion: the first stat point costs 4 EVs, every
-  // additional point costs 8. That makes 32 SP exactly 252 EVs, so a maxed
-  // stat is identical to a maxed stat in the old system.
+  // Conversion: the first stat point costs 4 EVs, every additional point costs
+  // 8. That makes 32 SP exactly 252 EVs, so a maxed stat here is identical to
+  // a maxed stat in the classic system and nothing is lost in translation.
   var SP_MAX = 32, SP_TOTAL = 66;
   function spToEv(sp) {
     sp = Math.max(0, Math.min(SP_MAX, Math.round(sp || 0)));
@@ -440,7 +539,7 @@
   }
 
   // Curated held-item roster: Smogon OU/VGC usage staples blended with the
-  // Pokemon Champions item roster (Serebii/Game8). Grouped by rarity tier so
+  // Curated held-item roster, grouped by rarity tier so
   // the Mart can stock a sensible mix.
   var ITEM_TIERS = {
     // Tier 1 - cheap, always useful
@@ -503,6 +602,7 @@
     speciesPool: speciesPool, fePool: fePool, isLegendary: isLegendary,
     captureRate: captureRate, bst: bst, cleanName: cleanName,
     legalMoves: legalMoves, autoMoveset: autoMoveset, learnsetChain: learnsetChain,
+    ROLES: ROLES, UTILITY: UTILITY,
     makeMon: makeMon, maxHP: maxHP, curHP: curHP, isFainted: isFainted, toSet: toSet,
     SP_MAX: SP_MAX, SP_TOTAL: SP_TOTAL, STAT_IDS: STAT_IDS,
     spToEv: spToEv, evToSp: evToSp, ensureSP: ensureSP, syncEVs: syncEVs, spUsed: spUsed,

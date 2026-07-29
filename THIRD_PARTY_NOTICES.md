@@ -8,6 +8,7 @@ Dailylocke distributes the following third-party software:
 | three.js r149 | `vendor/three.min.js` | Copyright © 2010–2023 three.js authors; <https://github.com/mrdoob/three.js> | MIT |
 | lz-string 1.5.0 | `vendor/lz-string.min.js` | Copyright © 2013 pieroxy; <https://github.com/pieroxy/lz-string> | MIT |
 | qrcodejs 1.0.0 | `vendor/qrcode.js` | Copyright © 2012 davidshimjs and © 2009 Kazuhiko Arase; <https://github.com/davidshimjs/qrcodejs> | MIT |
+| VT323 | `assets/fonts/vt323-*.woff2` | Copyright © 2011 The VT323 Project Authors (peter.hull@oikoi.com); <https://github.com/googlefonts/VT323> | SIL Open Font License 1.1 |
 
 The MIT license for those components follows:
 
@@ -31,15 +32,38 @@ The MIT license for those components follows:
 
 “QR Code” is a registered trademark of DENSO WAVE INCORPORATED.
 
+VT323 is licensed under the SIL Open Font License, Version 1.1, whose full text
+is distributed alongside the font files in
+[`assets/fonts/LICENSE-VT323.txt`](assets/fonts/LICENSE-VT323.txt). The font is
+self-hosted (rather than loaded from Google Fonts) so the app renders correctly
+offline.
+
 ## Remotely loaded assets and data
 
-The app also loads VT323 from Google Fonts, and Pokémon sprites, item art,
-trainer art, cries, and battle music from Pokémon Showdown and PokeAPI-hosted
-repositories. Capture rates and item costs in `src/pokedata.js` were derived
-from PokéAPI. These assets and Pokémon-related data are not covered by the
-software licenses above.
+The app loads Pokémon sprites, item art, trainer art, cries, and battle music
+from Pokémon Showdown and PokeAPI-hosted repositories at runtime. Capture rates
+and item costs in `src/pokedata.js` were derived from PokéAPI. These assets and
+Pokémon-related data are **not** covered by the software licenses above.
+
+Note in particular that the PokeAPI sprites repository is itself distributed
+under CC0 while stating that the *image contents* remain copyright The Pokémon
+Company. A permissive repository license is therefore not a license to the
+artwork, and CC0 on the repository does not make the sprites free to use.
+
+The placeholder art in `assets/img/` is original to this project and contains no
+Pokémon likeness; it exists so the UI degrades gracefully when the remote
+sprite hosts are unreachable.
 
 Pokémon and Pokémon character names are trademarks of Nintendo. Pokémon
 artwork and audio are copyright Nintendo, Creatures Inc., GAME FREAK Inc.,
 and/or The Pokémon Company. Dailylocke is an unofficial, non-commercial fan
 project and is not endorsed by or affiliated with those rights holders.
+
+## Dailylocke's own code
+
+Dailylocke's own source is MIT licensed — see [`LICENSE`](LICENSE). That license
+covers this project's code only and grants no rights to any of the third-party
+software or Pokémon assets described above.
+
+Obtain independent legal advice before monetizing this project or distributing
+it through an app store.

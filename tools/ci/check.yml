@@ -1,0 +1,69 @@
+# ============================================================================
+# NOT ACTIVE YET -- move this file to .github/workflows/check.yml to enable it:
+#
+#     mkdir -p .github/workflows && git mv tools/ci/check.yml .github/workflows/
+#
+# It lives here because the bot account that opened this PR has no `workflows`
+# permission, so GitHub rejects any push that adds or edits a file under
+# .github/workflows/. Committing it here keeps the config reviewable in the
+# same PR; a maintainer with normal permissions can activate it in one move.
+# ============================================================================
+
+# Quality gate. Runs on every push and PR so a broken build never reaches the
+# deploy workflow (which publishes `main` straight to Pages with no checks).
+name: Checks
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tools/package-lock.json
+
+      - name: Install tooling
+        run: npm ci --prefix tools
+
+      # ESLint + the JSDOM smoke suite + the service-worker revision guard.
+      # The revision check is what stops a deploy from shipping new JavaScript
+      # under an old cache name, which would strand returning players on stale
+      # code with no way to notice.
+      - name: Lint, unit tests, service-worker revision
+        run: npm run check --prefix tools
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tools/package-lock.json
+
+      - name: Install tooling
+        run: npm ci --prefix tools
+
+      # Only Chromium: the suite is about real layout, real focus, real WebGL
+      # and a real service worker, none of which need three engines to prove.
+      - name: Install Chromium
+        run: npx --prefix tools playwright install --with-deps chromium
+
+      - name: Real-browser tests
+        run: npm run test:e2e --prefix tools

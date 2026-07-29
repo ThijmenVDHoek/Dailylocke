@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Sprite unavailable">
+  <!-- Offline placeholder for a Pokemon sprite. Deliberately a silhouette in
+       the UI's own palette: it reads as "not loaded", not as "broken". -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a3150"/>
+      <stop offset="1" stop-color="#1a1f36"/>
+    </linearGradient>
+  </defs>
+  <rect width="96" height="96" rx="10" fill="url(#g)"/>
+  <g fill="none" stroke="#5b6488" stroke-width="4" stroke-linejoin="round">
+    <circle cx="48" cy="46" r="22"/>
+    <path d="M26 46h44"/>
+  </g>
+  <circle cx="48" cy="46" r="7" fill="#1a1f36" stroke="#5b6488" stroke-width="4"/>
+  <text x="48" y="84" text-anchor="middle" font-family="monospace" font-size="11" fill="#5b6488">offline</text>
+</svg>

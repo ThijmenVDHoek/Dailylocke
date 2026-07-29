@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Dailylocke",
   "short_name": "Dailylocke",
-  "description": "A daily endless Nuzlocke game played in the browser.",
+  "description": "A daily nuzlocke challenge played in the browser: five sections, one shared seed, plus an endless Free Play mode.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -34,5 +34,25 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "screenshots": [
+    {
+      "src": "assets/screenshots/narrow-title.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Start today's Daily run"
+    },
+    {
+      "src": "assets/screenshots/wide-title.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Dailylocke on a larger screen"
+    }
+  ],
+  "categories": [
+    "games",
+    "entertainment"
   ]
 }

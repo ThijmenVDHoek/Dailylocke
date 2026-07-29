@@ -1,3 +1,32 @@
+/* ----------------------------------------------------------------- fonts --
+   VT323 is SELF-HOSTED (assets/fonts/), not pulled from Google Fonts.
+   A remote font is a hard dependency the service worker cannot precache
+   cross-origin without opaque responses, so an offline launch used to fall
+   back to Courier and visibly change the whole UI. Two subsets, latin and
+   latin-ext, keep it to ~34 KB total.
+   SIL Open Font License 1.1 — see assets/fonts/LICENSE-VT323.txt
+   -------------------------------------------------------------------------- */
+@font-face {
+  font-family:'VT323';
+  font-style:normal;
+  font-weight:400;
+  font-display:swap;
+  src:url('../fonts/vt323-latin-400.woff2') format('woff2');
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,
+                U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,
+                U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family:'VT323';
+  font-style:normal;
+  font-weight:400;
+  font-display:swap;
+  src:url('../fonts/vt323-latin-ext-400.woff2') format('woff2');
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,
+                U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,
+                U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
 /* ============================================================================
    Nuzlocke Run — UI
    Design language matched to the 3D battle HUD:
@@ -1230,7 +1259,7 @@ textarea.search.save-code {
 .nat-n { color:#fff; font-size:.98rem; }
 .nat-d { color:var(--ink-3); font-size:.74rem; }
 
-/* ===== STAT POINTS (Champions 66/32 system) ===== */
+/* ===== STAT POINTS (66 total / 32 per stat) ===== */
 .sp-head { font-size:.92rem; color:var(--ink-2); margin-bottom:14px; }
 .sp-head b { color:var(--gold); font-size:1.15rem; }
 .sp-head b.none { color:var(--ink-3); }
@@ -1458,3 +1487,137 @@ textarea.search.save-code {
 
 /* Rich battle switcher */
 .battle-hud .pitem.rich { border:1px solid rgba(255,255,255,.12); }
+
+/* ============================================================================
+   DAILY MODE, ASCENSION + MODAL A11Y
+   ========================================================================== */
+
+/* ----- title: Daily and Free Play are separate offers now ----------------- */
+.title-sep {
+  display:flex; align-items:center; gap:10px;
+  max-width:400px; margin:18px auto 10px; color:rgba(255,255,255,.55);
+  font-size:.74rem; letter-spacing:1.6px; text-transform:uppercase;
+}
+.title-sep::before, .title-sep::after {
+  content:''; flex:1; height:1px; background:rgba(255,255,255,.18);
+}
+.btn-daily.done { box-shadow:0 6px 22px rgba(0,0,0,.4), 0 0 0 2px #4ade80; }
+.btn-daily.done .bd-main { color:#137a3a; }
+
+/* A streak is the reason to come back, so it gets its own chip rather than
+   being buried in the button subtitle. */
+.streak-chip {
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  max-width:400px; margin:0 auto; padding:7px 12px;
+  border-radius:var(--r-pill); background:rgba(250,204,21,.16);
+  border:1px solid rgba(250,204,21,.4); color:#fde68a;
+  font-size:.82rem; letter-spacing:.4px;
+}
+.streak-chip[hidden] { display:none; }
+.streak-chip b { color:#fff; font-size:1rem; }
+
+.btn-archive { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.btn-archive .bd-main { font-size:.95rem; }
+.btn-archive .bd-sub { font-size:.72rem; opacity:.75; }
+.btn-archive[hidden] { display:none; }
+
+/* ----- ascension banner on the route screen ------------------------------- */
+.x-ascension {
+  display:flex; flex-direction:column; gap:7px;
+  margin:0 var(--pad) 14px; padding:11px 13px;
+  border-radius:var(--r-md);
+  background:linear-gradient(180deg, rgba(168,85,247,.16), rgba(168,85,247,.07));
+  border:1px solid rgba(168,85,247,.34);
+}
+.x-ascension[hidden] { display:none; }
+.asc-tier { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; }
+.asc-tier b { color:#e9d5ff; font-size:.98rem; letter-spacing:1px; text-transform:uppercase; }
+.asc-tier span { color:var(--ink-2); font-size:.76rem; }
+.asc-row { display:grid; grid-template-columns:auto auto 1fr; align-items:baseline; gap:8px; }
+.asc-k {
+  padding:2px 7px; border-radius:var(--r-pill); font-size:.66rem;
+  letter-spacing:1px; text-transform:uppercase;
+  background:rgba(255,255,255,.1); color:var(--ink-2);
+}
+.asc-v { color:#fff; font-size:.9rem; }
+.asc-n { color:var(--ink-2); font-size:.75rem; }
+.asc-clause .asc-k { background:rgba(239,68,68,.24); color:#fecaca; }
+.asc-field  .asc-k { background:rgba(56,189,248,.22); color:#bae6fd; }
+.asc-strategy .asc-k { background:rgba(250,204,21,.2); color:#fde68a; }
+
+/* An elite enemy is flagged in the party/battle strip. */
+.elite-badge {
+  display:inline-flex; align-items:center; gap:4px; padding:1px 6px;
+  border-radius:var(--r-pill); background:rgba(168,85,247,.28);
+  border:1px solid rgba(168,85,247,.5); color:#e9d5ff; font-size:.66rem;
+  letter-spacing:.6px; text-transform:uppercase;
+}
+
+/* ----- Daily result screen ------------------------------------------------ */
+.dr-box { max-width:520px; }
+/* The section squares are EMOJI. VT323 has no emoji glyphs, so without an
+   explicit colour-emoji stack they render as tofu boxes -- and these squares
+   are the most recognisable part of the share card. */
+.emoji, .dr-marks, .hr-marks, .cal-legend {
+  font-family:'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',
+              'Android Emoji','EmojiSymbols',sans-serif;
+}
+.dr-marks {
+  margin:14px 0 4px; text-align:center;
+  font-size:1.6rem; line-height:1.5; letter-spacing:3px;
+  word-break:break-word;
+}
+.cal-legend { font-family:inherit; }
+.dr-share { min-height:150px; font-size:.86rem; line-height:1.5; }
+.dr-streak { margin-top:8px; color:#fde68a; font-size:.9rem; text-align:center; }
+.dr-streak b { color:#fff; }
+
+/* ----- Daily history: calendar + streak ----------------------------------- */
+.cal-wrap { margin:0 0 22px; }
+.cal-head {
+  display:flex; align-items:baseline; justify-content:space-between;
+  gap:10px; margin-bottom:10px;
+}
+.cal-title { font-size:.78rem; letter-spacing:1.4px; text-transform:uppercase; color:var(--ink-2); }
+.cal-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:5px; }
+.cal-cell {
+  aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+  border-radius:7px; background:var(--surface-hi); color:var(--ink-2);
+  font-size:.74rem; border:1px solid transparent;
+}
+.cal-cell.complete { background:rgba(74,222,128,.26); color:#bbf7d0; border-color:rgba(74,222,128,.45); }
+.cal-cell.wipe     { background:rgba(239,68,68,.22);  color:#fecaca; border-color:rgba(239,68,68,.4); }
+.cal-cell.today    { outline:2px solid var(--title-ring, #fff); outline-offset:1px; }
+.cal-legend { display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; color:var(--ink-2); font-size:.74rem; }
+.cal-legend span { display:inline-flex; align-items:center; gap:5px; }
+.cal-dot { width:10px; height:10px; border-radius:3px; background:var(--surface-hi); }
+.cal-dot.complete { background:rgba(74,222,128,.6); }
+.cal-dot.wipe { background:rgba(239,68,68,.5); }
+
+.daily-stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-bottom:20px; }
+@media (max-width:420px) { .daily-stats { grid-template-columns:repeat(2, 1fr); } }
+
+.hist-tabs { display:flex; gap:8px; margin-bottom:16px; }
+.hist-tab {
+  flex:1; padding:9px 12px; border-radius:var(--r-md); cursor:pointer;
+  background:var(--surface-hi); color:var(--ink-2); font-family:inherit;
+  font-size:.9rem; border:1px solid transparent;
+}
+.hist-tab.on { background:#fff; color:#0c1020; }
+.hr-marks { font-size:.95rem; letter-spacing:1px; margin-top:3px; }
+.hr-badge {
+  padding:2px 7px; border-radius:var(--r-pill); font-size:.66rem;
+  letter-spacing:.8px; text-transform:uppercase;
+}
+.hr-badge.complete { background:rgba(74,222,128,.22); color:#bbf7d0; }
+.hr-badge.wipe { background:rgba(239,68,68,.2); color:#fecaca; }
+
+/* ----- modal accessibility ------------------------------------------------ */
+/* The controller marks background siblings inert; this stops the page behind
+   a dialog from scrolling under it on touch devices. */
+body.modal-open { overflow:hidden; }
+/* A dialog card is programmatically focused on open. That focus ring is
+   correct for keyboards but noise for a pointer user, so only show it when
+   focus actually came from the keyboard. */
+.overlay-card:focus { outline:none; }
+.overlay-card:focus-visible { outline:2px solid var(--title-ring, #fff); outline-offset:3px; }

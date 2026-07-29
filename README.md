@@ -1,8 +1,16 @@
 # Dailylocke
 
-A daily endless nuzlocke game, played in the browser. Pick a starter, fight
-through sections of wild encounters and trainers, and see how far you get before
-your team runs out.
+A daily nuzlocke challenge, played in the browser. Pick a starter, fight through
+sections of wild encounters and trainers, and try to keep your team alive.
+
+Two modes, **two independent save slots** — so one can never block the other:
+
+| | **Daily** | **Free Play** |
+| --- | --- | --- |
+| seed | the same for everyone, per local calendar day | random, or a seed you type |
+| length | **5 sections** (20 battles), then it ends | endless |
+| ending | scored, recorded, and shareable | runs until your last Pokemon falls |
+| slot | `dailylocke-run-daily` | `nuzlocke-run` |
 
 Deployed to GitHub Pages from `main` by `.github/workflows/static.yml`.
 
@@ -24,8 +32,11 @@ them with `defer`, which keeps document order while staying non-blocking.
 | module | global | role |
 | --- | --- | --- |
 | `pokedata.js` | `PokeData` | capture rates, legendary flags, shop prices |
-| `core.js` | `Core` | RNG, type chart, Pokémon factory, catch formula |
-| `nuzlocke.js` | `Nuz` | run state, sections, encounters, trainers, mart |
+| `core.js` | `Core` | RNG, type chart, Pokémon factory, role-based movesets, catch formula |
+| `storage.js` | `Storage` | every `localStorage` access, the slot layout, save migrations |
+| `modal.js` | `Modal` | one dialog controller for every overlay (WAI modal pattern) |
+| `daily.js` | `Daily` | the dated Daily challenge: day keys, streaks, calendar, share card |
+| `nuzlocke.js` | `Nuz` | run state, sections, encounters, trainers, mart, ascension |
 | `evolution.js` | `Evo` | evolution rules and stones |
 | `mega.js` | `Mega` | mega evolution |
 | `forme.js` | `Forme` | forme changes |
@@ -33,7 +44,7 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `audio.js` | `GameAudio` | music/SFX volume, battle-only randomised BGM |
 | `tooltip.js` | — | move/ability/item tooltips |
 | `ui-patch.js` | — | extends `BattleUI` with the run action bar + ball rail |
-| `battle.js` | `RogueBattle` | wraps `@pkmn/sim`: HP/status/PP persistence, AI |
+| `battle.js` | `RogueBattle` | wraps `@pkmn/sim`: HP/status/PP persistence, situational AI |
 | `savecode.js` | `SaveCode` | save-code codec, share links, QR + clipboard helpers |
 | `safari-compat.js` | — | iOS viewport quirks |
 | `pwa.js` | `PWA` | service worker registration + the install button |
@@ -108,6 +119,88 @@ with **no server and no accounts**: every battle/section finish screen has a
   message, and the battle log is dropped from exports so long runs still fit
   in one QR (error-correction level steps down H→M→Q→L as needed).
 
+## The Daily
+
+The Daily used to be an ordinary endless run that happened to use a dated seed,
+sharing the single save slot with everything else. That meant a *good* run
+locked you out of tomorrow's Daily unless you threw it away — the opposite of
+what a daily should do.
+
+* **It is finite.** Five sections, twenty battles. Clearing section 5 completes
+  it; losing your last Pokemon ends it early. Either way it is recorded once.
+* **It has its own slot.** `dailylocke-run-daily`, separate from Free Play. Both
+  can be in progress at the same time and the title offers whichever exist.
+* **Dates are local.** `Daily.dayKey()` formats the player's own calendar date;
+  it never uses `toISOString()`, which is UTC and would hand someone in UTC+13 a
+  different "today" than their phone shows.
+* **Battles are seeded.** A Daily passes a derived seed to `>start`, so crits,
+  misses and damage rolls are identical for everyone playing that day. Free Play
+  passes nothing and keeps the engine's own randomness.
+* **Yesterday is never destroyed.** An unfinished Daily from a previous day is
+  offered as *Move old Daily to Free Play*; a cleared Daily can carry its team
+  into Free Play and keep going endlessly.
+* **Streaks are forgiving.** Missing one day keeps the streak (and burns a grace
+  day); missing two resets it. Every clean week earns the grace day back. The
+  streak is recomputed against today rather than trusted from storage, so it
+  can't go stale. Stored in `dailylocke-daily`, a key no run wipe touches.
+
+The share card is deliberately spoiler-light — it shows the *shape* of a run,
+never which Pokémon appeared:
+
+```text
+Dailylocke #142
+Sections: 5/5
+Battles: 20
+Caught: 3
+Lost: 0
+MVP: Gengar
+🟩🟩🟥🟩🟩
+```
+
+One square per section: 🟩 nobody fell · 🟨 survived but bruised · 🟥 lost a
+Pokémon · ⬛ the section that ended the run.
+
+## Ascension — difficulty past section 15
+
+The rules said sections "scale forever", but almost every lever hit its ceiling
+around section 10–15: BST bands stopped widening, EV investment maxed out, teams
+capped at six, legendaries were already unlocked. Meanwhile battle rewards kept
+compounding at +10% per win — about **7×** by section 30. The run got richer
+while it stopped getting harder.
+
+Past section 15, each further block of five sections adds one **ascension tier**
+of *qualitative* difficulty instead of bigger numbers:
+
+| tier | what turns on |
+| --- | --- |
+| 1 | battle-start weather / terrain / hazards / rooms; boss clauses every 5 sections |
+| 2 | elite Pokémon with one visible modifier; role-appropriate held items; legendary wilds |
+| 3+ | reduced section healing (down to 55%); deeper trainer AI |
+
+Rewards are bent onto a bounded curve at the same time: the first dozen wins keep
+the old snappy +10% ramp, then payouts grow with `sqrt(wins)` and cap at 4.5×.
+
+**Nothing here is hidden.** The route screen previews the ascension tier, the
+field effect the battle will open with, the boss clause, and the trainer's
+strategy before you commit to the fight.
+
+## Team roles and the AI
+
+Generated movesets used to be four damaging attacks on everything, which made
+most Pokémon play the same. Sets are now built around a **role** — sweeper,
+wall, pivot, disruptor, weather, hazard lead, priority — which reserves slots for
+recovery, setup, or utility. STAB is always mandatory, so a set never loses its
+identity, and the role is filtered by what the species can actually do (a Shuckle
+is not asked to sweep; a Deoxys-Attack is not asked to wall).
+
+The enemy AI used to give *every* status move a flat score of 12–20, so it would
+happily re-apply a status the target already had, Thunder Wave a Ground type, set
+up on the turn it was about to be knocked out, or heal at full HP. It now scores
+against the real board: current HP on both sides, existing status, stat boosts,
+the speed race, type *and* status immunities, hazards already up, and how close
+the target is to fainting. Ascension raises `aiDepth`, so early trainers stay
+beatable while late ones look further ahead.
+
 ## Audio
 
 `src/audio.js` owns every sound. Two sliders live in **Menu → Profile → Sound**
@@ -124,6 +217,26 @@ device preference never rides along with synced shinies and run history.
   `spl-elite4` / `bw2-kanto-gym-leader` held back for boss trainers. The
   previous track never repeats back-to-back. Selection uses `Math.random`, not
   the run's seeded RNG — picking a song must not desync the daily run.
+
+## Splitting `app.js`
+
+`app.js` did everything: screens, profile data, saves, battle protocol, catches,
+rewards, animations and event binding. It is being broken up **incrementally** —
+a framework rewrite is unnecessary and would risk the whole game at once.
+
+The plan, in order of least-entangled first:
+
+1. ~~persistence and migrations~~ → **`src/storage.js`** ✅
+2. ~~the Daily's own state~~ → **`src/daily.js`** ✅
+3. ~~modal/dialog behaviour~~ → **`src/modal.js`** ✅
+4. profile/history rendering
+5. battle protocol rendering
+6. screen controllers
+7. ES modules, and only then a bundler
+
+Each step keeps the old function names in `app.js` as thin delegates, so callers
+don't move in the same commit that the logic does. `app.js` is ~197 KB today,
+down from ~203 KB, with the extracted modules independently unit-tested.
 
 ## Loading strategy
 
@@ -172,21 +285,118 @@ npm run build     # regenerates vendor/pkmn-sim.js + vendor/pkmn-learnsets.js
 
 ### Quality checks
 
-`tools/smoke-test.mjs` loads `index.html` in JSDOM using the real script order,
-then boots the game and fights an actual battle through the engine. It checks
-module wiring, that the trimmed bundle kept its data, that learnsets load on
-demand, that the install button appears/prompts/retires correctly on every
-platform path, that the PWA paths stay subpath-safe, and that the battle
-reaches a conclusion. ESLint covers the hand-written JavaScript and catches
-unused code as part of the same command.
+Two suites, because they see different things.
+
+**`tools/smoke-test.mjs` (JSDOM)** loads `index.html` using the real script
+order, boots the game and fights an actual battle through the engine. It covers
+module wiring, the trimmed bundle's data, on-demand learnsets, the install
+button on every platform path, subpath-safe PWA paths, save-code round-tripping,
+and now the Daily's date/streak/share logic, the ascension curve, role-based
+movesets, the AI's situational scoring and the modal controller.
+
+**`tools/e2e/run.mjs` (Playwright)** drives a real browser, which is the only
+way to test what JSDOM stubs: a WebGL battle, focus management, layout at phone
+sizes, and the service worker. It covers starting a Daily, choosing a starter,
+completing a battle, reloading and restoring the save, opening every modal
+(dialog semantics, focus trap, Escape, inert background), iPhone/Android
+viewports, reduced motion, an **offline reload after the worker installs**, and
+the full Daily endpoint including the share card.
 
 ```sh
 npm ci --prefix tools
-npm run check --prefix tools
+npm run check --prefix tools        # lint + JSDOM + service-worker revision
+npm run test:e2e --prefix tools     # real browser
+npm run check:all --prefix tools    # everything
 ```
+
+The E2E suite needs a Chromium. It uses Playwright's own download if present,
+otherwise a system browser, otherwise `DAILYLOCKE_CHROMIUM=/path/to/chromium` —
+and **skips cleanly** rather than failing when none is available.
+
+### CI (needs one manual step)
+
+A ready-to-use GitHub Actions workflow lives at
+[`tools/ci/check.yml`](tools/ci/check.yml). It runs lint + the JSDOM suite +
+the service-worker revision guard, and a second job for the Playwright suite on
+Chromium.
+
+It is **not active yet** — GitHub rejects pushes that touch
+`.github/workflows/` from an app without `workflows` permission, so it could
+not be added by the PR that introduced it. Activate it with:
+
+```sh
+mkdir -p .github/workflows && git mv tools/ci/check.yml .github/workflows/
+```
+
+Worth doing: `static.yml` currently deploys `main` to Pages with no checks at
+all, so nothing today stops a broken build from going live.
+
+```sh
+npx playwright install chromium --prefix tools
+```
+
+### The service-worker revision
+
+`sw.js` names its cache `dailylocke-shell-<rev>`, where `rev` is a hash of the
+precached files' contents, stamped by `tools/build-sw.mjs`.
+
+This replaced a hand-written `CACHE_NAME = 'dailylocke-v8'`. Cache API entries
+never expire on their own, so if a deploy changed `src/app.js` but nobody
+remembered to bump that number, every returning player kept the **old
+JavaScript forever** — invisible to whoever shipped it. Hashing the contents
+removes the human step.
+
+```sh
+npm run build:sw --prefix tools     # restamp after changing a shell file
+node tools/build-sw.mjs --check     # CI guard; part of `npm run check`
+```
+
+## Offline
+
+The app shell works offline, and so does everything the UI's *shape* depends on.
+
+* **VT323 is self-hosted** (`assets/fonts/`, ~34 KB across two subsets). It used
+  to come from Google Fonts, which a service worker cannot precache
+  cross-origin, so an offline launch silently fell back to Courier and the whole
+  UI changed shape.
+* **A bundled SVG fallback** terminates every sprite chain, so a missing sprite
+  is a silhouette in the game's own palette rather than a broken-image glyph.
+* **Runtime caches are bounded and separate.** Remote sprites (240 entries) and
+  cries (60) each get their own cache with oldest-first eviction. The sprite
+  catalogue is thousands of files and the audio catalogue is hundreds of
+  megabytes; neither is ever precached wholesale, because a quota eviction would
+  take the app shell with it.
+* **`manifest.json` ships narrow + wide screenshots**, which browsers use to
+  show a richer, app-store-like install dialog. They are captured from the real
+  app by `DAILYLOCKE_SHOTS=1 npm run test:e2e --prefix tools`, so they can't go
+  stale.
+
+## Pokémon Champions
+
+The Stat Point system (66 total, 32 per stat) is **Dailylocke's own** simplified
+front-end for EVs — a 66-point budget is something you can reason about on a
+phone, where "508 EVs in multiples of 4" is not. It is not a claim of Pokémon
+Champions compatibility: battles run through `gen9customgame` on `@pkmn/sim`,
+and player-facing wording says so. If the simulator package later exposes
+everything a Champions format needs, that's a deliberate migration, not an
+assumption baked into the copy today.
+
+## License
+
+Dailylocke's own code is [MIT licensed](LICENSE).
+
+That covers `src/`, `assets/`, `tools/`, `sw.js`, `index.html` and
+`vendor/battle-ui.js` only. It does **not** cover bundled third-party software
+in `vendor/` (each keeps its own license) or any Pokémon property fetched at
+runtime. Pokémon and all related media are © Nintendo / Creatures Inc. / GAME
+FREAK inc.; this is an unofficial, non-commercial fan project.
+
+Note that the PokeAPI sprites repository is distributed under CC0 while noting
+that the image *contents* remain copyright The Pokémon Company — a permissive
+repository license is not a license to the artwork. **Get your own legal advice
+before monetizing this or shipping it to an app store.**
 
 ## Third-party software and assets
 
 See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for bundled software
-licenses, remote asset credits, and the fan-project disclaimer. The repository
-does not currently declare a project-level license for Dailylocke's own code.
+licenses, remote asset credits, and the fan-project disclaimer.

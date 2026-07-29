@@ -56,6 +56,7 @@
     px = px || 116;
     var urls = spriteUrls(id, false, shiny);
     urls.push(iconUrl(id));
+    urls.push(FALLBACK_SPRITE);
     var chain = urls.slice(1);
     var onerr = "this.onerror=null;var q=" + JSON.stringify(chain) + ";" +
                 "if(!this._i)this._i=0;" +
@@ -73,6 +74,12 @@
       ? 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + sp.num + '.png'
       : 'https://play.pokemonshowdown.com/sprites/gen5/' + id + '.png';
   }
+
+  // The END of every sprite fallback chain: a bundled, offline-safe silhouette.
+  // Without it, playing offline (or through a sprite-host outage) renders the
+  // browser's broken-image glyph in every party slot, which looks like the game
+  // is broken rather than like the art hasn't loaded.
+  var FALLBACK_SPRITE = 'assets/img/fallback-sprite.svg';
   // On-field size in world units.
   //
   // The old curve was `1.0 + heightm^0.55 * 1.15` clamped to [1.0, 3.4]. That
@@ -110,6 +117,7 @@
   function bigSprite(id, cls, box, boxw, wt, shiny) {
     var urls = spriteUrls(id, false, shiny);
     urls.push(iconUrl(id));
+    urls.push(FALLBACK_SPRITE);
     var chain = urls.slice(1);
     var onerr = "this.onerror=null;var q=" + JSON.stringify(chain) + ";" +
                 "if(!this._i)this._i=0;" +
@@ -123,7 +131,7 @@
   // ------------------------------------------------------------ SCREENS ---
   var SCREENS = ['Title', 'Starter', 'Crossroads', 'Battle',
                  'Reward', 'Catch', 'Tutor', 'Evolve', 'Summary', 'GameOver',
-                 'Profile', 'Shinies', 'History', 'Rules'];
+                 'DailyResult', 'Profile', 'Shinies', 'History', 'Rules'];
   function show(name) {
     SCREENS.forEach(function (s) {
       var el = $('screen' + s);
@@ -136,6 +144,11 @@
     // The showcase is a full WebGL context; never leave it running behind
     // another screen.
     if (name === 'Title') startTitleScene(); else stopTitleScene();
+    // The title advertises live state (today's Daily, the streak, the Free
+    // Play slot), and that state changes while the player is away from it.
+    // Refreshing here means EVERY route back to the title is correct, instead
+    // of depending on each caller remembering to ask.
+    if (name === 'Title') { try { setContinueState(); } catch (e) { console.warn('title state', e); } }
     window.scrollTo(0, 0);
   }
   function toast(msg) {
@@ -258,56 +271,157 @@
   }
 
   function initTitle() {
-    $('btnNewRun').addEventListener('click', function () { startRun(Math.floor(Math.random() * 1e9)); });
-    $('btnDaily').addEventListener('click', function () {
-      var d = new Date();
-      startRun(C.hashString('daily|' + d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate()));
-    });
+    $('btnNewRun').addEventListener('click', function () { startFreeRun(Math.floor(Math.random() * 1e9)); });
+    $('btnDaily').addEventListener('click', onDailyClick);
     $('btnSeed').addEventListener('click', function () {
-      var s = prompt('Enter a seed (any text):'); if (s) startRun(C.hashString(s));
+      var s = prompt('Enter a seed (any text):'); if (s) startFreeRun(C.hashString(s));
     });
     var tl = $('btnTitleLoad');
     if (tl) tl.addEventListener('click', function () { openSaveImport(); });
-    // Show today's date on the daily button so it reads as "the" run.
-    try {
-      var d0 = new Date();
-      var fmt = d0.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-      $('dailyDate').textContent = 'Everyone gets the same seed \u00b7 ' + fmt;
-    } catch (e) {}
     $('btnTitleMenu').addEventListener('click', openMenu);
-    $('btnAbandonTitle').addEventListener('click', function () {
-      if (confirm('Abandon the run in progress? Your team is lost.')) {
-        clearSave(); run = null; setContinueState();
+    var ab = $('btnAbandonTitle');
+    if (ab) ab.addEventListener('click', function () {
+      if (confirm('Abandon the Free Play run? Your team is lost.')) {
+        clearSave('free'); if (run && run.mode !== 'daily') run = null; setContinueState();
       }
     });
-    setContinueState();
-    $('btnContinue').addEventListener('click', function () {
-      var s = loadGame(); if (!s) { toast('No save found.'); return; }
+    var cont = $('btnContinue');
+    if (cont) cont.addEventListener('click', function () {
+      var s = loadGame('free'); if (!s) { toast('No save found.'); return; }
       run = reviveRun(s); renderCrossroads(); show('Crossroads');
     });
+    var dr = $('btnDailyResults');
+    if (dr) dr.addEventListener('click', function () { showDailyResult(window.Daily.resultFor()); });
+    var ar = $('btnArchiveDaily');
+    if (ar) ar.addEventListener('click', archiveStaleDaily);
+    setContinueState();
   }
 
-  // Continue is always visible; disabled (not hidden) when nothing is saved,
-  // so the title layout never shifts.
-  // The title has exactly two states. With a run in progress we show ONLY
-  // Continue (plus an explicit Abandon), so there is no way to casually click
-  // "Daily Run" and destroy a run you forgot you had. With no save, Continue
-  // is not rendered at all rather than shown disabled.
-  function setContinueState() {
-    var saved = loadGame();
-    var fresh = $('titleFresh'), resume = $('titleResume');
-    if (!fresh || !resume) return;
-    fresh.hidden = !!saved;
-    resume.hidden = !saved;
+  // The Daily button has four states, and the click means something different
+  // in each: play today, resume today, review today's finished result, or
+  // start over after a wipe.
+  function onDailyClick() {
+    var D = window.Daily;
+    var today = D.dayKey();
+    var done = D.resultFor(today);
+    if (done) { showDailyResult(done); return; }
+    var saved = loadDailyToday();
     if (saved) {
-      var sub = $('continueSub');
-      if (sub) {
-        var sec = saved.section || 1, won = saved.battlesWon || 0;
-        var n = (saved.party && saved.party.length) || 0;
-        sub.textContent = 'Section ' + sec + ' \u00b7 ' + won +
-          (won === 1 ? ' battle won' : ' battles won') + ' \u00b7 ' + n +
-          (n === 1 ? ' Pokemon' : ' Pokemon');
+      run = reviveRun(saved); renderCrossroads(); show('Crossroads'); return;
+    }
+    // Starting today's Daily must never silently destroy yesterday's.
+    var stale = loadDailyStale();
+    if (stale && !confirm('You have an unfinished Daily from ' + stale.dailyDate +
+        '.\n\nStarting today\u2019s Daily replaces it. Use "Move to Free Play" on the ' +
+        'title screen first if you want to keep it.')) return;
+    startDailyRun();
+  }
+
+  // ---- RUN STARTERS --------------------------------------------------------
+  // Two entry points instead of one, because the two modes now differ in more
+  // than their seed: the Daily is dated, finite and scored.
+  function startDailyRun() {
+    var D = window.Daily;
+    var key = D.dayKey();
+    return startRun(D.seedFor(key), {
+      mode: 'daily',
+      dailyDate: key,
+      maxSections: D.SECTIONS,
+      dailyNumber: D.puzzleNumber(key)
+    });
+  }
+  function startFreeRun(seed) {
+    return startRun(seed, { mode: 'free' });
+  }
+
+  // Yesterday's unfinished Daily is a real run someone spent time on. Rather
+  // than deleting it, hand it to Free Play so it can keep going endlessly.
+  function archiveStaleDaily() {
+    var stale = loadDailyStale();
+    if (!stale) { toast('No archived Daily to move.'); return; }
+    var existing = loadGame('free');
+    if (existing && !confirm('Your Free Play slot already has a run at Section ' +
+        (existing.section || 1) + '. Replace it with the Daily from ' + stale.dailyDate + '?')) return;
+    stale.mode = 'free';
+    stale.archivedFrom = stale.dailyDate;
+    stale.dailyDate = null;
+    stale.maxSections = 0;             // endless from here on
+    ST.putRun('free', stale);
+    ST.clearRun('daily');
+    toast('Moved to Free Play \u2014 it can run forever now.');
+    setContinueState();
+  }
+
+  // The title reflects BOTH slots independently: today's Daily and a Free Play
+  // run can now coexist, so neither one hides the other.
+  function setContinueState() {
+    var D = window.Daily;
+    var today = D.dayKey();
+    var result = D.resultFor(today);
+    var dailySave = loadDailyToday();
+    var stale = loadDailyStale();
+    var free = loadGame('free');
+
+    // ---- Daily button ----
+    var main = $('dailyMain'), sub = $('dailyDate'), btn = $('btnDaily');
+    if (main && sub && btn) {
+      btn.classList.toggle('done', !!result);
+      if (result) {
+        main.textContent = 'Daily complete';
+        sub.textContent = result.outcome === 'complete'
+          ? 'Cleared all ' + D.SECTIONS + ' sections \u00b7 see your result'
+          : 'Fell in Section ' + result.sections + ' \u00b7 see your result';
+      } else if (dailySave) {
+        main.textContent = 'Resume Daily';
+        sub.textContent = 'Section ' + (dailySave.section || 1) + ' of ' + D.SECTIONS +
+          ' \u00b7 ' + (dailySave.battlesWon || 0) + ' battles won';
+      } else {
+        main.textContent = 'Daily Run';
+        var fmt = today;
+        try {
+          fmt = D.parseKey(today).toLocaleDateString(undefined,
+            { weekday: 'short', month: 'short', day: 'numeric' });
+        } catch (e) {}
+        sub.textContent = D.SECTIONS + ' sections \u00b7 same seed for everyone \u00b7 ' + fmt;
       }
+    }
+
+    // ---- streak chip ----
+    var chip = $('dailyStreak');
+    if (chip) {
+      var st = D.streakInfo(today);
+      if (st.streak > 0) {
+        chip.hidden = false;
+        chip.innerHTML = '<b>' + st.streak + '</b> day streak' +
+          (st.best > st.streak ? ' \u00b7 best ' + st.best : '');
+      } else {
+        chip.hidden = true;
+      }
+    }
+
+    // ---- results shortcut ----
+    var dr = $('btnDailyResults');
+    if (dr) dr.hidden = !result;
+
+    // ---- Free Play row ----
+    var freeRow = $('titleFreeRun'), contSub = $('continueSub');
+    if (freeRow) freeRow.hidden = !free;
+    if (free && contSub) {
+      var sec = free.section || 1, won = free.battlesWon || 0;
+      var n = (free.party && free.party.length) || 0;
+      contSub.textContent = 'Section ' + sec + ' \u00b7 ' + won +
+        (won === 1 ? ' battle won' : ' battles won') + ' \u00b7 ' + n +
+        (n === 1 ? ' Pokemon' : ' Pokemon');
+    }
+    var fresh = $('titleFresh');
+    if (fresh) fresh.hidden = !!free;
+
+    // ---- archived Daily offer ----
+    var ar = $('btnArchiveDaily');
+    if (ar) {
+      ar.hidden = !stale;
+      if (stale) ar.querySelector('.bd-sub').textContent =
+        'Unfinished Daily from ' + stale.dailyDate + ' \u00b7 Section ' + (stale.section || 1);
     }
   }
 
@@ -317,8 +431,16 @@
 
   // ------------------------------------------------------------ STARTER ---
   var starterChoices = [];
-  async function startRun(seed) {
+  async function startRun(seed, opts) {
+    opts = opts || {};
     run = N.newRun(seed);
+    // Mode metadata rides on the run itself, so it survives a save/load and
+    // every screen can ask "is this a Daily?" without a global.
+    run.mode = opts.mode === 'daily' ? 'daily' : 'free';
+    run.dailyDate = opts.dailyDate || null;
+    run.dailyNumber = opts.dailyNumber || 0;
+    run.maxSections = opts.maxSections || 0;    // 0 = endless
+    run.sectionMarks = [];                      // share-card squares
     var rand = C.mulberry32(seed ^ 0x1234);
     var pool = C.speciesPool().filter(function (id) {
       var b = C.bst(id);
@@ -365,6 +487,9 @@
           N.addItem(run, 'potion', 3);
           N.logMsg(run, 'You set out with ' + nick + ' the ' + mon.species + '.');
           if (mon.shiny) recordShiny(mon, 'starter');
+          // The Daily result records which starter you took, so the share card
+          // and history can show how the same seed played out differently.
+          run.starterMeta = { id: mon.id, name: mon.species };
           saveGame(); renderCrossroads(); show('Crossroads');
         });
       });
@@ -383,11 +508,17 @@
     $('xSection').textContent =
       routeNames[C.hashString(run.seed + '|route|' + run.section) % routeNames.length];
     var eyebrow = $('xEyebrow');
-    if (eyebrow) eyebrow.textContent = 'Section ' + run.section;
+    if (eyebrow) {
+      // A finite Daily says how much is left; Free Play just counts up.
+      eyebrow.textContent = run.maxSections
+        ? 'Daily \u00b7 Section ' + run.section + ' of ' + run.maxSections
+        : 'Section ' + run.section;
+    }
     // One quiet line of progress instead of a stepper graphic.
     var stageNames = ['Capture', 'Wild', 'Wild', 'Trainer'];
     $('xProgress').textContent =
       'Stop ' + Math.min(n + 1, 4) + ' of 4  \u00b7  ' + stageNames[Math.min(n, 3)];
+    renderAscension(trainerNext);
 
     var isCapture = !trainerNext && n === 0;
     var catchOpen = isCapture && !run.catchUsedThisSection;
@@ -435,6 +566,64 @@
 
     // the shop lives on this screen now
     openMart();
+  }
+
+  // ---- ASCENSION BANNER ----------------------------------------------------
+  // Everything ascension does is shown BEFORE the fight. A difficulty system
+  // the player can't see is just unfairness, so the tier, the field effect,
+  // the boss clause and the trainer's intent are all previewed here.
+  function renderAscension(trainerNext) {
+    var host = $('xAscension');
+    if (!host) return;
+    var eff = N.ascensionEffects(run);
+    var parts = [];
+
+    if (eff.tier > 0) {
+      var bits = [];
+      if (eff.field) bits.push('field effects');
+      if (eff.elite) bits.push('elite Pokemon');
+      if (eff.healPct < 1) bits.push(Math.round(eff.healPct * 100) + '% section healing');
+      if (eff.aiDepth >= 2) bits.push('sharper AI');
+      parts.push('<div class="asc-tier"><b>Ascension ' + eff.tier + '</b>' +
+        (bits.length ? '<span>' + bits.join(' \u00b7 ') + '</span>' : '') + '</div>');
+    }
+
+    // What is already on the field when the fight begins.
+    var field = N.fieldEffectFor(run, trainerNext);
+    if (field) {
+      parts.push('<div class="asc-row asc-field"><span class="asc-k">Field</span>' +
+        '<span class="asc-v">' + escapeHtml(field.label) + '</span>' +
+        '<span class="asc-n">' + escapeHtml(field.note) + '</span></div>');
+    }
+
+    // Trainer intent preview: at higher ascension you get to see the plan.
+    if (trainerNext) {
+      var t = N.trainerFor(run);
+      if (t.clause) {
+        parts.push('<div class="asc-row asc-clause"><span class="asc-k">Clause</span>' +
+          '<span class="asc-v">' + escapeHtml(t.clause.label) + '</span>' +
+          '<span class="asc-n">' + escapeHtml(t.clause.note) + '</span></div>');
+      }
+      if (eff.tier >= 1 && t.strategy) {
+        parts.push('<div class="asc-row asc-strategy"><span class="asc-k">Intent</span>' +
+          '<span class="asc-v">' + escapeHtml(t.strategy.label) + '</span>' +
+          '<span class="asc-n">' + escapeHtml(strategyHint(t.strategy.id)) + '</span></div>');
+      }
+    }
+
+    host.innerHTML = parts.join('');
+    host.hidden = !parts.length;
+  }
+
+  function strategyHint(id) {
+    return {
+      balanced:  'A mixed team with no single plan.',
+      offense:   'Fast, fragile, and hits extremely hard.',
+      stall:     'Bulky Pokemon that heal and wear you down.',
+      weather:   'Sets weather and builds the team around it.',
+      hazards:   'Lays hazards and forces you to switch into them.',
+      trickroom: 'Slow, heavy hitters that want the speed order reversed.'
+    }[id] || '';
   }
 
   // A short banner across the battle screen when the catch window opens.
@@ -844,11 +1033,18 @@
 
     var mon = run.party[partySel];
     if (!mon) {
-      overlay.hidden = true;
+      window.Modal.close('xTeamDetail');
       host.innerHTML = '';
       return;
     }
-    overlay.hidden = false;
+    // Re-drawing an already-open sheet must not re-run the open sequence (it
+    // would steal focus back to the top on every repaint).
+    if (!window.Modal.isOpen('xTeamDetail')) {
+      window.Modal.open('xTeamDetail', { onClose: function () {
+        partySel = -1;
+        drawTeamStrip();
+      } });
+    }
 
     var mx = C.maxHP(mon), cur = C.curHP(mon);
     var pct = pctHP(mon.hpPct);
@@ -914,19 +1110,9 @@
 
     var close = host.querySelector('.pd-close');
     if (close) close.addEventListener('click', function () {
-      overlay.hidden = true;
-      partySel = -1;
-      drawTeamStrip();
+      window.Modal.close('xTeamDetail');
     });
-
-    // Close when clicking the dark overlay background
-    overlay.onclick = function (e) {
-      if (e.target === overlay) {
-        overlay.hidden = true;
-        partySel = -1;
-        drawTeamStrip();
-      }
-    };
+    // Backdrop clicks and Escape are handled by the shared modal controller.
     var take = host.querySelector('[data-take]');
     if (take) take.addEventListener('click', function () {
       N.addItem(run, mon.item, 1);
@@ -937,14 +1123,14 @@
     var train = host.querySelector('.pd-train');
     if (train) train.addEventListener('click', function () {
       if (run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
-      overlay.hidden = true;
+      window.Modal.close('xTeamDetail');
       openTrainer(mon);
     });
     var lead = host.querySelector('.pd-lead');
     if (lead) lead.addEventListener('click', function () {
       run.party.unshift(run.party.splice(partySel, 1)[0]);
       partySel = 0;
-      overlay.hidden = true;
+      window.Modal.close('xTeamDetail');
       renderCrossroads(); saveGame();
     });
     host.querySelectorAll('.evo-btn').forEach(function (b) {
@@ -1072,9 +1258,9 @@
       : 'No runs finished';
     var seed = $('menuSeed');
     if (seed) { seed.hidden = !run; seed.innerHTML = run ? 'Run seed: <b>' + run.seed + '</b>' : ''; }
-    $('screenMenu').hidden = false;
+    window.Modal.open('screenMenu');
   }
-  function closeMenu() { $('screenMenu').hidden = true; }
+  function closeMenu() { window.Modal.close('screenMenu'); }
 
   // Complete directory index downloaded from Pokemon Showdown's trainer-sprite
   // catalogue. Native lazy loading prevents the large gallery from fetching
@@ -1111,9 +1297,9 @@
     var grid = $('avatarModalGrid');
     grid.innerHTML = AVATARS.map(function (id) { var label = id.replace(/^./, function (x) { return x.toUpperCase(); }); return '<button class="avatar-choice' + (id === pendingAvatar ? ' on' : '') + '" data-avatar="' + id + '" title="' + label + '" aria-label="' + label + '"><img loading="lazy" decoding="async" src="' + avatarUrl(id) + '" alt="" onerror="this.onerror=null;this.src=\'https://play.pokemonshowdown.com/sprites/trainers/red.png\'"></button>'; }).join('');
     grid.querySelectorAll('[data-avatar]').forEach(function (b) { b.onclick = function () { pendingAvatar = b.dataset.avatar; grid.querySelectorAll('.avatar-choice').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
-    $('screenAvatarPicker').hidden = false;
+    window.Modal.open('screenAvatarPicker');
   }
-  function closeAvatarPicker() { $('screenAvatarPicker').hidden = true; }
+  function closeAvatarPicker() { window.Modal.close('screenAvatarPicker'); }
   function applyTheme() { if (!profile) return; var choice = THEMES.filter(function (t) { return t.id === profile.theme; })[0] || THEMES[0]; profile.theme = choice.id; Object.keys(choice.p).forEach(function (k) { document.documentElement.style.setProperty(k, choice.p[k]); }); document.documentElement.style.setProperty('--cta', '#ffffff'); document.documentElement.style.setProperty('--cta-hi', '#ffffff'); document.documentElement.style.setProperty('--cta-text', '#080a12'); document.documentElement.style.setProperty('--title-ring', choice.id === 'default' ? '#ffffff' : (choice.p['--blue'] || '#ffffff')); }
 
   function updateMenuAvatar() { var e = $('menuAvatar'); if (e) e.innerHTML = '<img src="' + avatarUrl((profile && profile.avatar) || 'red') + '" alt="">'; }
@@ -1214,16 +1400,91 @@
 
   function showRules() { closeMenu(); show('Rules'); }
 
+  // History has two halves now: the dated Daily record (calendar + streak) and
+  // the old all-runs list. A tab keeps both reachable without a new screen.
+  var histTab = 'daily';
+
   function showHistory() {
     closeMenu();
     loadProfile();
+    drawHistory();
+    show('History');
+  }
+
+  function drawHistory() {
+    var body = $('histBody');
+    body.innerHTML =
+      '<div class="hist-tabs" role="tablist">' +
+        '<button type="button" class="hist-tab' + (histTab === 'daily' ? ' on' : '') +
+          '" data-tab="daily" role="tab" aria-selected="' + (histTab === 'daily') + '">Daily</button>' +
+        '<button type="button" class="hist-tab' + (histTab === 'all' ? ' on' : '') +
+          '" data-tab="all" role="tab" aria-selected="' + (histTab === 'all') + '">All runs</button>' +
+      '</div>' +
+      (histTab === 'daily' ? dailyHistoryHtml() : allRunsHtml());
+    body.querySelectorAll('[data-tab]').forEach(function (b) {
+      b.addEventListener('click', function () { histTab = b.dataset.tab; drawHistory(); });
+    });
+  }
+
+  function dailyHistoryHtml() {
+    var D = window.Daily;
+    var st = D.stats();
+    var cal = D.calendar(35);
+    var store = D.load();
+    var keys = Object.keys(store.results).sort().reverse().slice(0, 30);
+
+    var html = '<div class="daily-stats">' +
+      statCard(st.streak, 'Streak') +
+      statCard(st.best, 'Best streak') +
+      statCard(st.completed, 'Cleared') +
+      statCard(st.winRate + '%', 'Clear rate') +
+    '</div>';
+
+    html += '<div class="cal-wrap">' +
+      '<div class="cal-head"><span class="cal-title">Last 5 weeks</span></div>' +
+      '<div class="cal-grid">' + cal.map(function (c) {
+        var cls = 'cal-cell' + (c.outcome ? ' ' + c.outcome : '') + (c.isToday ? ' today' : '');
+        var label = c.date + (c.outcome
+          ? (c.outcome === 'complete' ? ' \u2014 cleared' : ' \u2014 fell in section ' + c.sections)
+          : ' \u2014 not played');
+        return '<div class="' + cls + '" title="' + label + '" aria-label="' + label + '">' + c.day + '</div>';
+      }).join('') + '</div>' +
+      '<div class="cal-legend">' +
+        '<span><i class="cal-dot complete"></i>Cleared</span>' +
+        '<span><i class="cal-dot wipe"></i>Fell short</span>' +
+        '<span><i class="cal-dot"></i>Not played</span>' +
+      '</div>' +
+    '</div>';
+
+    if (!keys.length) {
+      return html + '<p class="hint center">No Dailies played yet. Today\u2019s is waiting.</p>';
+    }
+    html += keys.map(function (k) {
+      var r = store.results[k];
+      return '<div class="hist-row">' +
+        '<div class="hr-n">#' + r.n + '</div>' +
+        '<div class="hr-main">' +
+          '<div class="hr-top"><b>' + r.score.toLocaleString() + '</b>' +
+            '<span class="hr-badge ' + r.outcome + '">' +
+            (r.outcome === 'complete' ? 'Cleared' : 'Section ' + r.sections) + '</span></div>' +
+          '<div class="hr-sub">' + r.battles + ' battles \u00b7 ' + r.caught + ' caught \u00b7 ' +
+            r.lost + ' lost \u00b7 ' + r.date + '</div>' +
+          (r.marks && r.marks.length ? '<div class="hr-marks">' + r.marks.join('') + '</div>' : '') +
+        '</div>' +
+        (r.mvp ? '<div class="hr-mvp">' + animSprite(r.mvp.id, 40, 46, '', 1.45) +
+                 '<span>' + escapeHtml(r.mvp.name) + '</span></div>' : '') +
+      '</div>';
+    }).join('');
+    return html;
+  }
+
+  function allRunsHtml() {
     var h = profile.history;
     if (!h.length) {
-      $('histBody').innerHTML = '<p class="hint center">No finished runs yet. ' +
+      return '<p class="hint center">No finished runs yet. ' +
         'A run is recorded when your last Pokemon falls.</p>';
-      show('History'); return;
     }
-    $('histBody').innerHTML = h.map(function (r, i) {
+    return h.map(function (r, i) {
       var d = new Date(r.at);
       return '<div class="hist-row">' +
         '<div class="hr-n">#' + (h.length - i) + '</div>' +
@@ -1237,7 +1498,6 @@
                  '<span>' + r.mvp.name + '</span></div>' : '') +
       '</div>';
     }).join('');
-    show('History');
   }
 
   // ---- NICKNAME PROMPT -----------------------------------------------------
@@ -1256,8 +1516,11 @@
     input.placeholder = species;
     input.maxLength = 12;
     $('nickHint').textContent = 'Give it a name you will remember. It only gets one life.';
-    $('screenNickname').hidden = false;
-    setTimeout(function () { try { input.focus(); } catch (e) {} }, 60);
+    // Naming is mandatory -- there is no cancel -- so Escape and a backdrop
+    // click must NOT dismiss this one.
+    window.Modal.open('screenNickname', {
+      initialFocus: input, escape: false, dismissOnScrim: false
+    });
   }
 
   function confirmNickname() {
@@ -1265,7 +1528,7 @@
     var val = String(input.value || '').trim().replace(/\s+/g, ' ').slice(0, 12);
     if (!val) val = input.placeholder;           // never allow an empty name
     if (!val) { toast('Please enter a nickname.'); return; }
-    $('screenNickname').hidden = true;
+    window.Modal.close('screenNickname');
     var cb = nickCb; nickCb = null;
     if (cb) cb(val);
   }
@@ -1284,7 +1547,7 @@
              : 'give';
     picker = { itemId: itemId, mode: mode, step: 'mon', mon: null };
     drawPicker();
-    $('screenPicker').hidden = false;
+    window.Modal.open('screenPicker', { onClose: function () { picker = null; } });
   }
 
   // What would this item do to this Pokemon? Returns { note, dis } so the
@@ -1368,7 +1631,7 @@
 
   function closePicker() {
     picker = null;
-    $('screenPicker').hidden = true;
+    window.Modal.close('screenPicker');
   }
 
   function drawPicker() {
@@ -1498,7 +1761,8 @@
       if (isTrainer) {
         var t = N.trainerFor(run);
         var team = await N.makeTrainerTeam(run, t);
-        beginBattle({ enemies: team, isWild: false, trainer: t, catchable: false });
+        beginBattle({ enemies: team, isWild: false, trainer: t, catchable: false,
+                      fieldEffect: N.fieldEffectFor(run, true), clause: t.clause || null });
       } else {
         var isFirst = run.battleInSection === 0;
         var wildKey = run.section + ':' + run.battleInSection;
@@ -1506,7 +1770,8 @@
         delete run._nextWild;
         var mon = await N.makeWild(run, id);
         run.encounterSeen = run.encounterSeen || isFirst;
-        beginBattle({ enemies: [mon], isWild: true, catchable: isFirst && !run.catchUsedThisSection });
+        beginBattle({ enemies: [mon], isWild: true, catchable: isFirst && !run.catchUsedThisSection,
+                      fieldEffect: N.fieldEffectFor(run, false) });
       }
     } catch (err) {
       // Anything in here (a bad species roll, the learnsets chunk failing to
@@ -1535,6 +1800,15 @@
     var retry = $('btnBattleRetry'), bail = $('btnBattleBail');
     if (retry) retry.addEventListener('click', function () { host.innerHTML = ''; startNextBattle(); });
     if (bail) bail.addEventListener('click', function () { host.innerHTML = ''; renderCrossroads(); show('Crossroads'); });
+  }
+
+  // Showdown wants a 4x16-bit seed. Derive it from the run seed plus the exact
+  // battle slot so every player fights the same rolls on the same day, and a
+  // reload replays the same battle rather than re-rolling it.
+  function dailyBattleSeed() {
+    var base = C.hashString(run.seed + '|battle|' + run.section + '|' + run.battleInSection);
+    var r = C.mulberry32(base);
+    return [0, 0, 0, 0].map(function () { return Math.floor(r() * 0x10000); });
   }
 
   function beginBattle(cfg) {
@@ -1593,6 +1867,12 @@
       enemyMons: cfg.enemies,
       isWild: cfg.isWild,
       trainerName: cfg.isWild ? 'Wild' : cfg.trainer.name,
+      // Ascension: how far ahead the AI is allowed to look, and what is
+      // already on the field when the fight starts.
+      aiDepth: N.ascensionEffects(run).aiDepth,
+      fieldEffect: cfg.fieldEffect || null,
+      // A Daily must play out identically for everyone, crits included.
+      battleSeed: run.mode === 'daily' ? dailyBattleSeed() : null,
       handlers: {
         onLog: handleLog,
         onRequest: handleRequest,
@@ -2582,12 +2862,33 @@
     var newSection = N.advanceBattle(run);
     martStock = null;             // fresh stock each stop
     run._shopSeq = (run._shopSeq || 0) + 1;
+    if (newSection) {
+      recordSectionMark(finishedSection);
+      // A finite run ENDS here rather than rolling into another section.
+      if (run.maxSections && finishedSection >= run.maxSections) {
+        run.section = finishedSection;     // don't display a section they never played
+        return finishDaily('complete');
+      }
+    }
     saveGame();
     if (newSection) {
       showSectionSummary(finishedSection);
       return;
     }
     renderCrossroads(); show('Crossroads');
+  }
+
+  // One emoji square per section for the share card. Recorded as the section
+  // closes, while sectionStats still describes it.
+  function recordSectionMark(section, ended) {
+    if (!run.sectionMarks) run.sectionMarks = [];
+    var ss = run.sectionStats || {};
+    var hurt = run.party.some(function (m) { return m.hpPct < 0.6; });
+    run.sectionMarks[section - 1] = window.Daily.markFor({
+      lost: (ss.lost || []).length,
+      hurt: hurt,
+      ended: !!ended
+    });
   }
 
   // ---- END OF SECTION -----------------------------------------------------
@@ -2643,6 +2944,9 @@
   // ------------------------------------------------------------ GAME OVER --
   function gameOver() {
     if (run.over) return;          // never double-record a run
+    // A Daily that wipes is still a completed attempt: it gets scored and
+    // recorded, just with a 'wipe' outcome that doesn't extend the streak.
+    if (run.mode === 'daily' && run.dailyDate) return finishDaily('wipe');
     run.over = true;
     recordRunEnd();
     var m = N.mvp(run);
@@ -2666,6 +2970,136 @@
         '<span class="ros-s">' + (r.alive ? pctHP(r.hpPct) + '%' : 'S' + r.section) + '</span></div>';
     }).join('') + seedChip(run.seed);
     clearSave();
+  }
+
+  // ============================== DAILY RESULT ==============================
+  // The Daily is finite, so it has a real ending: score it, write it to the
+  // dated history (which drives the streak and calendar), and show a share
+  // card. `outcome` is 'complete' (cleared every section) or 'wipe'.
+  var lastDailyRun = null;      // kept so "continue in Free Play" can hand it over
+
+  function finishDaily(outcome) {
+    if (run.over) return;
+    run.over = true;
+    var D = window.Daily;
+    var m = N.mvp(run);
+
+    // The section that ended the run gets a black square rather than nothing.
+    if (outcome === 'wipe') recordSectionMark(run.section, true);
+
+    // Score: battles are the spine, with credit for the things that are hard.
+    var score = (run.battlesWon || 0) * 100 +
+                (run.trainersBeaten || 0) * 150 +
+                (run.caught || 0) * 75 +
+                (outcome === 'complete' ? 1000 : 0) -
+                (run.graveyard || []).length * 50;
+
+    var entry = D.record(run.dailyDate, {
+      outcome: outcome,
+      sections: outcome === 'complete' ? (run.maxSections || run.section) : run.section,
+      battles: run.battlesWon || 0,
+      caught: run.caught || 0,
+      lost: (run.graveyard || []).length,
+      trainers: run.trainersBeaten || 0,
+      score: Math.max(0, score),
+      starter: run.starterMeta || null,
+      mvp: m ? { id: m.id, name: m.name, damage: m.damage } : null,
+      marks: (run.sectionMarks || []).filter(Boolean)
+    });
+
+    // The all-time profile still records it, exactly like a Free Play run.
+    recordRunEnd();
+    // Keep the finished team around so it can be carried into Free Play, then
+    // free the Daily slot so tomorrow starts clean.
+    lastDailyRun = ST.snapshot(run);
+    clearSave('daily');
+    showDailyResult(entry, { fresh: true });
+  }
+
+  function showDailyResult(entry, opts) {
+    opts = opts || {};
+    if (!entry) { toast('No Daily result yet.'); return; }
+    var D = window.Daily;
+    var st = D.streakInfo();
+    var complete = entry.outcome === 'complete';
+
+    $('drTitle').textContent = complete ? 'Daily complete!' : 'Daily ended';
+    $('drTitle').className = 'scr-title' + (complete ? '' : ' dead');
+    $('drSub').textContent = 'Dailylocke #' + entry.n + ' \u00b7 ' + entry.date;
+
+    $('drStats').innerHTML =
+      '<div class="sum-stat"><span class="v' + (complete ? ' gold' : '') + '">' +
+        entry.sections + (complete ? '/' + D.SECTIONS : '') + '</span><span class="k">Sections</span></div>' +
+      '<div class="sum-stat"><span class="v">' + entry.battles + '</span><span class="k">Battles</span></div>' +
+      '<div class="sum-stat"><span class="v">' + entry.caught + '</span><span class="k">Caught</span></div>' +
+      '<div class="sum-stat"><span class="v' + (entry.lost ? ' bad' : '') + '">' + entry.lost +
+        '</span><span class="k">Lost</span></div>';
+
+    $('drScore').innerHTML =
+      '<div class="score-big">' + entry.score.toLocaleString() + '</div>' +
+      '<div class="score-lbl">score</div>' +
+      (st.streak > 0
+        ? '<p class="dr-streak"><b>' + st.streak + '</b> day streak' +
+          (st.best > st.streak ? ' \u00b7 best <b>' + st.best + '</b>' : '') + '</p>'
+        : '<p class="hint">Clear a Daily to start a streak.</p>');
+
+    $('drMvp').innerHTML = entry.mvp
+      ? '<div class="mvp"><div class="mvp-tag">MVP</div>' +
+        bigSprite(entry.mvp.id, '', 96, 96, 1, false) +
+        '<div><div class="sc-name">' + escapeHtml(entry.mvp.name) + '</div>' +
+        '<div class="statline">' + (entry.mvp.damage || 0).toLocaleString() + ' total damage</div></div></div>'
+      : '';
+
+    $('drMarks').textContent = (entry.marks || []).join('');
+
+    // The share text is exactly what gets copied -- shown verbatim so there is
+    // never a surprise about what lands in someone's clipboard.
+    var share = D.shareText(entry, { url: shareBaseUrl() });
+    $('drShareText').value = share;
+
+    // Carrying on is only offered when there is a team left to carry.
+    var cont = $('btnDrContinue');
+    if (cont) cont.hidden = !(opts.fresh && complete && lastDailyRun &&
+      lastDailyRun.party && lastDailyRun.party.length);
+
+    show('DailyResult');
+  }
+
+  function shareBaseUrl() {
+    try {
+      var u = new URL(window.location.href);
+      u.search = ''; u.hash = '';
+      return u.href;
+    } catch (e) { return ''; }
+  }
+
+  // "Keep going" -> the finished Daily team becomes an endless Free Play run.
+  function continueDailyInFreePlay() {
+    if (!lastDailyRun) { toast('Nothing to carry over.'); return; }
+    var existing = loadGame('free');
+    if (existing && !confirm('Your Free Play slot already has a run at Section ' +
+        (existing.section || 1) + '. Replace it with this Daily team?')) return;
+    var carried = lastDailyRun;
+    carried.mode = 'free';
+    carried.archivedFrom = carried.dailyDate;
+    carried.dailyDate = null;
+    carried.maxSections = 0;        // endless from here
+    carried.over = false;
+    // The Daily ended at the LAST section it played; Free Play resumes at the
+    // next one with a clean section counter.
+    carried.section = (carried.section || 1) + 1;
+    carried.battleInSection = 0;
+    carried.sectionStats = { money: 0, won: 0, caught: null, lost: [], damage: 0,
+                             kos: 0, startedAt: carried.section };
+    carried.catchUsedThisSection = false;
+    carried.catchMissed = false;
+    carried.lastCaughtName = null;
+    ST.putRun('free', carried);
+    lastDailyRun = null;
+    run = reviveRun(carried);
+    N.healAll(run);
+    toast('Your Daily team continues in Free Play.');
+    renderCrossroads(); show('Crossroads');
   }
 
   // ------------------------------------------------------- EVOLUTION ------
@@ -2830,36 +3264,20 @@
   // carries missing/renamed fields -- which looks exactly like features having
   // "reverted" (blank species captions, a fainted Pokemon still in the party,
   // no section stats). Old saves are migrated where possible, dropped if not.
-  var SAVE_KEY = 'nuzlocke-run';
-  var SAVE_VERSION = 2;
+  // ---------------------------------------------------------- SAVE SLOTS ---
+  // Persistence, migrations and the slot layout live in src/storage.js.
+  // Daily and Free Play have their OWN slots: they used to share one, so a
+  // good Free Play run blocked today's Daily and vice versa.
+  var ST = window.Storage;
 
   // ---------------------------------------------------------- PROFILE ------
   // Everything that OUTLIVES a run: the shiny collection and the run history.
   // Deliberately a separate key from the run save, so abandoning a run (or a
   // save-format bump) can never wipe a collection built up over months.
-  var PROFILE_KEY = 'nuzlocke-profile';
   var profile = null;
 
-  function blankProfile() {
-    return { __v: 1, shinies: [], history: [], totalRuns: 0, bestBattles: 0,
-             bestSection: 0, totalCaught: 0, totalKOs: 0, avatar: 'red', theme: 'default' };
-  }
-  function loadProfile() {
-    try {
-      var raw = localStorage.getItem(PROFILE_KEY);
-      profile = raw ? JSON.parse(raw) : blankProfile();
-    } catch (e) { profile = blankProfile(); }
-    // tolerate a partially-written or hand-edited profile
-    var d = blankProfile();
-    Object.keys(d).forEach(function (k) { if (profile[k] == null) profile[k] = d[k]; });
-    if (!Array.isArray(profile.shinies)) profile.shinies = [];
-    if (!Array.isArray(profile.history)) profile.history = [];
-    return profile;
-  }
-  function saveProfile() {
-    try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); }
-    catch (e) { console.warn('profile', e); }
-  }
+  function loadProfile() { profile = ST.loadProfile(); return profile; }
+  function saveProfile() { return ST.saveProfile(profile); }
 
   // A shiny is registered the moment it is OBTAINED (caught or chosen as a
   // starter) -- not when the run ends. Losing the run must not lose the shiny.
@@ -2901,84 +3319,35 @@
   // handle, which reviveRun() rebuilds deterministically) and persist it to
   // localStorage. Returns the snapshot so callers -- autosave AND the export
   // modal -- always work from exactly the same object.
-  function saveGameState() {
-    if (!run || run.over) return null;
-    var c = { __v: SAVE_VERSION };
-    Object.keys(run).forEach(function (k) { if (k !== 'rand') c[k] = run[k]; });
-    try {
-      if (run.rand && run.rand.getState) c.randState = run.rand.getState();
-    } catch (e) {}
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(c)); }
-    catch (e) { console.warn('save', e); }
-    return c;
-  }
+  function saveGameState() { return ST.saveRun(run); }
   function saveGame() { saveGameState(); }
 
-  function loadGame() {
-    try {
-      var raw = localStorage.getItem(SAVE_KEY);
-      var fromLegacy = false;
-      if (!raw) {
-        raw = localStorage.getItem('nuzlocke-run-v1');
-        fromLegacy = !!raw;
-      }
-      if (!raw) return null;
-      var data = JSON.parse(raw);
-      if (!data || !data.party) return null;
-      var migrated = migrateSave(data);
-      // Persist the migrated save under the NEW key before dropping the old
-      // one -- loadGame() is called more than once (title render, then the
-      // Continue click), and consuming the legacy key without rewriting it
-      // made the second call find nothing.
-      if (fromLegacy) {
-        try {
-          if (migrated) localStorage.setItem(SAVE_KEY, JSON.stringify(migrated));
-          localStorage.removeItem('nuzlocke-run-v1');
-        } catch (e) {}
-      }
-      return migrated;
-    } catch (e) { return null; }
+  // Read one slot. `mode` is 'daily' | 'free'; omitted means "the Free Play
+  // slot", which is what every legacy caller meant.
+  function loadGame(mode) { return ST.loadRun(mode, migrateSave); }
+
+  // Today's Daily, but only if it IS today's. A Daily from a previous day is
+  // stale: it can no longer be scored, so it is offered as an archive instead.
+  function loadDailyToday() {
+    var s = loadGame('daily');
+    if (!s) return null;
+    return s.dailyDate === window.Daily.dayKey() ? s : null;
+  }
+  function loadDailyStale() {
+    var s = loadGame('daily');
+    if (!s) return null;
+    return s.dailyDate === window.Daily.dayKey() ? null : s;
   }
 
-  // Bring any older save up to the current schema.
+  // Bring any older save up to the current schema (src/storage.js owns the
+  // actual migration steps; this supplies the game helpers they need).
   function migrateSave(d) {
-    var v = d.__v || 1;
-    // v1 -> v2: species split out from name; sectionStats / catchMissed added;
-    // fainted Pokemon were not always buried.
-    if (v < 2) {
-      (d.party || []).forEach(function (m) {
-        if (!m.species) m.species = C.cleanName(m.id);
-        if (!m.name) m.name = m.species;
-        if (m.pp == null) m.pp = {};
-      });
-      // a fainted Pokemon must never survive in the party
-      d.graveyard = d.graveyard || [];
-      for (var i = (d.party || []).length - 1; i >= 0; i--) {
-        var mon = d.party[i];
-        if (!mon || mon.hpPct > 0) continue;
-        d.graveyard.push({ name: mon.name, id: mon.id, section: d.section || 1,
-                           killedBy: 'a previous battle',
-                           damage: Math.round((d.damageDealt || {})[mon.uid] || 0) });
-        d.party.splice(i, 1);
-      }
-      if (d.catchMissed === undefined) d.catchMissed = false;
-      if (d.lastCaughtName === undefined) d.lastCaughtName = null;
-      if (!d.sectionStats) {
-        d.sectionStats = { money: 0, won: 0, caught: null, lost: [],
-                           damage: 0, kos: 0, startedAt: d.section || 1 };
-      }
-      d.__v = 2;
-    }
-    // a save with nothing left alive is not resumable
-    if (!d.party || !d.party.length) return null;
-    return d;
+    return ST.migrate(d, { cleanName: C.cleanName });
   }
 
-  function clearSave() {
-    try {
-      localStorage.removeItem(SAVE_KEY);
-      localStorage.removeItem('nuzlocke-run-v1');
-    } catch (e) {}
+  // Clear one slot (default: the slot the live run belongs to).
+  function clearSave(mode) {
+    ST.clearRun(mode === undefined ? (run && run.mode) : mode);
   }
 
   function reviveRun(s) {
@@ -3018,23 +3387,9 @@
   // migrate, revive -- so a code can never smuggle in a state a normal save
   // could not represent.
 
-  // Schema check for decoded save data. Returns null when usable, otherwise a
-  // human-readable reason -- every invalid/corrupt/foreign code fails here
-  // instead of crashing the run.
-  function validateImportedSave(data) {
-    if (!data || typeof data !== 'object' || Array.isArray(data)) return 'That does not look like a save from this game.';
-    // tolerate numeric-string seeds from hand-edited codes
-    if (typeof data.seed === 'string' && data.seed.trim() !== '' && isFinite(Number(data.seed))) data.seed = Number(data.seed);
-    if (typeof data.seed !== 'number' || !isFinite(data.seed)) return 'The save data has no valid run seed.';
-    if ((data.__v || 1) > SAVE_VERSION) return 'This save was made with a newer version of the game and cannot be loaded here.';
-    if (!Array.isArray(data.party)) return 'The save data has no party information.';
-    if (!data.party.length) return 'That run has no Pokemon left to continue with.';
-    for (var i = 0; i < data.party.length; i++) {
-      var m = data.party[i];
-      if (!m || typeof m !== 'object' || typeof m.id !== 'string' || !m.id) return 'The save data has a corrupted party member.';
-    }
-    return null;
-  }
+  // Schema check for decoded save data lives in src/storage.js, so an
+  // imported code is held to exactly the same standard as a stored save.
+  function validateImportedSave(data) { return ST.validate(data); }
 
   // Helper to merge imported shiny collection into profile
   function mergeShinies(imported) {
@@ -3141,28 +3496,30 @@
     // Wire up Save QR button visibility
     var qrBtn = $('btnSaveQR');
     if (qrBtn) qrBtn.hidden = !qr.ok;
-    $('screenSaveExport').hidden = false;
+    window.Modal.open('screenSaveExport');
   }
 
-  function closeSaveExport() { $('screenSaveExport').hidden = true; }
+  function closeSaveExport() { window.Modal.close('screenSaveExport'); }
 
-  function copyFeedback(btn, ok) {
+  function copyFeedback(btn, ok, okToast) {
     var old = btn.textContent;
     btn.textContent = ok ? 'Copied!' : 'Copy failed';
     setTimeout(function () { btn.textContent = old; }, 1600);
-    $('saveExportMsg').textContent = ok ? 'Copied to clipboard!' : 'Copy failed \u2014 select the code above and copy it manually.';
-    if (ok) toast('Copied to clipboard!');
-    else { var ta = $('saveCodeOut'); ta.focus(); ta.select(); }
+    var msg = $('saveExportMsg');
+    if (msg) msg.textContent = ok ? 'Copied to clipboard!' : 'Copy failed \u2014 select the code above and copy it manually.';
+    if (ok) { toast(okToast || 'Copied to clipboard!'); return; }
+    // Selecting the text is the manual fallback; pick whichever box is open.
+    var ta = $('screenDailyResult') && !$('screenDailyResult').hidden ? $('drShareText') : $('saveCodeOut');
+    if (ta) { ta.focus(); ta.select(); }
   }
 
   // ---- IMPORT MODAL -------------------------------------------------------
   function openSaveImport() {
     $('saveCodeIn').value = '';
     $('saveImportMsg').textContent = '';
-    $('screenSaveImport').hidden = false;
-    setTimeout(function () { $('saveCodeIn').focus(); }, 60);
+    window.Modal.open('screenSaveImport', { initialFocus: $('saveCodeIn') });
   }
-  function closeSaveImport() { $('screenSaveImport').hidden = true; }
+  function closeSaveImport() { window.Modal.close('screenSaveImport'); }
 
   // Shared by the manual import box and the ?save= URL handler.
   function importFromText(text) {
@@ -3284,9 +3641,6 @@
     $('btnSumSave').addEventListener('click', openSaveExport);
     // Export + import modals (Save Codes / links / QR).
     $('btnSaveExportClose').addEventListener('click', closeSaveExport);
-    $('screenSaveExport').addEventListener('click', function (e) {
-      if (e.target === $('screenSaveExport')) closeSaveExport();
-    });
     $('btnCopyCode').addEventListener('click', function () {
       window.SaveCode.copyText($('saveCodeOut').value)
         .then(function (ok) { copyFeedback($('btnCopyCode'), ok); });
@@ -3324,9 +3678,6 @@
       }
     });
     $('btnSaveImportClose').addEventListener('click', closeSaveImport);
-    $('screenSaveImport').addEventListener('click', function (e) {
-      if (e.target === $('screenSaveImport')) closeSaveImport();
-    });
     $('btnImportLoad').addEventListener('click', performManualImport);
     $('saveCodeIn').addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); performManualImport(); }
@@ -3346,17 +3697,30 @@
     });
     $('btnAvatarCancel').addEventListener('click', closeAvatarPicker);
     $('btnAvatarSave').addEventListener('click', function () { if (pendingAvatar) { profile.avatar = pendingAvatar; saveProfile(); updateMenuAvatar(); } closeAvatarPicker(); showProfile(); });
-    $('screenAvatarPicker').addEventListener('click', function (e) { if (e.target === $('screenAvatarPicker')) closeAvatarPicker(); });
     $('btnPickerCancel').addEventListener('click', closePicker);
-    $('screenPicker').addEventListener('click', function (e) {
-      if (e.target === $('screenPicker')) closePicker();
-    });
     $('btnGoTitle').addEventListener('click', function () { show('Title'); setContinueState(); });
+    // ---- Daily result screen ----
+    $('btnDrTitle').addEventListener('click', function () { show('Title'); setContinueState(); });
+    $('btnDrHistory').addEventListener('click', showHistory);
+    $('btnDrContinue').addEventListener('click', continueDailyInFreePlay);
+    $('btnDrCopy').addEventListener('click', function () {
+      var txt = $('drShareText').value;
+      window.SaveCode.copyText(txt).then(function (ok) {
+        copyFeedback($('btnDrCopy'), ok, 'Result copied!');
+      });
+    });
+    // The Web Share sheet is the natural way to send this on a phone, but it
+    // only exists on some browsers -- so the button only appears where it works.
+    var shareBtn = $('btnDrShare');
+    if (shareBtn && navigator.share) {
+      shareBtn.hidden = false;
+      shareBtn.addEventListener('click', function () {
+        navigator.share({ title: 'Dailylocke', text: $('drShareText').value })
+          .catch(function () { /* the user dismissed the sheet */ });
+      });
+    }
     $('btnMenu').addEventListener('click', openMenu);
     $('btnMenuClose').addEventListener('click', closeMenu);
-    $('screenMenu').addEventListener('click', function (e) {
-      if (e.target === $('screenMenu')) closeMenu();
-    });
     $('btnMenuProfile').addEventListener('click', showProfile);
     $('btnMenuShinies').addEventListener('click', showShinies);
     $('btnMenuHistory').addEventListener('click', showHistory);
@@ -3380,7 +3744,15 @@
   window.Game = { get run() { return run; }, show: show, startNextBattle: startNextBattle,
                   redrawRoute: renderCrossroads, toast: toast,
                   // the live 3D battle UI, for debugging field effects
-                  get ui() { return ui; } };
+                  get ui() { return ui; },
+                  // Post-battle progression. Exposed because the end of a
+                  // finite Daily is a boundary worth testing directly: reaching
+                  // it through six real boss Pokemon is far too slow and too
+                  // RNG-dependent to assert on.
+                  advance: afterBattleAdvance,
+                  setContinueState: setContinueState,
+                  showDailyResult: showDailyResult,
+                  continueDailyInFreePlay: continueDailyInFreePlay };
 
   // ---------------------------------------------------------------- AUDIO --
   // Music is owned by src/audio.js. It plays only while a battle is on screen

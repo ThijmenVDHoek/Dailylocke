@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Item art unavailable">
+  <!-- Bag / mart item placeholder. -->
+  <rect x="4" y="9" width="24" height="19" rx="4" fill="#2a3150" stroke="#5b6488" stroke-width="2"/>
+  <path d="M11 11V8a5 5 0 0 1 10 0v3" fill="none" stroke="#5b6488" stroke-width="2" stroke-linecap="round"/>
+</svg>
