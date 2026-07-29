@@ -135,6 +135,19 @@
     return types.map(function (t) { return '<span class="type type-' + t + '">' + t + '</span>'; }).join('');
   }
 
+  // Small roster row for history tiles: party sprites in a tight row, with
+  // the MVP marked by a tiny gold pill.
+  function rosterRowHtml(roster, mvpId) {
+    if (!roster || !roster.length) return '';
+    return '<div class="hr-roster">' + roster.map(function (p) {
+      var isMvp = mvpId && p.id === mvpId;
+      return '<div class="hr-roster-mon">' +
+        animSprite(p.id, 28, 32, '', 1.4, p.shiny) +
+        (isMvp ? '<span class="hr-mvp-pill">MVP</span>' : '') +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
   // A large sprite that degrades through the whole fallback chain instead of
   // jumping straight to the 200px PokeAPI artwork (which then has to be
   // downscaled and looks soft). Small BW sprites are snapped to an integer
@@ -402,11 +415,7 @@
           fmt = D.parseKey(today).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
         } catch (e) {}
         // Build the hist-row style tile inside the button
-        var mvpHtml = '';
-        if (result.mvp && result.mvp.id) {
-          mvpHtml = '<div class="hr-mvp">' + animSprite(result.mvp.id, 40, 46, '', 1.45) +
-                    '<span>' + escapeHtml(result.mvp.name) + '</span></div>';
-        }
+        var rosterHtml = rosterRowHtml(result.roster, result.mvp ? result.mvp.id : null);
         main.innerHTML = '<div class="hr-main">' +
           '<div class="hr-top">' +
             '<b>' + fmt + '</b>' +
@@ -420,7 +429,7 @@
             result.lost + ' lost' +
           '</div>' +
           (result.marks && result.marks.length ? '<div class="hr-marks">' + result.marks.join('') + '</div>' : '') +
-        '</div>' + mvpHtml;
+        '</div>' + rosterHtml;
         sub.textContent = '';
       } else if (dailySave) {
         main.textContent = 'Resume Daily';
@@ -1562,8 +1571,7 @@
           '</div>' +
           (r.marks && r.marks.length ? '<div class="hr-marks">' + r.marks.join('') + '</div>' : '') +
         '</div>' +
-        (r.mvp ? '<div class="hr-mvp">' + animSprite(r.mvp.id, 40, 46, '', 1.45) +
-                 '<span>' + escapeHtml(r.mvp.name) + '</span></div>' : '') +
+        rosterRowHtml(r.roster, r.mvp ? r.mvp.id : null) +
       '</div>';
     }).join('');
     return html;
@@ -1591,8 +1599,7 @@
             r.trainers + ' trainers' +
           '</div>' +
         '</div>' +
-        (r.mvp ? '<div class="hr-mvp">' + animSprite(r.mvp.id, 40, 46, '', 1.45) +
-                 '<span>' + escapeHtml(r.mvp.name) + '</span></div>' : '') +
+        rosterRowHtml(r.roster, r.mvp ? r.mvp.id : null) +
       '</div>';
     }).join('');
   }
@@ -3107,7 +3114,10 @@
       score: Math.max(0, score),
       starter: run.starterMeta || null,
       mvp: m ? { id: m.id, name: m.name, damage: m.damage } : null,
-      marks: (run.sectionMarks || []).filter(Boolean)
+      marks: (run.sectionMarks || []).filter(Boolean),
+      roster: (run.party || []).map(function (p) {
+        return { id: p.id, name: p.name, shiny: !!p.shiny };
+      })
     });
 
     // The all-time profile still records it, exactly like a Free Play run.
@@ -3434,7 +3444,10 @@
       at: Date.now(), battles: run.battlesWon || 0, section: run.section || 0,
       caught: run.caught || 0, trainers: run.trainersBeaten || 0,
       mvp: m ? { id: m.id, name: m.name, damage: m.damage } : null,
-      seed: run.seed
+      seed: run.seed,
+      roster: (run.party || []).map(function (p) {
+        return { id: p.id, name: p.name, shiny: !!p.shiny };
+      })
     });
     // a long history is just noise; keep the most recent 50 runs
     if (profile.history.length > 50) profile.history.length = 50;
