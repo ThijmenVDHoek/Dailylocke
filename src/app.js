@@ -1410,12 +1410,12 @@
 
   // Map each theme to a battlefield biome for "Match theme" mode.
   var THEME_BIOME = {
-    'default': 'meadow', 'normal': 'meadow', 'fire': 'volcano',
-    'water': 'beach', 'electric': 'cave', 'grass': 'forest',
-    'ice': 'snow', 'fighting': 'desert', 'poison': 'forest',
-    'ground': 'desert', 'flying': 'meadow', 'psychic': 'psychic',
-    'bug': 'forest', 'rock': 'cave', 'ghost': 'cave',
-    'dragon': 'cave', 'dark': 'cave', 'steel': 'cave', 'fairy': 'psychic'
+    'default': 'meadow', 'normal': 'plains', 'fire': 'volcano',
+    'water': 'beach', 'electric': 'factory', 'grass': 'forest',
+    'ice': 'snow', 'fighting': 'dojo', 'poison': 'swamp',
+    'ground': 'canyon', 'flying': 'skyclouds', 'psychic': 'psychic',
+    'bug': 'garden', 'rock': 'rocky', 'ghost': 'graveyard',
+    'dragon': 'ruins', 'dark': 'void', 'steel': 'factory', 'fairy': 'glade'
   };
 
   function updateMenuAvatar() {
