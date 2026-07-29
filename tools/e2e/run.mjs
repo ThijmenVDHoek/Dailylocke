@@ -618,11 +618,11 @@ try {
     const title = await page.evaluate(() => ({
       label: document.getElementById('dailyMain').textContent,
       streak: document.getElementById('dailyStreak').hidden === false,
-      results: document.getElementById('btnDailyResults').hidden === false,
+      noDuplicateResultButton: !document.getElementById('btnDailyResults'),
     }));
     check('the title shows the Daily as complete', /complete/i.test(title.label), title.label);
     check('the streak chip appears once there is a streak', title.streak);
-    check('a finished Daily offers its result again', title.results);
+    check('the title has no duplicate result button', title.noDuplicateResultButton);
 
     // Re-tapping Daily must show the RESULT, never silently start a new run.
     await page.click('#btnDaily');

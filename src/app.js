@@ -54,6 +54,8 @@
   function animSprite(id, px, pw, cls, wt, shiny) {
     // Big enough that ordinary sprites render 1:1; only genuine giants shrink.
     px = px || 116;
+    pw = pw || px;
+    wt = wt || 1;
     var urls = spriteUrls(id, false, shiny);
     urls.push(iconUrl(id));
     urls.push(FALLBACK_SPRITE);
@@ -61,8 +63,12 @@
     var onerr = "this.onerror=null;var q=" + JSON.stringify(chain) + ";" +
                 "if(!this._i)this._i=0;" +
                 "if(this._i<q.length){this.src=q[this._i++];this.onerror=arguments.callee;}";
+    // The onload snap happens after the image has decoded. Give the browser
+    // the same bounds up front so a cached 200px fallback can never paint one
+    // oversized frame before __snapSprite() fits it into the slot.
+    var bounds = 'max-height:' + px + 'px;max-width:' + Math.round(pw * wt) + 'px';
     return '<img class="anim-mon ' + (cls || '') + (shiny ? ' is-shiny' : '') + '" src="' + urls[0] + '" alt="" ' +
-           'data-box="' + px + '" data-boxw="' + (pw || px) + '" data-wt="' + (wt || 1) + '" ' +
+           'style="' + bounds + '" data-box="' + px + '" data-boxw="' + pw + '" data-wt="' + wt + '" ' +
            'onload="window.__snapSprite&&window.__snapSprite(this)" ' +
            'onerror="' + onerr.replace(/"/g, '&quot;') + '">';
   }
@@ -122,8 +128,18 @@
     var onerr = "this.onerror=null;var q=" + JSON.stringify(chain) + ";" +
                 "if(!this._i)this._i=0;" +
                 "if(this._i<q.length){this.src=q[this._i++];this.onerror=arguments.callee;}";
-    return '<img class="' + (cls || '') + (shiny ? ' is-shiny' : '') + '" src="' + urls[0] + '" alt="" ' +
-           'data-box="' + (box || 112) + '" data-boxw="' + (boxw || box || 112) + '" data-wt="' + (wt || 1) + '" ' +
+    var boxH = box || 112;
+    var boxW = boxw || box || 112;
+    var widthTolerance = wt || 1;
+    // Evolution art is deliberately 200px and sized entirely by CSS. Every
+    // other large sprite gets decode-time bounds for the same reason as
+    // animSprite(): opening the party sheet must not flash the image at its
+    // (sometimes 200px) intrinsic fallback size before onload runs.
+    var isEvolutionArt = (' ' + (cls || '') + ' ').indexOf(' evo-sprite ') >= 0;
+    var bounds = isEvolutionArt ? ''
+      : ' style="max-height:' + boxH + 'px;max-width:' + Math.round(boxW * widthTolerance) + 'px"';
+    return '<img class="' + (cls || '') + (shiny ? ' is-shiny' : '') + '" src="' + urls[0] + '" alt=""' + bounds + ' ' +
+           'data-box="' + boxH + '" data-boxw="' + boxW + '" data-wt="' + widthTolerance + '" ' +
            'onload="window.__snapSprite&&window.__snapSprite(this)" ' +
            'onerror="' + onerr.replace(/"/g, '&quot;') + '">';
   }
@@ -271,11 +287,8 @@
   }
 
   function initTitle() {
-    $('btnNewRun').addEventListener('click', function () { startFreeRun(Math.floor(Math.random() * 1e9)); });
+    $('btnNewRun').addEventListener('click', startFreeRun);
     $('btnDaily').addEventListener('click', onDailyClick);
-    $('btnSeed').addEventListener('click', function () {
-      var s = prompt('Enter a seed (any text):'); if (s) startFreeRun(C.hashString(s));
-    });
     var tl = $('btnTitleLoad');
     if (tl) tl.addEventListener('click', function () { openSaveImport(); });
     $('btnTitleMenu').addEventListener('click', openMenu);
@@ -290,8 +303,6 @@
       var s = loadGame('free'); if (!s) { toast('No save found.'); return; }
       run = reviveRun(s); renderCrossroads(); show('Crossroads');
     });
-    var dr = $('btnDailyResults');
-    if (dr) dr.addEventListener('click', function () { showDailyResult(window.Daily.resultFor()); });
     var ar = $('btnArchiveDaily');
     if (ar) ar.addEventListener('click', archiveStaleDaily);
     setContinueState();
@@ -318,8 +329,8 @@
   }
 
   // ---- RUN STARTERS --------------------------------------------------------
-  // Two entry points instead of one, because the two modes now differ in more
-  // than their seed: the Daily is dated, finite and scored.
+  // Two entry points instead of one: the Daily is dated, finite and scored,
+  // while Free Play is randomized and endless.
   function startDailyRun() {
     var D = window.Daily;
     var key = D.dayKey();
@@ -330,8 +341,8 @@
       dailyNumber: D.puzzleNumber(key)
     });
   }
-  function startFreeRun(seed) {
-    return startRun(seed, { mode: 'free' });
+  function startFreeRun() {
+    return startRun(Math.floor(Math.random() * 1e9), { mode: 'free' });
   }
 
   // Yesterday's unfinished Daily is a real run someone spent time on. Rather
@@ -382,7 +393,7 @@
           fmt = D.parseKey(today).toLocaleDateString(undefined,
             { weekday: 'short', month: 'short', day: 'numeric' });
         } catch (e) {}
-        sub.textContent = D.SECTIONS + ' sections \u00b7 same seed for everyone \u00b7 ' + fmt;
+        sub.textContent = D.SECTIONS + ' sections \u00b7 one scored run today \u00b7 ' + fmt;
       }
     }
 
@@ -399,9 +410,8 @@
       }
     }
 
-    // ---- results shortcut ----
-    var dr = $('btnDailyResults');
-    if (dr) dr.hidden = !result;
+    // The Daily CTA itself reopens today's result once the run is complete, so
+    // there is deliberately no duplicate "See today's result" button here.
 
     // ---- Free Play row ----
     var freeRow = $('titleFreeRun'), contSub = $('continueSub');
@@ -423,10 +433,6 @@
       if (stale) ar.querySelector('.bd-sub').textContent =
         'Unfinished Daily from ' + stale.dailyDate + ' \u00b7 Section ' + (stale.section || 1);
     }
-  }
-
-  function seedChip(seed) {
-    return '<div class="seed-chip">Run seed: <b>' + seed + '</b></div>';
   }
 
   // ------------------------------------------------------------ STARTER ---
@@ -488,14 +494,13 @@
           N.logMsg(run, 'You set out with ' + nick + ' the ' + mon.species + '.');
           if (mon.shiny) recordShiny(mon, 'starter');
           // The Daily result records which starter you took, so the share card
-          // and history can show how the same seed played out differently.
+          // and history can show how the same challenge played out differently.
           run.starterMeta = { id: mon.id, name: mon.species };
           saveGame(); renderCrossroads(); show('Crossroads');
         });
       });
       g.appendChild(card);
     });
-    g.insertAdjacentHTML('beforeend', seedChip(run.seed));
   }
 
   // --------------------------------------------------------- CROSSROADS ---
@@ -1256,8 +1261,6 @@
     $('miHistCount').textContent = h
       ? h + (h === 1 ? ' run finished' : ' runs finished')
       : 'No runs finished';
-    var seed = $('menuSeed');
-    if (seed) { seed.hidden = !run; seed.innerHTML = run ? 'Run seed: <b>' + run.seed + '</b>' : ''; }
     window.Modal.open('screenMenu');
   }
   function closeMenu() { window.Modal.close('screenMenu'); }
@@ -2968,7 +2971,7 @@
         '<span class="ros-n">' + r.name + '</span>' +
         '<span class="ros-d">' + r.damage.toLocaleString() + ' dmg</span>' +
         '<span class="ros-s">' + (r.alive ? pctHP(r.hpPct) + '%' : 'S' + r.section) + '</span></div>';
-    }).join('') + seedChip(run.seed);
+    }).join('');
     clearSave();
   }
 
@@ -2976,7 +2979,9 @@
   // The Daily is finite, so it has a real ending: score it, write it to the
   // dated history (which drives the streak and calendar), and show a share
   // card. `outcome` is 'complete' (cleared every section) or 'wipe'.
-  var lastDailyRun = null;      // kept so "continue in Free Play" can hand it over
+  // Only a CLEARED Daily with at least one survivor may continue in Free Play.
+  // A wipe must never leave a dead snapshot behind for the result CTA.
+  var lastDailyRun = null;
 
   function finishDaily(outcome) {
     if (run.over) return;
@@ -3009,9 +3014,11 @@
 
     // The all-time profile still records it, exactly like a Free Play run.
     recordRunEnd();
-    // Keep the finished team around so it can be carried into Free Play, then
-    // free the Daily slot so tomorrow starts clean.
-    lastDailyRun = ST.snapshot(run);
+    // A cleared team can carry on; a wiped team has nobody left and must end
+    // here. N.alive() is intentional: party.length can still include a
+    // zero-HP Pokemon on some simultaneous-KO battle endings.
+    lastDailyRun = outcome === 'complete' && N.alive(run).length
+      ? ST.snapshot(run) : null;
     clearSave('daily');
     showDailyResult(entry, { fresh: true });
   }
@@ -3057,10 +3064,12 @@
     var share = D.shareText(entry, { url: shareBaseUrl() });
     $('drShareText').value = share;
 
-    // Carrying on is only offered when there is a team left to carry.
+    // Never offer Free Play after a wipe. Check living Pokemon rather than the
+    // raw array length because a simultaneous KO can briefly leave a dead mon
+    // in party even though the run has ended.
     var cont = $('btnDrContinue');
-    if (cont) cont.hidden = !(opts.fresh && complete && lastDailyRun &&
-      lastDailyRun.party && lastDailyRun.party.length);
+    var hasSurvivor = lastDailyRun && N.alive(lastDailyRun).length > 0;
+    if (cont) cont.hidden = !(opts.fresh && complete && hasSurvivor);
 
     show('DailyResult');
   }
@@ -3075,7 +3084,11 @@
 
   // "Keep going" -> the finished Daily team becomes an endless Free Play run.
   function continueDailyInFreePlay() {
-    if (!lastDailyRun) { toast('Nothing to carry over.'); return; }
+    if (!lastDailyRun || !N.alive(lastDailyRun).length) {
+      lastDailyRun = null;
+      toast('No surviving team to continue with.');
+      return;
+    }
     var existing = loadGame('free');
     if (existing && !confirm('Your Free Play slot already has a run at Section ' +
         (existing.section || 1) + '. Replace it with this Daily team?')) return;
@@ -3130,9 +3143,22 @@
     return '<div class="evo-box forme-box"><div class="evo-title">Forme change</div>' + rows + '</div>';
   }
 
+  // Evolution can be launched from either of the two crossroads dialogs. A
+  // dialog makes every background screen inert; leaving it open while showing
+  // screenEvolve therefore also makes the final Continue button inert. Always
+  // dismiss the originating sheet before moving to the full-screen sequence.
+  function openEvolutionScreen() {
+    if (window.Modal) {
+      if (window.Modal.isOpen('screenPicker')) window.Modal.close('screenPicker');
+      if (window.Modal.isOpen('xTeamDetail')) window.Modal.close('xTeamDetail');
+    }
+    partySel = -1;
+    show('Evolve');
+  }
+
   function startFormeChange(mon, itemId, formeId) {
     var fromId = mon.id;
-    show('Evolve');
+    openEvolutionScreen();
     var stage = $('evoStage');
     stage.className = 'evo-stage';
     stage.innerHTML =
@@ -3209,7 +3235,7 @@
   // Animated evolution: the classic white-out morph with a pulsing silhouette.
   function startEvolution(mon, opt) {
     var fromId = mon.id, fromName = mon.name;
-    show('Evolve');
+    openEvolutionScreen();
     var stage = $('evoStage');
     stage.className = 'evo-stage';
     stage.innerHTML =

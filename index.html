@@ -19,7 +19,11 @@
 <link rel="preconnect" href="https://play.pokemonshowdown.com" crossorigin/>
 <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin/>
 
+<!-- Preload both local subsets. In standalone mode this lets the blocking
+     @font-face declarations resolve from the app shell before first paint,
+     rather than flashing (and on some WebKit builds retaining) Courier. -->
 <link rel="preload" as="font" type="font/woff2" href="assets/fonts/vt323-latin-400.woff2" crossorigin/>
+<link rel="preload" as="font" type="font/woff2" href="assets/fonts/vt323-latin-ext-400.woff2" crossorigin/>
 <link rel="stylesheet" href="assets/css/app.css"/>
 
 <!-- The battle engine is the long pole on first load; start it as early as the
@@ -56,7 +60,7 @@
 
     <div class="title-brand">
       <h1 class="game-title">DAILY<span>LOCKE</span></h1>
-      <p class="tagline">A daily nuzlocke challenge. Five sections, one shared seed.</p>
+      <p class="tagline">A daily nuzlocke challenge. Five sections, one run per day.</p>
     </div>
 
     <div class="title-sheet">
@@ -69,7 +73,6 @@
           <span class="bd-sub" id="dailyDate"></span>
         </button>
         <div class="streak-chip" id="dailyStreak" hidden></div>
-        <button type="button" id="btnDailyResults" class="btn-glass" hidden>See today's result</button>
         <button type="button" id="btnArchiveDaily" class="btn-glass btn-archive" hidden>
           <span class="bd-main">Move old Daily to Free Play</span>
           <span class="bd-sub"></span>
@@ -86,10 +89,7 @@
         <button type="button" id="btnAbandonTitle" class="btn-glass">Abandon Free Play run</button>
       </div>
       <div class="title-btns" id="titleFresh">
-        <div class="title-row">
-          <button type="button" id="btnNewRun" class="btn-glass">Random</button>
-          <button type="button" id="btnSeed" class="btn-glass">Custom seed</button>
-        </div>
+        <button type="button" id="btnNewRun" class="btn-glass">New random run</button>
       </div>
       <div class="title-btns">
         <button type="button" id="btnTitleLoad" class="btn-glass">Load save</button>
@@ -106,7 +106,7 @@
     <div class="rules-body">
       <div class="rule">
         <span class="rl-n">1</span>
-        <div><b>Two ways to play</b><p><b>Daily</b> is a fixed 5-section challenge on a seed everyone shares, scored and recorded once a day. <b>Free Play</b> is endless. They use separate save slots, so one never blocks the other.</p></div>
+        <div><b>Two ways to play</b><p><b>Daily</b> is the same fixed 5-section challenge for everyone, scored and recorded once a day. <b>Free Play</b> is endless and randomized. They use separate save slots, so one never blocks the other.</p></div>
       </div>
       <div class="rule">
         <span class="rl-n">2</span>
@@ -254,15 +254,15 @@
           <span class="mi-t"><b>Shiny Collection</b><em id="miShinyCount">No shinies yet</em></span>
         </button>
         <button type="button" id="btnMenuHistory" class="menu-item">
-          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png" alt="">
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/vs-recorder.png" alt="">
           <span class="mi-t"><b>History</b><em id="miHistCount">No runs finished</em></span>
         </button>
         <button type="button" id="btnMenuTransfer" class="menu-item">
-          <span class="mi-ic mi-glyph">&#8646;</span>
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/pal-pad.png" alt="">
           <span class="mi-t"><b>Transfer save</b><em id="miTransferSub">Code, link or QR for another device</em></span>
         </button>
         <button type="button" id="btnMenuImport" class="menu-item">
-          <span class="mi-ic mi-glyph">&#8681;</span>
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/data-card-01.png" alt="">
           <span class="mi-t"><b>Import save</b><em>Load a code from another device</em></span>
         </button>
         <button type="button" id="btnMenuRules" class="menu-item">
@@ -274,7 +274,6 @@
           <span class="mi-t"><b>Quit run</b><em>Abandon this run for good</em></span>
         </button>
       </div>
-      <div id="menuSeed" class="seed-chip" hidden></div>
       <button type="button" id="btnMenuClose" class="btn-secondary wide">Close</button>
     </div>
   </div>
