@@ -13,13 +13,13 @@
 <title>Dailylocke</title>
 
 <!-- Warm up the third-party origins the game pulls sprites, cries and music
-     from, so the first battle isn't waiting on DNS + TLS. -->
+     from, so the first battle isn't waiting on DNS + TLS. The font is no
+     longer among them: VT323 is self-hosted so an offline launch still looks
+     like Dailylocke instead of falling back to Courier. -->
 <link rel="preconnect" href="https://play.pokemonshowdown.com" crossorigin/>
 <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin/>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 
-<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=VT323&display=swap"/>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&display=swap"/>
+<link rel="preload" as="font" type="font/woff2" href="assets/fonts/vt323-latin-400.woff2" crossorigin/>
 <link rel="stylesheet" href="assets/css/app.css"/>
 
 <!-- The battle engine is the long pole on first load; start it as early as the
@@ -56,29 +56,43 @@
 
     <div class="title-brand">
       <h1 class="game-title">DAILY<span>LOCKE</span></h1>
-      <p class="tagline">A daily endless nuzlocke game. How far can you get?</p>
+      <p class="tagline">A daily nuzlocke challenge. Five sections, one shared seed.</p>
     </div>
 
     <div class="title-sheet">
-      <!-- Two mutually exclusive states: a run in progress collapses this to a
-           single Continue, so there is never a choice that would destroy it. -->
-      <div class="title-btns" id="titleFresh">
+      <!-- Daily and Free Play are SEPARATE slots, so both can be offered at
+           once: finishing a Daily never costs you a Free Play run, and a good
+           Free Play run never locks you out of tomorrow's Daily. -->
+      <div class="title-btns">
         <button type="button" id="btnDaily" class="btn-white btn-daily">
-          <span class="bd-main">Daily Run</span>
+          <span class="bd-main" id="dailyMain">Daily Run</span>
           <span class="bd-sub" id="dailyDate"></span>
         </button>
-        <div class="title-row">
-          <button type="button" id="btnNewRun" class="btn-glass">Random</button>
-          <button type="button" id="btnSeed" class="btn-glass">Custom seed</button>
-        </div>
-        <button type="button" id="btnTitleLoad" class="btn-glass">Load save</button>
+        <div class="streak-chip" id="dailyStreak" hidden></div>
+        <button type="button" id="btnDailyResults" class="btn-glass" hidden>See today's result</button>
+        <button type="button" id="btnArchiveDaily" class="btn-glass btn-archive" hidden>
+          <span class="bd-main">Move old Daily to Free Play</span>
+          <span class="bd-sub"></span>
+        </button>
       </div>
-      <div class="title-btns" id="titleResume" hidden>
+
+      <div class="title-sep"><span>Free Play</span></div>
+
+      <div class="title-btns" id="titleFreeRun" hidden>
         <button type="button" id="btnContinue" class="btn-white btn-daily">
           <span class="bd-main">Continue run</span>
           <span class="bd-sub" id="continueSub"></span>
         </button>
-        <button type="button" id="btnAbandonTitle" class="btn-glass">Abandon and start fresh</button>
+        <button type="button" id="btnAbandonTitle" class="btn-glass">Abandon Free Play run</button>
+      </div>
+      <div class="title-btns" id="titleFresh">
+        <div class="title-row">
+          <button type="button" id="btnNewRun" class="btn-glass">Random</button>
+          <button type="button" id="btnSeed" class="btn-glass">Custom seed</button>
+        </div>
+      </div>
+      <div class="title-btns">
+        <button type="button" id="btnTitleLoad" class="btn-glass">Load save</button>
       </div>
     </div>
   </section>
@@ -92,26 +106,30 @@
     <div class="rules-body">
       <div class="rule">
         <span class="rl-n">1</span>
-        <div><b>Pick a starter</b><p>Choose 1 of 3, name it, and set out. Sections are endless and scale forever.</p></div>
+        <div><b>Two ways to play</b><p><b>Daily</b> is a fixed 5-section challenge on a seed everyone shares, scored and recorded once a day. <b>Free Play</b> is endless. They use separate save slots, so one never blocks the other.</p></div>
       </div>
       <div class="rule">
         <span class="rl-n">2</span>
-        <div><b>A section is 4 battles</b><p>Three wild encounters, then a trainer with a full team and smarter tactics.</p></div>
+        <div><b>Pick a starter</b><p>Choose 1 of 3, name it, and set out.</p></div>
       </div>
       <div class="rule">
         <span class="rl-n">3</span>
+        <div><b>A section is 4 battles</b><p>Three wild encounters, then a trainer with a full team and smarter tactics.</p></div>
+      </div>
+      <div class="rule">
+        <span class="rl-n">4</span>
         <div><b>Nothing resets</b><p>HP, PP and status carry across every battle. Beating the trainer fully heals your survivors &mdash; nothing else does.</p></div>
       </div>
       <div class="rule danger">
-        <span class="rl-n">4</span>
+        <span class="rl-n">5</span>
         <div><b>Fainted is forever</b><p>A Pokemon that falls is gone for good and listed in the Memorial. There are no revives.</p></div>
       </div>
       <div class="rule">
-        <span class="rl-n">5</span>
+        <span class="rl-n">6</span>
         <div><b>You can always run</b><p>Fleeing a wild battle never fails, but you forfeit that battle's prize money. Trainers will not let you walk away.</p></div>
       </div>
       <div class="rule">
-        <span class="rl-n">6</span>
+        <span class="rl-n">7</span>
         <div><b>One catch per section</b><p>Only the first wild encounter can be caught, and duplicates are re-rolled. Max 6 in the party.</p></div>
       </div>
       <div class="rule gold">
@@ -119,14 +137,18 @@
         <div><b>Shinies break the rules</b><p>A 1 in 512 chance on any wild or starter. Shinies are always catchable, never break free, and are kept forever in your Shiny Collection.</p></div>
       </div>
       <div class="rule">
-        <span class="rl-n">7</span>
+        <span class="rl-n">8</span>
         <div><b>Spend your winnings</b><p>Shop the Mart for balls, medicine, held items, evolution stones and Mega Stones. Train any Pokemon to change its moves, ability, nature and Stat Points.</p></div>
       </div>
       <div class="rule">
-        <span class="rl-n">8</span>
+        <span class="rl-n">9</span>
         <div><b>The run ends when your last Pokemon falls</b><p>Your score is battles won, and your top damage dealer is crowned MVP.</p></div>
       </div>
-      <p class="credit">Powered by the real Pokemon Showdown engine (@pkmn/sim, Gen 9).<br/>Catch rates &amp; prices from PokeAPI. Item roster from Smogon usage + Pokemon Champions.<br/><a href="THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">Licenses, credits &amp; fan-project notice</a></p>
+      <div class="rule">
+        <span class="rl-n">&#9650;</span>
+        <div><b>Ascension</b><p>Past Section 15 in Free Play, difficulty stops being about bigger numbers. Each tier adds battle-start weather, terrain or hazards, elite Pokemon with a visible modifier, sharper AI, boss clauses every 5 sections, and reduced section healing. Everything is previewed on the route screen before you commit, and rewards flatten out as it climbs.</p></div>
+      </div>
+      <p class="credit">Powered by the real Pokemon Showdown engine (@pkmn/sim, Gen 9), running the <code>gen9customgame</code> format.<br/>Catch rates &amp; prices from PokeAPI. Held-item roster informed by Smogon usage.<br/><a href="LICENSE" target="_blank" rel="noopener">MIT licensed</a> &middot; <a href="THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">Licenses, credits &amp; fan-project notice</a></p>
     </div>
   </section>
 
@@ -149,6 +171,10 @@
       <h2 class="x-title" id="xSection">Route</h2>
       <div class="x-sub" id="xProgress"></div>
     </div>
+
+    <!-- Ascension state: tier, battle-start field effect, boss clause and the
+         trainer's intent. Always previewed, never a hidden difficulty tweak. -->
+    <div class="x-ascension" id="xAscension" hidden></div>
 
     <!-- the team lives on this screen; no separate menu -->
     <div class="team-strip" id="xTeam"></div>
@@ -399,6 +425,33 @@
     </div>
   </section>
 
+  <!-- ===================== DAILY RESULT ===================== -->
+  <!-- The Daily is finite, so it has a real ending: a scored, dated, shareable
+       result rather than just "your last Pokemon fainted". -->
+  <section id="screenDailyResult" hidden>
+    <div class="end-box dr-box">
+      <h2 class="scr-title" id="drTitle">Daily complete!</h2>
+      <p class="hint center" id="drSub"></p>
+      <div class="sum-stats" id="drStats"></div>
+      <div id="drScore" class="score-box"></div>
+      <div id="drMvp"></div>
+      <div id="drMarks" class="dr-marks" aria-label="Section results"></div>
+      <label class="save-label" for="drShareText">Share</label>
+      <textarea id="drShareText" class="search save-code dr-share" readonly rows="9"
+                autocomplete="off" spellcheck="false"
+                aria-label="Shareable result text"></textarea>
+      <div class="save-actions">
+        <button type="button" id="btnDrCopy" class="btn-primary">Copy result</button>
+        <button type="button" id="btnDrShare" class="btn-secondary" hidden>Share&#8230;</button>
+      </div>
+      <button type="button" id="btnDrContinue" class="btn-secondary wide" hidden>
+        Keep this team in Free Play
+      </button>
+      <button type="button" id="btnDrHistory" class="btn-secondary wide">Daily history</button>
+      <button type="button" id="btnDrTitle" class="btn-secondary wide">Back to title</button>
+    </div>
+  </section>
+
   <!-- ===================== GAME OVER ===================== -->
   <section id="screenGameOver" hidden>
     <div class="end-box">
@@ -442,6 +495,9 @@
 <script defer src="vendor/lz-string.min.js"></script>
 <script defer src="vendor/qrcode.js"></script>
 <script defer src="src/core.js"></script>
+<script defer src="src/storage.js"></script>
+<script defer src="src/modal.js"></script>
+<script defer src="src/daily.js"></script>
 <script defer src="src/nuzlocke.js"></script>
 <script defer src="src/evolution.js"></script>
 <script defer src="src/mega.js"></script>

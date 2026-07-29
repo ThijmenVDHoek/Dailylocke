@@ -175,6 +175,129 @@ check('window.GameAudio', !!window.GameAudio);
 check('window.SaveCode', !!window.SaveCode);
 check('window.Game (app booted)', !!window.Game);
 check('window.PWA (install button)', !!window.PWA);
+check('window.Daily (daily challenge)', !!window.Daily);
+check('window.Modal (shared dialog controller)', !!window.Modal);
+
+// -------------------------------------------------------------- daily -----
+// The Daily is now a finite, dated, scoreable mode with its own save slot.
+// These guard the parts that are pure logic; the browser suite covers the UI.
+{
+  const D = window.Daily;
+  check('Daily is finite', D.SECTIONS > 0 && D.SECTIONS <= 20, `${D.SECTIONS} sections`);
+
+  const key = D.dayKey(new Date(2026, 6, 29));
+  check('dayKey uses the LOCAL calendar date', key === '2026-07-29', key);
+  // The classic bug: toISOString() would report the previous day for anyone
+  // east of UTC late in the evening.
+  const lateEvening = new Date(2026, 6, 29, 23, 30);
+  check('dayKey is timezone-stable late at night',
+    D.dayKey(lateEvening) === '2026-07-29', D.dayKey(lateEvening));
+
+  check('daysBetween counts whole local days',
+    D.daysBetween('2026-07-29', '2026-08-02') === 4);
+  check('shiftKey walks the calendar',
+    D.shiftKey('2026-03-01', -1) === '2026-02-28' &&
+    D.shiftKey('2026-12-31', 1) === '2027-01-01');
+  check('puzzle numbers are stable and increasing',
+    D.puzzleNumber('2026-01-01') === 1 &&
+    D.puzzleNumber('2026-01-02') === 2);
+  check('everyone gets the same seed for a given day',
+    D.seedFor('2026-07-29') === D.seedFor('2026-07-29') &&
+    D.seedFor('2026-07-29') !== D.seedFor('2026-07-30'));
+
+  // ---- streaks: forgiving by one day, as designed ----
+  const streakCase = (gaps) => {
+    const store = { __v: 1, results: {}, streak: 0, best: 0, lastPlayed: null, grace: 0 };
+    let day = '2026-01-01';
+    D._applyStreak(store, day, true);
+    for (const g of gaps) {
+      day = D.shiftKey(day, g);
+      D._applyStreak(store, day, true);
+    }
+    return store.streak;
+  };
+  check('consecutive days build a streak', streakCase([1, 1, 1]) === 4, `${streakCase([1, 1, 1])}`);
+  check('ONE missed day is forgiven', streakCase([1, 2]) === 3, `${streakCase([1, 2])}`);
+  check('two missed days reset the streak', streakCase([1, 3]) === 1, `${streakCase([1, 3])}`);
+  check('replaying the same day does not inflate a streak',
+    streakCase([1, 0]) === 2, `${streakCase([1, 0])}`);
+
+  // ---- share card ----
+  const entry = {
+    n: 142, date: '2026-07-29', outcome: 'complete', sections: 5, battles: 20,
+    caught: 5, lost: 4, trainers: 5, score: 3200,
+    mvp: { id: 'gengar', name: 'Gengar', damage: 8123 },
+    marks: [D.MARK.clean, D.MARK.clean, D.MARK.lost, D.MARK.clean],
+  };
+  const share = D.shareText(entry);
+  check('share card leads with the puzzle number', share.startsWith('Dailylocke #142'), share.split('\n')[0]);
+  check('share card reports the run', /Battles: 20/.test(share) && /Caught: 5/.test(share) &&
+    /Lost: 4/.test(share) && /MVP: Gengar/.test(share));
+  check('share card carries the emoji squares', share.includes(D.MARK.clean + D.MARK.clean));
+  check('share card never leaks the seed or species list',
+    !/seed/i.test(share) && !/gengar/i.test(share.replace('MVP: Gengar', '')));
+
+  check('a clean section is green, a loss is red',
+    D.markFor({ lost: 0, hurt: false }) === D.MARK.clean &&
+    D.markFor({ lost: 1, hurt: false }) === D.MARK.lost &&
+    D.markFor({ lost: 0, hurt: false, ended: true }) === D.MARK.fail);
+}
+
+// --------------------------------------------------------- ascension ------
+// Difficulty used to stop climbing around section 15 while rewards kept
+// compounding. These pin the fix: difficulty keeps changing, money doesn't run
+// away, and every ascension effect is deterministic per seed.
+{
+  const N = window.Nuz;
+  const runAt = (section) => ({ seed: 12345, section, battleInSection: 0, battlesWon: section * 4 });
+
+  check('ascension is dormant through the normal climb',
+    N.ascension(runAt(1)) === 0 && N.ascension(runAt(15)) === 0);
+  check('ascension starts after section 15',
+    N.ascension(runAt(16)) === 1, `${N.ascension(runAt(16))}`);
+  check('ascension keeps rising forever',
+    N.ascension(runAt(21)) === 2 && N.ascension(runAt(51)) === 8,
+    `s21=${N.ascension(runAt(21))} s51=${N.ascension(runAt(51))}`);
+
+  const late = N.ascensionEffects(runAt(31));
+  check('high ascension turns on field effects, elites and AI depth',
+    late.field && late.elite && late.aiDepth >= 2, JSON.stringify(late));
+  check('high ascension cuts section healing', late.healPct < 1 && late.healPct >= 0.55,
+    `${late.healPct}`);
+  check('section healing never drops to a hopeless level',
+    N.ascensionEffects(runAt(200)).healPct >= 0.55,
+    `${N.ascensionEffects(runAt(200)).healPct}`);
+
+  // The economy must converge, not compound.
+  const mult = (wins) => N.rewardMultiplier({ battlesWon: wins });
+  check('early wins still feel generous', mult(10) > 1.5 && mult(10) <= 2.2, `${mult(10).toFixed(2)}x`);
+  check('the reward multiplier is bounded', mult(500) <= 4.5, `${mult(500).toFixed(2)}x`);
+  check('rewards grow monotonically but with diminishing returns',
+    mult(20) > mult(10) && (mult(80) - mult(60)) < (mult(20) - mult(10)),
+    `${mult(10).toFixed(2)} ${mult(20).toFixed(2)} ${mult(60).toFixed(2)} ${mult(80).toFixed(2)}`);
+  check('the enemy BST floor keeps rising past the old cap',
+    N.tier(runAt(30), true).minBST > N.tier(runAt(15), true).minBST,
+    `s15=${N.tier(runAt(15), true).minBST} s30=${N.tier(runAt(30), true).minBST}`);
+
+  // Determinism: the daily must be identical for everyone.
+  const f1 = N.fieldEffectFor(runAt(31), true);
+  const f2 = N.fieldEffectFor(runAt(31), true);
+  check('field effects are deterministic per seed/section',
+    JSON.stringify(f1) === JSON.stringify(f2));
+  check('no field effects before ascension', N.fieldEffectFor(runAt(5), true) === null);
+  check('boss clauses land on the 5-section beat',
+    !!N.bossClauseFor(runAt(20)) && N.bossClauseFor(runAt(21)) === null);
+  check('boss clauses are deterministic',
+    JSON.stringify(N.bossClauseFor(runAt(20))) === JSON.stringify(N.bossClauseFor(runAt(20))));
+
+  // Roles: a wall should not be handed to a glass cannon.
+  check('roles are filtered by what a species can actually do',
+    N.pickRoleFor({ roles: ['wall'] }, 'deoxysattack', 0) !== 'wall' &&
+    N.pickRoleFor({ roles: ['wall'] }, 'blissey', 0) === 'wall',
+    `${N.pickRoleFor({ roles: ['wall'] }, 'deoxysattack', 0)} / ${N.pickRoleFor({ roles: ['wall'] }, 'blissey', 0)}`);
+  check('trainers get a team strategy, not just a type',
+    !!N.strategyFor(runAt(9), { sprite: 'cynthia', boss: true }).id);
+}
 
 // --------------------------------------------------- installability / PWA --
 // The floating install button on the title screen, plus the path rules that
@@ -281,6 +404,53 @@ check('window.PWA (install button)', !!window.PWA);
     /cache\.add\(url\)\.catch/.test(swSrc), 'addAll() would fail install() wholesale');
   check('service worker only deletes Dailylocke caches',
     swSrc.includes('key.startsWith(CACHE_PREFIX)'), 'other apps may share this origin');
+  // ---- offline quality ----
+  check('the app shell revision is content-derived, not hand-written',
+    /const SHELL_REV = '[0-9a-f]{6,}';/.test(swSrc) && !/CACHE_NAME\s*=\s*`?\$?\{?CACHE_PREFIX/.test(swSrc),
+    (swSrc.match(/const SHELL_REV = '[^']*'/) || ['missing'])[0]);
+  check('runtime caches for remote art are BOUNDED',
+    /MAX_IMG\s*=\s*\d+/.test(swSrc) && /MAX_AUDIO\s*=\s*\d+/.test(swSrc) &&
+    /function trim\(/.test(swSrc),
+    'an unbounded sprite cache would evict the app shell');
+  check('the sprite/audio catalogue is never precached wholesale',
+    !shellPaths.some((e) => /sprites\/|audio\/|cries\//.test(e)));
+  check('the font is self-hosted, not fetched from Google Fonts',
+    !html.includes('fonts.googleapis.com') && !html.includes('fonts.gstatic.com') &&
+    existsSync(resolve(repo, 'assets/fonts/vt323-latin-400.woff2')));
+  check('the self-hosted font is precached',
+    swSrc.includes('assets/fonts/vt323-latin-400.woff2'));
+  check('the CSS declares @font-face for the local font',
+    readFileSync(resolve(repo, 'assets/css/app.css'), 'utf8').includes('@font-face') &&
+    readFileSync(resolve(repo, 'assets/css/app.css'), 'utf8').includes('vt323-latin-400.woff2'));
+  check('a bundled fallback sprite exists and is precached',
+    existsSync(resolve(repo, 'assets/img/fallback-sprite.svg')) &&
+    swSrc.includes('assets/img/fallback-sprite.svg'));
+  check('the sprite fallback chain ends locally, never on a broken image',
+    readFileSync(resolve(repo, 'src/app.js'), 'utf8').includes("FALLBACK_SPRITE = 'assets/img/fallback-sprite.svg'"));
+  check('the new modules are precached',
+    swSrc.includes('src/daily.js') && swSrc.includes('src/modal.js'));
+
+  // ---- richer install dialog ----
+  check('manifest declares narrow AND wide screenshots',
+    Array.isArray(manifest.screenshots) &&
+    manifest.screenshots.some((s2) => s2.form_factor === 'narrow') &&
+    manifest.screenshots.some((s2) => s2.form_factor === 'wide'),
+    `${(manifest.screenshots || []).length} screenshots`);
+  check('every manifest screenshot exists and is relative',
+    (manifest.screenshots || []).every((s2) =>
+      !s2.src.startsWith('/') && !/^https?:/.test(s2.src) &&
+      existsSync(resolve(repo, s2.src))));
+  check('manifest screenshots carry labels for the install dialog',
+    (manifest.screenshots || []).every((s2) => !!s2.label && !!s2.sizes));
+
+  // ---- project license ----
+  check('the project declares its own license',
+    existsSync(resolve(repo, 'LICENSE')) &&
+    /MIT License/.test(readFileSync(resolve(repo, 'LICENSE'), 'utf8')));
+  check('the license scopes itself away from Pokemon assets',
+    /Pokemon|Pok\u00e9mon/.test(readFileSync(resolve(repo, 'LICENSE'), 'utf8')));
+  check('the license is precached and linked', swSrc.includes("'LICENSE'") && html.includes('LICENSE'));
+
   check('app.js no longer registers the worker itself',
     !readFileSync(resolve(repo, 'src/app.js'), 'utf8').includes('serviceWorker.register'),
     'that moved to src/pwa.js');
@@ -319,6 +489,205 @@ check('window.PWA (install button)', !!window.PWA);
     SC.extractCode('  ' + code.slice(0, 40) + '\n' + code.slice(40) + ' ') === code);
   check('extractCode rejects plain junk',
     SC.extractCode('hello world!') === '' && SC.extractCode('') === '');
+}
+
+// -------------------------------------------------------------- storage ----
+// Step 1 of the app.js split: persistence + migrations moved to their own
+// module. These test it directly, without a DOM or a live run.
+{
+  const S = window.Storage;
+  check('window.Storage (persistence + migrations)', !!S);
+  check('the two run slots have distinct keys',
+    S.SLOTS.daily !== S.SLOTS.free && !!S.SLOTS.daily && !!S.SLOTS.free,
+    `${S.SLOTS.daily} / ${S.SLOTS.free}`);
+  check('keyFor routes each mode to its own slot',
+    S.keyFor('daily') === S.SLOTS.daily && S.keyFor('free') === S.SLOTS.free &&
+    S.keyFor(undefined) === S.SLOTS.free);
+
+  // Storage must never throw, even where localStorage is unavailable (JSDOM's
+  // opaque origin here; Safari private mode in the wild).
+  check('storage access never throws',
+    (() => {
+      try { S.read('x'); S.write('x', '1'); S.drop('x'); S.available(); return true; }
+      catch { return false; }
+    })());
+
+  // snapshot() drops the RNG function handle but keeps its state.
+  const fakeRun = {
+    seed: 5, section: 2, party: [{ id: 'gengar' }], mode: 'daily',
+    rand: Object.assign(() => 0.5, { getState: () => 4242 }),
+  };
+  const snap = S.snapshot(fakeRun);
+  check('snapshot drops the unserialisable RNG handle but keeps its state',
+    snap.rand === undefined && snap.randState === 4242 && snap.__v === S.SAVE_VERSION);
+  check('snapshot round-trips through JSON',
+    JSON.parse(JSON.stringify(snap)).section === 2);
+
+  // ---- migrations ----
+  const legacy = {
+    seed: 1, section: 3,
+    party: [
+      { id: 'gengar', hpPct: 1, uid: 1 },
+      { id: 'pikachu', hpPct: 0, uid: 2, name: 'Sparky' },   // already fainted
+    ],
+    damageDealt: { 2: 500 },
+  };
+  const m1 = S.migrate(JSON.parse(JSON.stringify(legacy)), { cleanName: (x) => x });
+  check('v1 saves migrate to the current version', m1.__v === S.SAVE_VERSION, `v${m1.__v}`);
+  check('migration buries a Pokemon that fainted before the save',
+    m1.party.length === 1 && m1.graveyard.length === 1 && m1.graveyard[0].id === 'pikachu');
+  check('migration backfills species and pp', !!m1.party[0].species && !!m1.party[0].pp);
+  check('migration backfills sectionStats', !!m1.sectionStats);
+
+  // The important one: a pre-split save must NOT be adopted as a Daily, which
+  // would fabricate a result for a day it never belonged to.
+  check('a legacy save becomes a FREE PLAY run',
+    m1.mode === 'free' && m1.dailyDate === null && m1.maxSections === 0,
+    `${m1.mode} / ${m1.dailyDate}`);
+  check('migration leaves an already-current save alone',
+    S.migrate({ __v: S.SAVE_VERSION, mode: 'daily', dailyDate: '2026-07-29',
+                party: [{ id: 'gengar' }], seed: 1 }, {}).mode === 'daily');
+  check('an empty party is unrecoverable, not a broken run',
+    S.migrate({ __v: 3, party: [], seed: 1 }, {}) === null &&
+    S.migrate(null, {}) === null);
+
+  // ---- validation of imported codes ----
+  const ok = { __v: 3, seed: 42, party: [{ id: 'gengar' }] };
+  check('a valid save passes validation', S.validate(ok) === null);
+  check('validation rejects junk, not with an exception',
+    typeof S.validate(null) === 'string' &&
+    typeof S.validate('hello') === 'string' &&
+    typeof S.validate([]) === 'string' &&
+    typeof S.validate({ seed: 1 }) === 'string' &&
+    typeof S.validate({ seed: 1, party: [] }) === 'string' &&
+    typeof S.validate({ seed: 1, party: [{}] }) === 'string');
+  check('validation refuses a save from a NEWER build',
+    typeof S.validate({ __v: S.SAVE_VERSION + 1, seed: 1, party: [{ id: 'x' }] }) === 'string');
+  check('validation tolerates a numeric-string seed',
+    S.validate({ __v: 3, seed: '42', party: [{ id: 'gengar' }] }) === null);
+  check('a blank profile has every field the UI reads',
+    ['shinies', 'history', 'totalRuns', 'bestBattles', 'bestSection', 'avatar', 'theme']
+      .every((k) => S.blankProfile()[k] !== undefined));
+}
+
+// ----------------------------------------------------------- save slots ----
+// Daily and Free Play must never share a slot: a good Free Play run used to
+// block the Daily, and finishing a Daily used to destroy the other run.
+{
+  // JSDOM's file:// origin is OPAQUE, so even *reading* window.localStorage
+  // throws SecurityError -- which is also exactly what Safari private mode
+  // does, and why every storage call in the game is wrapped. Fall back to an
+  // in-memory stand-in: what matters here is the KEY LAYOUT, not the browser's
+  // storage implementation (tools/e2e/run.mjs covers the real thing).
+  let ls;
+  try {
+    ls = window.localStorage;
+    ls.setItem('__probe', '1');
+    ls.removeItem('__probe');
+  } catch {
+    const mem = new Map();
+    ls = {
+      getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+      setItem: (k, v) => mem.set(k, String(v)),
+      removeItem: (k) => mem.delete(k),
+      clear: () => mem.clear(),
+    };
+  }
+  ls.clear();
+  const mk = (mode, section) => JSON.stringify({
+    __v: 3, mode, dailyDate: mode === 'daily' ? window.Daily.dayKey() : null,
+    seed: 42, section, battleInSection: 0, maxSections: mode === 'daily' ? window.Daily.SECTIONS : 0,
+    party: [{ id: 'gengar', species: 'Gengar', name: 'Casper', hpPct: 1, moves: ['shadowball'], pp: {} }],
+    bag: {}, money: 100, battlesWon: 1, graveyard: [], damageDealt: {}, knockouts: {},
+    monMeta: {}, seenSpecies: {},
+  });
+  ls.setItem('nuzlocke-run', mk('free', 12));
+  ls.setItem('dailylocke-run-daily', mk('daily', 3));
+  check('the two save slots use different keys',
+    ls.getItem('nuzlocke-run') !== null && ls.getItem('dailylocke-run-daily') !== null);
+  check('a Free Play run and a Daily coexist',
+    JSON.parse(ls.getItem('nuzlocke-run')).section === 12 &&
+    JSON.parse(ls.getItem('dailylocke-run-daily')).section === 3);
+  check('the daily slot is dated so a stale one can be detected',
+    JSON.parse(ls.getItem('dailylocke-run-daily')).dailyDate === window.Daily.dayKey());
+  check('the daily history lives in its own key, safe from a run wipe',
+    window.Daily.KEY !== 'nuzlocke-run' && window.Daily.KEY !== 'dailylocke-run-daily' &&
+    window.Daily.KEY !== 'nuzlocke-profile');
+  ls.clear();
+}
+
+// ---------------------------------------------------------------- modal ----
+// One controller, WAI dialog pattern. Focus behaviour needs a real browser
+// (see tools/e2e/run.mjs); these cover the parts JSDOM can see.
+{
+  const M = window.Modal;
+  const doc = window.document;
+  const menu = doc.getElementById('screenMenu');
+
+  check('modals start closed', menu.hidden === true && M.depth === 0);
+
+  M.open('screenMenu');
+  const card = menu.querySelector('.overlay-card');
+  check('opening applies dialog semantics',
+    menu.hidden === false && card.getAttribute('role') === 'dialog' &&
+    card.getAttribute('aria-modal') === 'true');
+  check('the dialog gets an accessible name from its own heading',
+    !!card.getAttribute('aria-labelledby') || !!card.getAttribute('aria-label'));
+  check('the dialog is programmatically focusable', card.getAttribute('tabindex') === '-1');
+  check('the body is marked while a modal is open',
+    doc.body.classList.contains('modal-open'));
+
+  // The dialog must NOT inherit inertness from its own ancestors -- the bug
+  // that made every overlay unclickable when this shipped.
+  let node = menu, selfInert = false;
+  while (node && node !== doc.body) {
+    if (node.inert === true) selfInert = true;
+    node = node.parentElement;
+  }
+  check('the open dialog is never itself inert', !selfInert);
+
+  const siblingsInert = (() => {
+    let n = menu, ok = true;
+    while (n && n !== doc.body && n.parentElement) {
+      for (const sib of n.parentElement.children) {
+        if (sib === n || sib.tagName === 'SCRIPT' || sib.tagName === 'TEMPLATE') continue;
+        if (sib.inert !== true && sib.getAttribute('aria-hidden') !== 'true') ok = false;
+      }
+      n = n.parentElement;
+    }
+    return ok;
+  })();
+  check('everything behind the dialog is inert', siblingsInert);
+
+  check('the controller tracks what is open', M.isOpen('screenMenu') && M.depth === 1);
+
+  // Nesting: the picker can open above the menu.
+  M.open('screenPicker');
+  check('modals stack', M.depth === 2 && M.isOpen('screenPicker'));
+  M.close('screenPicker');
+  check('closing the top restores the one below',
+    M.depth === 1 && M.isOpen('screenMenu') &&
+    doc.getElementById('screenPicker').hidden === true);
+
+  M.close('screenMenu');
+  check('closing hides the dialog and clears the body flag',
+    menu.hidden === true && M.depth === 0 && !doc.body.classList.contains('modal-open'));
+
+  const released = (() => {
+    let n = menu, ok = true;
+    while (n && n !== doc.body && n.parentElement) {
+      for (const sib of n.parentElement.children) {
+        if (sib === n || sib.tagName === 'SCRIPT' || sib.tagName === 'TEMPLATE') continue;
+        if (sib.inert === true || sib.getAttribute('aria-hidden') === 'true') ok = false;
+      }
+      n = n.parentElement;
+    }
+    return ok;
+  })();
+  check('the page is released when the last modal closes', released);
+
+  check('closing something that was never opened is harmless',
+    (() => { try { M.close('screenMenu'); M.close('nope'); return true; } catch { return false; } })());
 }
 
 // ----------------------------------------------------------------- audio ---
@@ -402,6 +771,120 @@ check('species pool built', pool.length > 800, `${pool.length} entries`);
 const mon = await C.makeMon('gengar');
 check('makeMon rolls a real moveset', mon.moves.length === 4, mon.moves.join(', '));
 check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.types.join('/'));
+
+// ------------------------------------------------------------- roles ------
+// Generated sets used to be four damaging moves on everything, so every
+// Pokemon played identically. Roles reserve slots for the utility that
+// actually creates decisions, while STAB stays mandatory.
+{
+  const Dex = window.PS.Dex;
+  const isStatus = (id) => Dex.moves.get(id).category === 'Status';
+  const hasStab = (m) => m.moves.some((id) => {
+    const d = Dex.moves.get(id);
+    return d.basePower > 0 && m.types.includes(d.type);
+  });
+
+  const wall = await C.makeMon('blissey', { role: 'wall' });
+  const sweeper = await C.makeMon('gengar', { role: 'sweeper' });
+  const hazard = await C.makeMon('ferrothorn', { role: 'hazard' });
+  const plain = await C.makeMon('gengar');
+
+  check('a role is recorded on the Pokemon', wall.role === 'wall' && sweeper.role === 'sweeper');
+  check('a wall carries real utility, not four attacks',
+    wall.moves.filter(isStatus).length >= 1, wall.moves.join(', '));
+  check('a sweeper still leads with offence',
+    sweeper.moves.filter((id) => !isStatus(id)).length >= 3, sweeper.moves.join(', '));
+  check('a hazard lead brings hazards',
+    hazard.moves.some((id) => ['stealthrock', 'spikes', 'toxicspikes', 'stickyweb'].includes(id)),
+    hazard.moves.join(', '));
+  check('STAB is never dropped for utility',
+    hasStab(wall) && hasStab(sweeper) && hasStab(hazard));
+  check('roles produce genuinely different sets',
+    JSON.stringify(sweeper.moves) !== JSON.stringify(wall.moves));
+  check('an unroled Pokemon keeps the old all-attacks behaviour',
+    plain.moves.every((id) => !isStatus(id)), plain.moves.join(', '));
+  check('every set is still exactly four legal moves',
+    [wall, sweeper, hazard, plain].every((m) =>
+      m.moves.length === 4 && new Set(m.moves).size === 4 &&
+      m.moves.every((id) => Dex.moves.get(id).exists)));
+}
+
+// -------------------------------------------------------------- enemy AI ---
+// The old AI gave EVERY status move a flat 12-20 score, so it happily
+// re-applied a status the target already had, Thunder Waved Ground types, and
+// set up on the turn it was about to be knocked out. Scoring now reads the
+// board, so these are the situations that must come out right.
+{
+  const RB = window.RogueBattle;
+  const Dex = window.PS.Dex;
+  const sc = (moveId, ctx) => RB._scoreAIMove(Dex.moves.get(moveId), {
+    myTypes: ['Normal'], foeTypes: ['Normal'], myHp: 1, foeHp: 1,
+    myStatus: '', foeStatus: '', boosts: null, faster: true, depth: 3, turn: 1,
+    hazardsUp: false, weather: '', ...ctx,
+  });
+
+  check('AI never re-applies an existing status',
+    sc('thunderwave', { foeStatus: 'par' }) === 0);
+  check('AI respects STATUS immunities',
+    sc('willowisp', { foeTypes: ['Fire'] }) === 0 &&
+    sc('toxic', { foeTypes: ['Steel'] }) === 0 &&
+    sc('toxic', { foeTypes: ['Poison'] }) === 0 &&
+    sc('glare', { foeTypes: ['Electric'] }) === 0);
+  // Thunder Wave is an ELECTRIC move, so Ground ignores it -- a different
+  // immunity from "Electric types can't be paralysed", and the one the AI
+  // originally missed.
+  check('AI respects TYPE immunities on status moves',
+    sc('thunderwave', { foeTypes: ['Ground'] }) === 0);
+  check('AI still paralyses a Ground type with a non-Electric move',
+    sc('glare', { foeTypes: ['Ground'] }) > 0);
+  check('AI knows powder moves miss Grass types',
+    sc('sleeppowder', { foeTypes: ['Grass'] }) === 0 &&
+    sc('sleeppowder', { foeTypes: ['Water'] }) > 0);
+  check('AI still uses status on a legal target',
+    sc('thunderwave', {}) > 0 && sc('willowisp', { foeTypes: ['Grass'] }) > 0);
+  check('paralysis is worth more when losing the speed race',
+    sc('thunderwave', { faster: false }) > sc('thunderwave', { faster: true }));
+
+  check('AI does not heal at full HP', sc('recover', { myHp: 1 }) === 0);
+  check('AI heals when it actually hurts',
+    sc('recover', { myHp: 0.3 }) > sc('recover', { myHp: 0.8 }));
+
+  check('AI does not set up on the brink', sc('swordsdance', { myHp: 0.2 }) === 0);
+  check('AI sets up from a healthy position', sc('swordsdance', { myHp: 1 }) > 0);
+  check('AI stops setting up once boosted',
+    sc('swordsdance', { boosts: { atk: 4 } }) === 0);
+  check('AI prefers finishing a nearly-dead foe over setting up',
+    sc('bodyslam', { foeHp: 0.15 }) > sc('swordsdance', { foeHp: 0.15 }));
+
+  check('AI will not stack hazards it already set',
+    sc('stealthrock', { hazardsUp: true }) === 0);
+  check('AI leads with hazards, then loses interest',
+    sc('stealthrock', { turn: 1 }) > sc('stealthrock', { turn: 8 }));
+
+  check('AI never picks a move the target is immune to',
+    sc('earthquake', { foeTypes: ['Flying'] }) === 0);
+  check('AI values super-effective damage',
+    sc('surf', { myTypes: ['Water'], foeTypes: ['Fire'] }) >
+    sc('surf', { myTypes: ['Water'], foeTypes: ['Grass'] }));
+  check('priority is favoured to finish a weakened foe',
+    sc('extremespeed', { foeHp: 0.15 }) > sc('extremespeed', { foeHp: 1 }));
+
+  // The whole point: the same move scores differently in different situations.
+  check('the AI is genuinely situational, not a fixed ranking',
+    sc('recover', { myHp: 0.2 }) > sc('bodyslam', { myHp: 0.2, foeHp: 1 }) &&
+    sc('bodyslam', { myHp: 1, foeHp: 0.1 }) > sc('recover', { myHp: 1, foeHp: 0.1 }));
+
+  // A trainer request must still produce a legal choice string.
+  const req = { active: [{ moves: [
+    { id: 'tackle', pp: 10, maxpp: 10 },
+    { id: 'thunderwave', pp: 10, maxpp: 10 },
+  ] }] };
+  const choice = RB._chooseAIMove(req, ['Electric'], ['Water'], { depth: 2 });
+  check('the AI returns a legal engine choice', /^move [12]$/.test(choice), choice);
+  check('an AI with no usable moves falls back to default',
+    RB._chooseAIMove({ active: [{ moves: [{ id: 'tackle', pp: 0, disabled: true }] }] },
+      ['Normal'], ['Normal'], {}) === 'default');
+}
 
 // ----------------------------------------------------- a real live battle --
 const player = [

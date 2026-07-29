@@ -92,7 +92,7 @@
   }
 
   // Mega Stones have no canonical Poke Dollar price (they're never sold in the
-  // games). Pokemon Champions charges a flat premium 2000 VP, so we mirror that
+  // games). Dailylocke charges a flat premium instead, so we mirror that
   // idea: one high flat price, nudged by how strong the resulting forme is.
   function price(itemId) {
     var info = infoFor(itemId);

@@ -21,25 +21,167 @@
   }
 
   // ---- Heuristic AI for the opposing side --------------------------------
-  function chooseAIMove(request, myTypes, foeTypes) {
+  //
+  // The old version scored damage only and gave EVERY status move a flat
+  // 12-20. That made status a coin flip: it would Toxic an already-poisoned
+  // target, set up on the turn it was about to be knocked out, and Thunder
+  // Wave a Ground type. It also meant a wall and a sweeper played identically.
+  //
+  // This version scores against the actual board state: current HP on both
+  // sides, existing status, stat boosts, the speed race, immunities and a real
+  // damage estimate. `depth` (from the ascension tier) raises how much of that
+  // context it is allowed to use, so early trainers stay beatable.
+  var STATUS_MOVES = {
+    thunderwave: { kind: 'status', status: 'par' },
+    willowisp:   { kind: 'status', status: 'brn' },
+    toxic:       { kind: 'status', status: 'tox' },
+    glare:       { kind: 'status', status: 'par' },
+    sleeppowder: { kind: 'status', status: 'slp' },
+    spore:       { kind: 'status', status: 'slp' },
+    hypnosis:    { kind: 'status', status: 'slp' },
+    yawn:        { kind: 'status', status: 'slp' },
+    darkvoid:    { kind: 'status', status: 'slp' }
+  };
+  var RECOVERY_MOVES = {
+    recover: 1, roost: 1, softboiled: 1, moonlight: 1, morningsun: 1, synthesis: 1,
+    slackoff: 1, milkdrink: 1, shoreup: 1, rest: 1, strengthsap: 1, wish: 1
+  };
+  var SETUP_MOVES = {
+    swordsdance: 2, nastyplot: 2, dragondance: 2, calmmind: 1, bulkup: 1, quiverdance: 2,
+    shellsmash: 3, irondefense: 1, agility: 1, rockpolish: 1, growth: 1, workup: 1,
+    honeclaws: 1, curse: 1, bellydrum: 3, tailglow: 3, victorydance: 2
+  };
+  var HAZARD_MOVES = { stealthrock: 1, spikes: 1, toxicspikes: 1, stickyweb: 1 };
+  var PIVOT_MOVES = { uturn: 1, voltswitch: 1, flipturn: 1, partingshot: 1 };
+
+  // Status immunity by type -- Thunder Wave into a Ground type is a wasted
+  // turn the old AI took happily.
+  //
+  // TWO separate immunities have to be checked, and missing either one wastes
+  // a turn:
+  //   1. STATUS immunity  -- a Fire type cannot be burned, a Steel type cannot
+  //                          be poisoned, an Electric type cannot be paralysed.
+  //   2. TYPE immunity    -- Thunder Wave is an Electric MOVE, so a Ground type
+  //                          is immune to it even though Ground types can be
+  //                          paralysed by Glare or Stun Spore just fine.
+  function statusLands(status, foeTypes, moveType) {
+    var t = (foeTypes || []).map(function (x) { return String(x).toLowerCase(); });
+    if (status === 'par' && t.indexOf('electric') >= 0) return false;
+    if (status === 'brn' && t.indexOf('fire') >= 0) return false;
+    if ((status === 'tox' || status === 'psn') &&
+        (t.indexOf('poison') >= 0 || t.indexOf('steel') >= 0)) return false;
+    // Powder moves don't affect Grass types (or Overcoat holders, which we
+    // can't see from here).
+    if (status === 'slp' && t.indexOf('grass') >= 0) return false;
+    // A status move still has a type, and a type-immune target ignores it.
+    // Normal/Fighting moves have no immunity worth modelling here, but
+    // Electric->Ground and Psychic->Dark are exactly the cases that matter.
+    if (moveType && moveType !== 'Normal' && C.typeMod(moveType, foeTypes || []) === 0) return false;
+    return true;
+  }
+
+  // ctx = { myHp, foeHp, foeStatus, myStatus, boosts, faster, myTypes, foeTypes,
+  //         role, depth, hasRecovery }
+  function scoreAIMove(d, ctx) {
+    var eff = C.typeMod(d.type, ctx.foeTypes);
+    var stab = ctx.myTypes.indexOf(d.type) >= 0 ? 1.5 : 1;
+    var acc = d.accuracy === true ? 1 : d.accuracy / 100;
+    var depth = ctx.depth || 0;
+
+    if (d.category !== 'Status') {
+      if (eff === 0) return 0;
+      var power = (d.basePower || 0);
+      if (d.multihit) power *= (typeof d.multihit === 'number' ? d.multihit : 3);
+      var score = power * eff * stab * acc;
+      // A boosted attacker hits harder; reflect that so it keeps attacking
+      // instead of setting up forever.
+      var atkBoost = ctx.boosts ? Math.max(ctx.boosts.atk || 0, ctx.boosts.spa || 0) : 0;
+      if (atkBoost > 0) score *= (1 + atkBoost * 0.25);
+      // Estimated kill: if this looks lethal, take it over anything clever.
+      if (depth >= 1 && ctx.foeHp <= 0.35 && score > 90) score *= 1.6;
+      // Priority is how you finish a faster, nearly-dead opponent.
+      if (d.priority > 0 && ctx.foeHp <= 0.3) score *= 1.5;
+      if (depth >= 2 && !ctx.faster && ctx.myHp <= 0.25 && d.priority > 0) score *= 1.4;
+      return score + Math.random() * 5;
+    }
+
+    // ---- status moves, scored on the actual board ----
+    var id = d.id;
+    var base;
+
+    var inflict = STATUS_MOVES[id];
+    if (inflict) {
+      // Never re-apply a status the target already has.
+      if (ctx.foeStatus) return 0;
+      if (!statusLands(inflict.status, ctx.foeTypes, d.type)) return 0;
+      base = inflict.status === 'slp' ? 150 : 105;
+      // Paralysis is worth much more when it flips the speed race.
+      if (inflict.status === 'par' && !ctx.faster) base += 45;
+      // Poison/burn want a healthy target with time left to rot.
+      if ((inflict.status === 'tox' || inflict.status === 'brn') && ctx.foeHp > 0.6) base += 30;
+      if (ctx.foeHp < 0.35) base *= 0.4;   // it's about to faint anyway
+      base *= acc;
+    } else if (RECOVERY_MOVES[id]) {
+      // Only heal when there is damage worth healing, and never at full HP.
+      if (ctx.myHp > 0.85) return 0;
+      base = (1 - ctx.myHp) * 240;
+      if (ctx.myHp < 0.4) base += 60;
+      // Healing in front of a faster attacker that out-damages the heal is a
+      // losing loop; the deeper AI notices.
+      if (depth >= 2 && !ctx.faster && ctx.myHp < 0.25) base *= 0.5;
+    } else if (SETUP_MOVES[id]) {
+      // Set up from a healthy position, not on the brink.
+      var stages = SETUP_MOVES[id];
+      var cur = ctx.boosts ? Math.max(ctx.boosts.atk || 0, ctx.boosts.spa || 0,
+                                      ctx.boosts.spe || 0) : 0;
+      if (cur >= 4) return 0;                        // already maxed out
+      if (ctx.myHp < 0.5) return depth >= 1 ? 0 : 20;
+      base = 90 * stages / (1 + cur);                // diminishing returns
+      if (ctx.myHp > 0.85 && ctx.faster) base += 40;
+      if (depth >= 2 && ctx.foeHp <= 0.3) base *= 0.3;  // just KO it instead
+    } else if (HAZARD_MOVES[id]) {
+      // Hazards are a turn-one play, worthless once the fight is decided.
+      if (ctx.hazardsUp) return 0;
+      base = ctx.turn <= 2 ? 95 : 35;
+      if (ctx.foeHp < 0.4) base *= 0.3;
+    } else if (PIVOT_MOVES[id]) {
+      base = ctx.myHp < 0.4 ? 70 : 30;
+    } else if (id === 'protect' || id === 'detect') {
+      base = ctx.myStatus === 'tox' ? 10 : 45;
+    } else if (id === 'taunt') {
+      base = 60;
+    } else if (id === 'trickroom') {
+      base = ctx.faster ? 10 : 80;
+    } else if (id === 'sunnyday' || id === 'raindance' || id === 'sandstorm' || id === 'snowscape') {
+      base = ctx.weather ? 5 : 55;
+    } else {
+      // Unknown status move: the old flat guess, but lower than any scored
+      // option so it's a fallback rather than a default.
+      base = 10 + Math.random() * 8;
+    }
+    return base + Math.random() * 6;
+  }
+
+  function chooseAIMove(request, myTypes, foeTypes, ctx) {
     if (!request || !request.active || !request.active[0]) return 'default';
     var moves = request.active[0].moves || [];
+    ctx = ctx || {};
+    var full = {
+      myTypes: myTypes || [], foeTypes: foeTypes || [],
+      myHp: ctx.myHp == null ? 1 : ctx.myHp,
+      foeHp: ctx.foeHp == null ? 1 : ctx.foeHp,
+      myStatus: ctx.myStatus || '', foeStatus: ctx.foeStatus || '',
+      boosts: ctx.boosts || null, faster: !!ctx.faster,
+      depth: ctx.depth || 0, turn: ctx.turn || 1,
+      hazardsUp: !!ctx.hazardsUp, weather: ctx.weather || ''
+    };
     var best = null, bestScore = -1;
     for (var i = 0; i < moves.length; i++) {
       var mv = moves[i];
       if (mv.disabled || mv.pp === 0) continue;
       var d = Dex.moves.get(mv.id || mv.move);
-      var score;
-      if (d.category === 'Status') {
-        score = 12 + Math.random() * 8;
-      } else {
-        var eff = C.typeMod(d.type, foeTypes);
-        var stab = myTypes.indexOf(d.type) >= 0 ? 1.5 : 1;
-        var acc = d.accuracy === true ? 1 : d.accuracy / 100;
-        score = (d.basePower || 0) * eff * stab * acc;
-        if (eff === 0) score = 0;
-        score += Math.random() * 5;
-      }
+      if (!d || !d.exists) continue;
+      var score = scoreAIMove(d, full);
       if (score > bestScore) { bestScore = score; best = i + 1; }
     }
     return best ? 'move ' + best : 'default';
@@ -196,6 +338,78 @@
       if (!b || !b.p1 || !b.p1.active[0]) return null;
       return b.p1.active[0];
     }
+
+    // Board state the AI scores against. Read fresh every request -- HP,
+    // status and boosts all move between turns.
+    function aiContext() {
+      var b = stream.battle;
+      var me = liveEnemy(), foe = livePlayer();
+      var ctx = { depth: cfg.aiDepth || 0, turn: (b && b.turn) || 1 };
+      if (!me || !foe) return ctx;
+      try {
+        ctx.myHp = me.maxhp ? me.hp / me.maxhp : 1;
+        ctx.foeHp = foe.maxhp ? foe.hp / foe.maxhp : 1;
+        ctx.myStatus = me.status || '';
+        ctx.foeStatus = foe.status || '';
+        ctx.boosts = me.boosts || null;
+        // The speed race decides whether setup/recovery is safe at all.
+        ctx.faster = me.getStat('spe') >= foe.getStat('spe');
+        ctx.weather = (b && b.field && b.field.weather) || '';
+        ctx.hazardsUp = !!(b && b.p1 && b.p1.sideConditions &&
+          Object.keys(b.p1.sideConditions).length);
+      } catch (e) { /* a partially-built battle just gets the shallow context */ }
+      return ctx;
+    }
+
+    // ---- ASCENSION: field effects + elite modifiers -----------------------
+    // Applied ONCE, on the first turn, after both sides are on the field.
+    // Everything here goes through the engine's own APIs so the protocol
+    // reports it and the 3D UI renders it like any other effect.
+    var ascensionApplied = false;
+    function applyAscension() {
+      if (ascensionApplied) return;
+      var b = stream.battle;
+      if (!b || !b.p1 || !b.p2) return;
+      var me = liveEnemy(), foe = livePlayer();
+      if (!me || !foe) return;
+      ascensionApplied = true;
+      try {
+        var field = cfg.fieldEffect;
+        if (field) {
+          if (field.kind === 'weather') b.field.setWeather(field.id, me);
+          else if (field.kind === 'terrain') b.field.setTerrain(field.id, me);
+          else if (field.kind === 'hazard') b.p1.addSideCondition(field.id, me);
+          else if (field.kind === 'room') b.field.addPseudoWeather(field.id, me);
+        }
+        // Each elite enemy announces itself and takes its single boost.
+        (enemyMons || []).forEach(function (mon) {
+          if (!mon || !mon.elite) return;
+          if (monOf(me) !== mon) return;      // only the active one, on switch-in
+          b.add('-message', mon.name + ' is ' + mon.elite.label + '!');
+          if (mon.elite.boosts) b.boost(mon.elite.boosts, me, me);
+        });
+        b.sendUpdates();
+      } catch (e) { console.warn('[battle] ascension effects failed', e); }
+    }
+
+    // A newly switched-in elite gets its modifier when it arrives, not only
+    // the lead. Tracked separately so it fires once per Pokemon.
+    var elitedIn = {};
+    function applyEliteOnSwitch() {
+      var b = stream.battle;
+      if (!b) return;
+      var me = liveEnemy();
+      if (!me) return;
+      var mon = monOf(me);
+      if (!mon || !mon.elite || elitedIn[mon.uid]) return;
+      elitedIn[mon.uid] = true;
+      if (!ascensionApplied) return;   // the lead is handled by applyAscension
+      try {
+        b.add('-message', mon.name + ' is ' + mon.elite.label + '!');
+        if (mon.elite.boosts) b.boost(mon.elite.boosts, me, me);
+        b.sendUpdates();
+      } catch (e) { console.warn('[battle] elite switch-in failed', e); }
+    }
     // Who should be credited for the damage currently being applied?
     // Prefer the Pokemon that actually used the move this turn (tracked from
     // |move|p1a: X|...), falling back to whoever is on the field.
@@ -339,6 +553,10 @@
       try {
         for await (var chunk of streams.omniscient) {
           injectPersistence();
+          // Ascension effects must land AFTER both sides are on the field but
+          // BEFORE the player's first choice, which is exactly here.
+          applyAscension();
+          applyEliteOnSwitch();
           if (handlers.onLog) handlers.onLog(chunk);
           var lines = String(chunk).split('\n');
           for (var i = 0; i < lines.length; i++) {
@@ -405,7 +623,7 @@
               continue;
             }
             if (req.active) {
-              streams.p2.write(chooseAIMove(req, state.enemyTypes, state.playerTypes));
+              streams.p2.write(chooseAIMove(req, state.enemyTypes, state.playerTypes, aiContext()));
             }
           }
         }
@@ -422,7 +640,13 @@
     // while the battle is still paused, and only then write >player p2.
     // Result: the very first |switch| already reports the correct HP, so the
     // bar renders accurately instead of starting at 100%.
-    streams.omniscient.write('>start ' + JSON.stringify({ formatid: format }));
+    // A Daily is a shared, scoreable puzzle, so its BATTLES have to be
+    // reproducible too -- not just which Pokemon appear. Passing a seed makes
+    // every crit, miss and damage roll identical for everyone on that day.
+    // Free Play passes nothing and keeps the engine's own randomness.
+    var startMsg = { formatid: format };
+    if (cfg.battleSeed) startMsg.seed = cfg.battleSeed;
+    streams.omniscient.write('>start ' + JSON.stringify(startMsg));
     streams.omniscient.write('>player p1 ' + JSON.stringify({ name: p1Name, team: Teams.pack(p1Team) }));
     injectPersistence();
     streams.omniscient.write('>player p2 ' + JSON.stringify({ name: p2Name, team: Teams.pack(p2Team) }));
@@ -568,5 +792,7 @@
     return api;
   }
 
-  window.RogueBattle = { startBattle: startBattle, IDLE_MOVE: IDLE_MOVE, parseHp: parseHp };
+  window.RogueBattle = { startBattle: startBattle, IDLE_MOVE: IDLE_MOVE, parseHp: parseHp,
+                         // exposed for tests: score one move against a board state
+                         _scoreAIMove: scoreAIMove, _chooseAIMove: chooseAIMove };
 })();

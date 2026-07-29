@@ -157,9 +157,15 @@
       li.textContent = text;          // never HTML: this is plain copy
       box.appendChild(li);
     });
-    sheet.hidden = false;
+    // Dialog semantics, focus trapping, Escape and focus restore all come
+    // from the shared modal controller (src/modal.js).
+    if (window.Modal) window.Modal.open('screenInstall');
+    else sheet.hidden = false;
   }
-  function closeSheet() { var s = $('screenInstall'); if (s) s.hidden = true; }
+  function closeSheet() {
+    if (window.Modal) { window.Modal.close('screenInstall'); return; }
+    var s = $('screenInstall'); if (s) s.hidden = true;
+  }
 
   // ---------------------------------------------------------------- BOOT ---
   function bind() {
@@ -168,12 +174,15 @@
     if (x) x.addEventListener('click', dismiss);
     var close = $('btnInstallClose'), sheet = $('screenInstall');
     if (close) close.addEventListener('click', closeSheet);
-    if (sheet) sheet.addEventListener('click', function (e) {
-      if (e.target === sheet) closeSheet();
-    });
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && sheet && !sheet.hidden) closeSheet();
-    });
+    // Backdrop + Escape are the modal controller's job when it is present.
+    if (!window.Modal) {
+      if (sheet) sheet.addEventListener('click', function (e) {
+        if (e.target === sheet) closeSheet();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && sheet && !sheet.hidden) closeSheet();
+      });
+    }
   }
 
   window.addEventListener('beforeinstallprompt', function (e) {

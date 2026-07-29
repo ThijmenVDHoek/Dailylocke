@@ -18,6 +18,17 @@ const projectRules = {
 
 export default [
   {
+    // tools/e2e/run.mjs passes functions to page.evaluate(), which run inside
+    // the BROWSER, so those bodies legitimately reference browser globals.
+    files: ['tools/e2e/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node, ...globals.browser },
+    },
+    rules: { ...projectRules, 'no-empty': ['error', { allowEmptyCatch: true }] },
+  },
+  {
     ignores: [
       'tools/node_modules/**',
       'vendor/lz-string.min.js',
@@ -46,7 +57,7 @@ export default [
     rules: projectRules,
   },
   {
-    files: ['tools/**/*.mjs', 'eslint.config.mjs'],
+    files: ['tools/**/*.mjs', 'tools/e2e/**/*.mjs', 'eslint.config.mjs'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
