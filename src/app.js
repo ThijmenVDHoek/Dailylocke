@@ -2097,7 +2097,7 @@
       case '-boost': case '-unboost': return 700;
       case '-weather': case '-fieldstart': case '-fieldend': return 800;
       case '-start': case '-end': case '-activate': case '-item': case '-enditem':
-      case '-ability': case '-sidestart': case '-sideend': case '-singleturn':
+      case '-ability': case '-sidestart': case '-sideend': case '-singleturn': case '-transform':
         return 750;
       case 'cant': return 900;
       case 'turn': return 120;
@@ -2261,6 +2261,33 @@
         var mon2 = dIsP ? battle.activeMon() : null;
         if (mon2) { mon2.megaForme = dsp.id; mon2.types = dsp.types.slice(); }
       }
+    } else if (cmd === '-transform') {
+      // Transform (move) or Imposter: copy the target's visual appearance onto
+      // the source Pokemon.  The engine already updated its internal state; we
+      // just need to sync the 3D sprite, types, height and species label.
+      var tSrcP = sideOf(p[1]) === 'p';
+      var tTgtP = sideOf(p[2]) === 'p';
+      var tSrc = tSrcP ? ui.s.p : ui.s.e;
+      var tTgt = tTgtP ? ui.s.p : ui.s.e;
+      if (tSrc && tTgt && tTgt.sid) {
+        var tIsShiny = !!(tSrc.url && tSrc.url.indexOf('shiny') >= 0);
+        var tPay = {
+          name: tSrc.name,
+          types: (tTgt.types || []).slice(),
+          h: tTgt.h || 2.4,
+          sid: tTgt.sid,
+          num: tTgt.num,
+          u: spriteUrls(tTgt.sid, tSrcP, tIsShiny)
+        };
+        if (tSrcP) ui.setPlayer(tPay); else ui.setEnemy(tPay);
+        if (ui.setSpeciesLabels) {
+          var tSp = C.cleanName(tTgt.sid);
+          if (tSrcP) ui.setSpeciesLabels(tSp, null);
+          else ui.setSpeciesLabels(null, (bctx && bctx.cfg && bctx.cfg.isWild ? 'Wild ' : '') + tSp);
+        }
+        if (ui.render) ui.render();
+      }
+      say(nameFromIdent(p[1]) + ' transformed!');
     } else if (cmd === '-mega') {
       var mIsP = sideOf(p[1]) === 'p';
       var mSide = mIsP ? 'p' : 'e';
@@ -2292,6 +2319,31 @@
       say(nameFromIdent(p[1]) + ' ' + (START_TEXT[sk] || ('was affected by ' + effectText(p[2]))) + '!');
     } else if (cmd === '-end') {
       var ek = volatileKey(p[2]);
+      // Illusion breaking: the disguised Pokemon reverts to its real species.
+      // Update the 3D sprite, types, and species label to match.
+      if (ek === 'illusion') {
+        var ilIsP = sideOf(p[1]) === 'p';
+        var ilMon = ilIsP ? battle.activeMon() : (bctx && bctx.enemies && bctx.enemies[0]);
+        if (ilMon) {
+          var ilSp = Dex.species.get(ilMon.id || ilMon.species);
+          if (ilSp && ilSp.exists) {
+            var ilPay = {
+              name: ilMon.name || C.cleanName(ilSp.id),
+              types: ilSp.types.slice(),
+              h: worldH(ilSp.id),
+              sid: ilSp.spriteid || ilSp.id,
+              num: ilSp.num,
+              u: spriteUrls(ilSp.id, ilIsP, !!ilMon.shiny)
+            };
+            if (ilIsP) ui.setPlayer(ilPay); else ui.setEnemy(ilPay);
+            if (ui.setSpeciesLabels) {
+              if (ilIsP) ui.setSpeciesLabels(C.cleanName(ilSp.id), null);
+              else ui.setSpeciesLabels(null, (bctx && bctx.cfg && bctx.cfg.isWild ? 'Wild ' : '') + C.cleanName(ilSp.id));
+            }
+            if (ui.render) ui.render();
+          }
+        }
+      }
       say(nameFromIdent(p[1]) + ' ' + (END_TEXT[ek] || ('is no longer affected by ' + effectText(p[2]))) + '.');
     } else if (cmd === '-activate') {
       say(nameFromIdent(p[1]) + ': ' + effectText(p[2]) + '!');
@@ -3610,6 +3662,25 @@
     saveProfile();
   }
 
+  // Merge imported history into the profile, deduplicating by timestamp.
+  function mergeHistory(imported) {
+    if (!Array.isArray(imported) || !imported.length) return;
+    loadProfile();
+    var existing = profile.history || [];
+    var seen = {};
+    existing.forEach(function (r) { seen[r.at] = true; });
+    imported.forEach(function (r) {
+      if (!r || !r.at) return;
+      if (seen[r.at]) return;
+      existing.push(r);
+      seen[r.at] = true;
+    });
+    existing.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+    if (existing.length > 50) existing.length = 50;
+    profile.history = existing;
+    saveProfile();
+  }
+
   // Apply a decoded save object: validate -> migrate -> revive -> persist.
   // Never throws; returns { ok: true } or { ok: false, error } for the UI.
   function loadGameState(saveData) {
@@ -3631,6 +3702,10 @@
         saveProfile();
         applyTheme();
         updateMenuAvatar();
+      }
+      // Merge history if present in save code
+      if (saveData._history) {
+        mergeHistory(saveData._history);
       }
       saveGame();                          // persist to THIS device's storage
       setContinueState();                  // title button reflects the import
@@ -3679,6 +3754,7 @@
         if (profile.shinies && profile.shinies.length) slim._shiny = profile.shinies;
         if (profile.avatar) slim._avatar = profile.avatar;
         if (profile.theme) slim._theme = profile.theme;
+        if (profile.history && profile.history.length) slim._history = profile.history;
       }
     } catch (e) {}
     var code = SC.encode(slim);
