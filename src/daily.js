@@ -10,8 +10,8 @@
 // THE SHAPE NOW
 //   * Daily and Free Play have SEPARATE save slots (see app.js SLOTS).
 //   * A Daily is 5 sections (20 battles). Clearing section 5 COMPLETES it.
-//   * A completed Daily is scored, recorded and shareable, and can then be
-//     carried into Free Play as an "endless" continuation if the player wants.
+//   * A cleared Daily is scored, recorded and shareable, and its surviving
+//     team can continue in Free Play. A wipe always ends with no continuation.
 //   * Yesterday's unfinished Daily is never silently destroyed: it is offered
 //     as an archived Free Play run.
 //

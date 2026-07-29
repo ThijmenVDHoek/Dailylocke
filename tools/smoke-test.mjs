@@ -316,6 +316,21 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
   check('install dock lives on the title screen',
     !!dock && dock.closest('section#screenTitle') !== null,
     'so it hides with the title once a run starts');
+  check('the title has no redundant result shortcut',
+    window.document.getElementById('btnDailyResults') === null,
+    'the main Daily CTA already reopens today\'s result');
+
+  const menuItems = [...window.document.querySelectorAll('#screenMenu .menu-item')];
+  const fetchedMenuIcons = menuItems.filter((item) => {
+    const img = item.querySelector('img.mi-ic, .mi-ic img');
+    return img && /^https:\/\//.test(img.src);
+  });
+  check('every menu item uses a matching fetched image icon',
+    menuItems.length > 0 && fetchedMenuIcons.length === menuItems.length,
+    `${fetchedMenuIcons.length}/${menuItems.length} image icons`);
+  check('the menu no longer uses font/SVG-style glyph icons',
+    window.document.querySelector('#screenMenu .mi-glyph') === null);
+
   check('install dock is hidden until the browser offers an install',
     dock.hidden === true && window.PWA.mode === '');
 
@@ -419,9 +434,29 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
     existsSync(resolve(repo, 'assets/fonts/vt323-latin-400.woff2')));
   check('the self-hosted font is precached',
     swSrc.includes('assets/fonts/vt323-latin-400.woff2'));
+  const appCss = readFileSync(resolve(repo, 'assets/css/app.css'), 'utf8');
   check('the CSS declares @font-face for the local font',
-    readFileSync(resolve(repo, 'assets/css/app.css'), 'utf8').includes('@font-face') &&
-    readFileSync(resolve(repo, 'assets/css/app.css'), 'utf8').includes('vt323-latin-400.woff2'));
+    appCss.includes('@font-face') && appCss.includes('vt323-latin-400.woff2'));
+  check('both font subsets are preloaded for a standalone cold start',
+    html.includes('rel="preload" as="font" type="font/woff2" href="assets/fonts/vt323-latin-400.woff2"') &&
+    html.includes('rel="preload" as="font" type="font/woff2" href="assets/fonts/vt323-latin-ext-400.woff2"'));
+  check('the app waits for its precached font instead of flashing a fallback',
+    (appCss.match(/font-display:block/g) || []).length === 2 && !appCss.includes('font-display:swap'));
+  const whiteButtonRule = (appCss.match(/\.btn-white\s*\{([^}]*)\}/) || [])[1] || '';
+  const dailyButtonRule = (appCss.match(/\.btn-daily\s*\{([^}]*)\}/) || [])[1] || '';
+  check('start-screen CTAs are plain white and black with no outline ring',
+    /background:#fff/.test(whiteButtonRule) && /color:#000/.test(whiteButtonRule) &&
+    !/outline|0\s+0\s+0/.test(whiteButtonRule + dailyButtonRule));
+  check('title actions use one gap for horizontal and vertical spacing',
+    /--title-action-gap:10px/.test(appCss) &&
+    /title-btns[\s\S]*?gap:var\(--title-action-gap\)/.test(appCss) &&
+    /title-sep[\s\S]*?gap:var\(--title-action-gap\)/.test(appCss) &&
+    /title-btns:last-child\s*\{\s*margin-top:var\(--title-action-gap\)/.test(appCss) &&
+    /margin:var\(--title-action-gap\) auto/.test(appCss));
+  check('users cannot enter or view a run seed',
+    !html.includes('id="btnSeed"') && !html.includes('id="menuSeed"') &&
+    !/Custom seed|Run seed:|shared seed|same seed/i.test(html) &&
+    !appCss.includes('.seed-chip'));
   check('a bundled fallback sprite exists and is precached',
     existsSync(resolve(repo, 'assets/img/fallback-sprite.svg')) &&
     swSrc.includes('assets/img/fallback-sprite.svg'));
@@ -771,6 +806,102 @@ check('species pool built', pool.length > 800, `${pool.length} entries`);
 const mon = await C.makeMon('gengar');
 check('makeMon rolls a real moveset', mon.moves.length === 4, mon.moves.join(', '));
 check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.types.join('/'));
+
+// ------------------------------------------------ evolution screen / art --
+// Drive the exact route-screen path that regressed: opening a Pokemon's detail
+// sheet and evolving from inside it. The modal controller makes every screen
+// behind an open sheet inert, so failing to close the sheet leaves Continue
+// visible but impossible to press.
+{
+  const waitFor = async (fn, ms = 12000) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      const value = fn();
+      if (value) return value;
+      await new Promise((res) => setTimeout(res, 25));
+    }
+    return null;
+  };
+
+  window.document.getElementById('btnNewRun').click();
+  const starter = await waitFor(() => window.document.querySelector('#starterGrid .pick-btn'));
+  check('a Free Play run reaches starter selection', !!starter);
+  if (starter) starter.click();
+  const nick = await waitFor(() => !window.document.getElementById('screenNickname').hidden &&
+    window.document.getElementById('nickInput'));
+  if (nick) {
+    nick.value = 'Sprout';
+    window.document.getElementById('btnNickOk').click();
+  }
+  const route = await waitFor(() => !window.document.getElementById('screenCrossroads').hidden);
+  check('choosing a starter reaches the route', !!route);
+
+  if (route) {
+    // Use a known one-step level evolution so the party sheet always offers a
+    // ready button, independently of the random starter that was rolled.
+    const evoMon = await C.makeMon('ivysaur');
+    evoMon.name = 'Sprout';
+    evoMon.species = 'Ivysaur';
+    window.Game.run.party[0] = evoMon;
+    window.Nuz.trackMon(window.Game.run, evoMon);
+    window.Game.run.bag.rarecandy = 1;
+    window.Game.redrawRoute();
+
+    const stripSprite = window.document.querySelector('#xTeam .anim-mon');
+    check('route sprites have decode-time size bounds',
+      !!stripSprite && /max-height:\s*46px/.test(stripSprite.getAttribute('style') || ''),
+      stripSprite && stripSprite.getAttribute('style'));
+
+    window.document.querySelector('#xTeam .tslot[data-i="0"]').click();
+    const evoButton = window.document.querySelector('#xTeamDetail .evo-btn.ready');
+    const detailSprite = window.document.querySelector('#xTeamDetail .pd-art img');
+    check('inspected Pokemon art is bounded before onload',
+      !!detailSprite && /max-height:\s*104px/.test(detailSprite.getAttribute('style') || ''),
+      detailSprite && detailSprite.getAttribute('style'));
+    check('the evolution action is offered in the detail sheet', !!evoButton);
+    if (evoButton) evoButton.click();
+
+    const evoScreen = window.document.getElementById('screenEvolve');
+    check('starting an evolution closes its originating modal',
+      window.Modal.depth === 0 && window.document.getElementById('xTeamDetail').hidden === true);
+    check('the evolution screen and Continue action are not inert',
+      evoScreen.hidden === false && evoScreen.inert !== true &&
+      evoScreen.getAttribute('aria-hidden') !== 'true' &&
+      window.document.getElementById('btnEvoDone').closest('[inert]') === null);
+
+    const done = await waitFor(() => {
+      const button = window.document.getElementById('btnEvoDone');
+      return !button.hidden && button;
+    }, 6000);
+    check('evolution reveals its Continue button', !!done);
+    if (done) done.click();
+    check('Continue returns to the route after evolving',
+      !window.document.getElementById('screenCrossroads').hidden &&
+      window.Game.run.party[0].id === 'venusaur');
+  }
+}
+
+// A wiped Daily may still have a zero-HP object in party during a simultaneous
+// KO. Raw party.length therefore cannot decide whether Free Play is possible.
+{
+  const wiped = window.Game.run;
+  wiped.mode = 'daily';
+  wiped.dailyDate = window.Daily.dayKey();
+  wiped.maxSections = window.Daily.SECTIONS;
+  wiped.over = false;
+  wiped.party.forEach((m) => { m.hpPct = 0; });
+  window.Game.advance();
+
+  check('a Daily wipe opens the result screen',
+    !window.document.getElementById('screenDailyResult').hidden);
+  check('a Daily wipe never offers infinite Free Play',
+    window.document.getElementById('btnDrContinue').hidden === true);
+
+  window.Game.continueDailyInFreePlay();
+  check('a dead Daily team cannot bypass the hidden continuation action',
+    !window.document.getElementById('screenDailyResult').hidden &&
+    window.Game.run.mode === 'daily' && window.Game.run.over === true);
+}
 
 // ------------------------------------------------------------- roles ------
 // Generated sets used to be four damaging moves on everything, so every

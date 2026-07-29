@@ -221,7 +221,7 @@
       data.seed = Number(data.seed);
     }
     if (typeof data.seed !== 'number' || !isFinite(data.seed)) {
-      return 'The save data has no valid run seed.';
+      return 'The save data is missing required run information.';
     }
     if ((data.__v || 1) > SAVE_VERSION) {
       return 'This save was made with a newer version of the game and cannot be loaded here.';

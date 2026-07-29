@@ -10,7 +10,10 @@
   font-family:'VT323';
   font-style:normal;
   font-weight:400;
-  font-display:swap;
+  /* Wait for the precached face instead of painting Courier for the first
+     frame. Installed PWAs cold-start from the app shell, so this is local and
+     avoids WebKit retaining the fallback face after a standalone launch. */
+  font-display:block;
   src:url('../fonts/vt323-latin-400.woff2') format('woff2');
   unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,
                 U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,
@@ -20,7 +23,7 @@
   font-family:'VT323';
   font-style:normal;
   font-weight:400;
-  font-display:swap;
+  font-display:block;
   src:url('../fonts/vt323-latin-ext-400.woff2') format('woff2');
   unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,
                 U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,
@@ -296,29 +299,34 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 
 /* the frosted action sheet */
 .title-sheet {
+  --title-action-gap:10px;
   position:relative; z-index:2;
   padding:20px var(--pad) max(24px, env(safe-area-inset-bottom));
   /* No panel: the buttons sit directly on the 3D scene. The title-veil
      gradient already darkens the bottom of the frame enough for contrast. */
 }
-.title-btns { display:flex; flex-direction:column; gap:10px; max-width:400px; margin:0 auto; }
+.title-btns {
+  display:flex; flex-direction:column; gap:var(--title-action-gap);
+  max-width:400px; margin:0 auto;
+}
 .title-btns[hidden] { display:none; }
-.title-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+/* Load save is its own group in the markup. Keep adjacent action groups from
+   touching by using the same gap as the buttons within each group. */
+.title-sheet > .title-btns:last-child { margin-top:var(--title-action-gap); }
 
-/* PRIMARY: solid white on black text -- the one non-glass element, so the
-   main action is unmistakable. */
+/* PRIMARY: plain white with black text -- no border or outline around the
+   title-screen CTAs. Elevation may change on hover, but their fill does not. */
 .btn-white {
   display:flex; flex-direction:column; align-items:center; gap:2px;
   padding:15px 20px; border-radius:var(--r-md);
-  background:#fff; color:#0c1020; font-family:inherit; cursor:pointer;
+  background:#fff; color:#000; font-family:inherit; cursor:pointer;
   box-shadow:0 6px 22px rgba(0,0,0,.4);
-  transition:transform .12s cubic-bezier(.2,.8,.3,1), box-shadow .16s, background-color .15s;
+  transition:transform .12s cubic-bezier(.2,.8,.3,1), box-shadow .16s;
 }
-.btn-daily { box-shadow:0 6px 22px rgba(0,0,0,.4), 0 0 0 2px var(--title-ring); }
-.btn-white:hover { background:#f2f4ff; transform:translateY(-2px); box-shadow:0 10px 28px rgba(0,0,0,.5); }
+.btn-white:hover { background:#fff; transform:translateY(-2px); box-shadow:0 10px 28px rgba(0,0,0,.5); }
 .btn-white:active { transform:translateY(0) scale(.995); }
 .btn-daily .bd-main { font-size:1.5rem; letter-spacing:1.5px; line-height:1; }
-.btn-daily .bd-sub { font-size:.76rem; color:#5a6178; letter-spacing:0; }
+.btn-daily .bd-sub { font-size:.76rem; color:#000; opacity:.62; letter-spacing:0; }
 
 /* everything else stays glass */
 
@@ -685,10 +693,6 @@ textarea.search.save-code {
 .save-msg { min-height:1.2em; margin:10px 4px 2px; font-size:.86rem; }
 .save-msg:empty::before { content:'\00a0'; } /* keep the modal from jumping */
 .save-msg.bad { color:#ff8b95; }
-.mi-glyph {
-  display:flex; align-items:center; justify-content:center;
-  font-size:1.25rem; line-height:1; color:var(--gold);
-}
 #btnImportLoad { margin-top:6px; }
 #screenSaveImport .btn-secondary.wide { margin-top:10px; }
 
@@ -896,7 +900,6 @@ textarea.search.save-code {
 .x-ic.x-art.wild-art { width:48px; height:48px; }
 .x-ic.x-art.wild-art img { width:48px !important; height:48px !important; image-rendering:pixelated; filter:brightness(0) drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
 .x-ic.x-art.trainer-art img { image-rendering:pixelated; transform:scale(1.28); transform-origin:center bottom; }
-.seed-chip { display:flex; width:max-content; max-width:100%; align-items:center; gap:7px; margin:18px auto 0; padding:7px 10px; border-radius:var(--r-pill); background:var(--surface-hi); color:var(--ink-2); font-size:.78rem; text-align:center; }
 /* ===== NICKNAME PROMPT ===== */
 .nick-card { text-align:center; }
 .nick-sprite { display:flex; align-items:flex-end; justify-content:center; height:130px; margin-bottom:4px; }
@@ -1494,16 +1497,14 @@ textarea.search.save-code {
 
 /* ----- title: Daily and Free Play are separate offers now ----------------- */
 .title-sep {
-  display:flex; align-items:center; gap:10px;
-  max-width:400px; margin:18px auto 10px; color:rgba(255,255,255,.55);
+  display:flex; align-items:center; gap:var(--title-action-gap);
+  max-width:400px; margin:var(--title-action-gap) auto;
+  color:rgba(255,255,255,.55);
   font-size:.74rem; letter-spacing:1.6px; text-transform:uppercase;
 }
 .title-sep::before, .title-sep::after {
   content:''; flex:1; height:1px; background:rgba(255,255,255,.18);
 }
-.btn-daily.done { box-shadow:0 6px 22px rgba(0,0,0,.4), 0 0 0 2px #4ade80; }
-.btn-daily.done .bd-main { color:#137a3a; }
-
 /* A streak is the reason to come back, so it gets its own chip rather than
    being buried in the button subtitle. */
 .streak-chip {

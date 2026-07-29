@@ -7,7 +7,7 @@ Two modes, **two independent save slots** — so one can never block the other:
 
 | | **Daily** | **Free Play** |
 | --- | --- | --- |
-| seed | the same for everyone, per local calendar day | random, or a seed you type |
+| challenge | the same for everyone on that date | randomized each run |
 | length | **5 sections** (20 battles), then it ends | endless |
 | ending | scored, recorded, and shareable | runs until your last Pokemon falls |
 | slot | `dailylocke-run-daily` | `nuzlocke-run` |
@@ -121,7 +121,7 @@ with **no server and no accounts**: every battle/section finish screen has a
 
 ## The Daily
 
-The Daily used to be an ordinary endless run that happened to use a dated seed,
+The Daily used to be an ordinary endless run tied to the current date while
 sharing the single save slot with everything else. That meant a *good* run
 locked you out of tomorrow's Daily unless you threw it away — the opposite of
 what a daily should do.
@@ -133,12 +133,12 @@ what a daily should do.
 * **Dates are local.** `Daily.dayKey()` formats the player's own calendar date;
   it never uses `toISOString()`, which is UTC and would hand someone in UTC+13 a
   different "today" than their phone shows.
-* **Battles are seeded.** A Daily passes a derived seed to `>start`, so crits,
-  misses and damage rolls are identical for everyone playing that day. Free Play
-  passes nothing and keeps the engine's own randomness.
+* **Battles are deterministic.** Crits, misses and damage rolls are identical
+  for everyone playing that day's challenge. Free Play keeps the engine's own
+  randomness.
 * **Yesterday is never destroyed.** An unfinished Daily from a previous day is
-  offered as *Move old Daily to Free Play*; a cleared Daily can carry its team
-  into Free Play and keep going endlessly.
+  offered as *Move old Daily to Free Play*; a cleared Daily can carry its
+  surviving team into Free Play. A wipe ends immediately with no continuation.
 * **Streaks are forgiving.** Missing one day keeps the streak (and burns a grace
   day); missing two resets it. Every clean week earns the grace day back. The
   streak is recomputed against today rather than trusted from storage, so it
@@ -216,7 +216,7 @@ device preference never rides along with synced shinies and run history.
   fight: rival/villain themes for wilds, trainer themes for trainers, and
   `spl-elite4` / `bw2-kanto-gym-leader` held back for boss trainers. The
   previous track never repeats back-to-back. Selection uses `Math.random`, not
-  the run's seeded RNG — picking a song must not desync the daily run.
+  the run's deterministic RNG — picking a song must not desync the daily run.
 
 ## Splitting `app.js`
 
