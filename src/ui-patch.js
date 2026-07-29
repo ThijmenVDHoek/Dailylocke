@@ -169,21 +169,8 @@
     return _origSetMoves.call(this, mv, mg, cb);
   };
 
-  // Support biomeKey: when set, override the random biome selection so the
-  // battlefield always matches the player's chosen theme.
-  var _origSetupBattle = BU.prototype.setupBattle;
-  BU.prototype.setupBattle = function (o) {
-    if (o && o.biomeKey) {
-      // Temporarily swap biomeSeed so pickBiome is bypassed, then force the key.
-      var origSeed = o.biomeSeed;
-      o.biomeSeed = '__forced__';
-      _origSetupBattle.call(this, o);
-      this.buildBiome(o.biomeKey);
-      o.biomeSeed = origSeed;
-      return;
-    }
-    return _origSetupBattle.call(this, o);
-  };
+  // biomeKey is now handled by calling buildBiome directly after
+  // setupBattle in app.js, avoiding conflicts with _whenMounted.
 
   BU.prototype.setActions = function (cfg) {
     // cfg: {onFight,onBag,onBall,onSwitch,onRun, canRun, ballCount, itemCount, mode}
