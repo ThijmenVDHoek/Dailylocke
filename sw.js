@@ -27,13 +27,7 @@ const CACHE_PREFIX = 'dailylocke-';
 
 // ---- GENERATED: do not edit by hand -------------------------------------
 // `npm run build:sw --prefix tools` recomputes this from the shell contents.
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-const SHELL_REV = '2288ff88862c';
-=======
->>>>>>> a13db51 (fix: keep catch probability at p^4, cap visual shakes at 3)
-const SHELL_REV = '738a0800f7d6';
+const SHELL_REV = '932c95d1b426';
 // -------------------------------------------------------------------------
 
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${SHELL_REV}`;
