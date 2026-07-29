@@ -233,7 +233,7 @@
       var A = pick2[0] || 'gengar', B = pick2[1] || 'nidorino';
       var sa = Dex.species.get(A), sb = Dex.species.get(B);
       var titleBiomeKey = null;
-      if ((profile && profile.battlefield || 'dynamic') === 'match') {
+      if (profile && (profile.battlefield || 'dynamic') === 'match') {
         titleBiomeKey = THEME_BIOME[(profile && profile.theme) || 'default'] || 'meadow';
       }
       titleUI.setupBattle({
@@ -242,9 +242,9 @@
         enemy:  { name: sb.name, lv: 100, types: sb.types.slice(), hp: 1, max: 100, st: null,
                   h: worldH(B), sid: sb.spriteid || B, num: sb.num, u: spriteUrls(B, false) },
         biomeSeed: 'title|' + A + '|' + B,
-        biomeTypes: sa.types,
-        biomeKey: titleBiomeKey
+        biomeTypes: sa.types
       });
+      if (titleBiomeKey) titleUI.buildBiome(titleBiomeKey);
       titleUI.setMsg('');
       // Use the REAL battle slots and the real battle camera -- the whole
       // point is that the title looks like the game. `showcase` only strips
@@ -1980,10 +1980,6 @@
     var p = run.party[0], e = cfg.enemies[0];
     u.setSpeciesLabels(speciesOf(p), cfg.isWild ? 'Wild ' + speciesOf(e) : speciesOf(e));
     u._catchEntrance = !!cfg.catchable;
-    var biomeKey = null;
-    if ((profile.battlefield || 'dynamic') === 'match') {
-      biomeKey = THEME_BIOME[profile.theme || 'default'] || 'meadow';
-    }
     u.setupBattle({
       player: { name: p.name, lv: 100, types: p.types.slice(), hp: p.hpPct, max: 100, st: p.status || null,
                 h: worldH(p.id), sid: Dex.species.get(p.id).spriteid || p.id, num: Dex.species.get(p.id).num,
@@ -1992,9 +1988,12 @@
                h: worldH(e.id), sid: Dex.species.get(e.id).spriteid || e.id, num: Dex.species.get(e.id).num,
                u: spriteUrls(e.id, false, e.shiny) },
       biomeSeed: run.seed + '|' + run.section + '|' + run.battleInSection,
-      biomeTypes: e.types,
-      biomeKey: biomeKey
+      biomeTypes: e.types
     });
+    // "Match theme" overrides the random biome after setupBattle picks one.
+    var biomeKey = profile && (profile.battlefield || 'dynamic') === 'match'
+      ? THEME_BIOME[profile.theme || 'default'] || 'meadow' : null;
+    if (biomeKey) u.buildBiome(biomeKey);
     if (!cfg.isWild) u.log(cfg.trainer.name + ' ' + cfg.trainer.tag);
     if (cfg.isWild && cfg.enemies[0] && cfg.enemies[0].shiny) {
       // A shiny outranks the ordinary catch banner: it is always catchable and
