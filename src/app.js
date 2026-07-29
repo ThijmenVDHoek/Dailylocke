@@ -1384,7 +1384,23 @@
     window.Modal.open('screenAvatarPicker');
   }
   function closeAvatarPicker() { window.Modal.close('screenAvatarPicker'); }
-  function applyTheme() { if (!profile) return; var choice = THEMES.filter(function (t) { return t.id === profile.theme; })[0] || THEMES[0]; profile.theme = choice.id; Object.keys(choice.p).forEach(function (k) { document.documentElement.style.setProperty(k, choice.p[k]); }); document.documentElement.style.setProperty('--cta', '#ffffff'); document.documentElement.style.setProperty('--cta-hi', '#ffffff'); document.documentElement.style.setProperty('--cta-text', '#080a12'); document.documentElement.style.setProperty('--title-ring', choice.id === 'default' ? '#ffffff' : (choice.p['--blue'] || '#ffffff')); }
+  function applyTheme() {
+    if (!profile) return;
+    var choice = THEMES.filter(function (t) { return t.id === profile.theme; })[0] || THEMES[0];
+    profile.theme = choice.id;
+    Object.keys(choice.p).forEach(function (k) { document.documentElement.style.setProperty(k, choice.p[k]); });
+    // CTA buttons use the theme's accent color (dot) instead of always white.
+    // Default theme stays white for the classic look.
+    var cta = choice.dot || '#ffffff';
+    document.documentElement.style.setProperty('--cta', cta);
+    document.documentElement.style.setProperty('--cta-hi', cta);
+    // Readable text: dark on light accents, white on dark accents.
+    var isLight = choice.id === 'default' || choice.id === 'electric' ||
+                  choice.id === 'ground' || choice.id === 'ice' ||
+                  choice.id === 'normal' || choice.id === 'steel';
+    document.documentElement.style.setProperty('--cta-text', isLight ? '#080a12' : '#ffffff');
+    document.documentElement.style.setProperty('--title-ring', choice.id === 'default' ? '#ffffff' : (choice.p['--blue'] || '#ffffff'));
+  }
 
   function updateMenuAvatar() {
     var src = avatarUrl((profile && profile.avatar) || 'red');
