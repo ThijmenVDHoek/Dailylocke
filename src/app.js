@@ -2774,11 +2774,15 @@
     // Build rich items mirroring crossroads team detail: big sprite, hp bar, status badge color, types, moves preview
     var items = run.party.map(function (m, i) {
       var ok = allowed ? (allowed[i] != null) : (!C.isFainted(m) && m !== activeMon);
-      var pct = pctHP(m.hpPct);
-      var hpCol = m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444';
-      var cur = C.curHP(m), mx = C.maxHP(m);
-      var stCol = statusColor(m.status);
-      var stTxtCol = (m.status === 'par') ? '#000' : '#fff';
+      // Use live battle HP/status for the active Pokemon (run.party is only synced at battle start)
+      var isActive = m === activeMon;
+      var liveHp = isActive && ui && ui.s && ui.s.p ? ui.s.p.hp : m.hpPct;
+      var liveStatus = isActive && ui && ui.s && ui.s.p ? ui.s.st : m.status;
+      var pct = pctHP(liveHp);
+      var hpCol = liveHp > 0.5 ? '#4ade80' : liveHp > 0.2 ? '#facc15' : '#ef4444';
+      var cur = Math.round(C.maxHP(m) * liveHp), mx = C.maxHP(m);
+      var stCol = statusColor(liveStatus);
+      var stTxtCol = (liveStatus === 'par') ? '#000' : '#fff';
       // Build a detailed HTML blob for the battle switcher that mimics pd-card
       var html = '<div class="pd-hero" style="margin:0">' +
         '<div class="pd-art">' + bigSprite(m.id, '', 72, 72, 1, m.shiny) + '</div>' +
@@ -2788,18 +2792,18 @@
           '<div class="types" style="margin-top:2px">' + typeChips(m.types) + '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="pd-hp" style="margin-top:8px">' +
-        '<div class="hm-b big"><i style="width:' + pct + '%;background:' + hpCol + '"></i></div>' +
-        '<span>' + cur + ' / ' + mx + (m.status ? ' \u00b7 ' + m.status.toUpperCase() : '') + '</span>' +
-        (m.status ? '<span class="battle-st-badge" style="margin-left:6px;background:' + stCol + ';color:' + stTxtCol + ';padding:2px 6px;border-radius:999px;font-size:.62rem">' + m.status.toUpperCase() + '</span>' : '') +
-      '</div>';
+        '<div class="pd-hp" style="margin-top:8px">' +
+          '<div class="hm-b big"><i style="width:' + pct + '%;background:' + hpCol + '"></i></div>' +
+          '<span>' + cur + ' / ' + mx + (liveStatus ? ' \u00b7 ' + liveStatus.toUpperCase() : '') + '</span>' +
+          (liveStatus ? '<span class="battle-st-badge" style="margin-left:6px;background:' + stCol + ';color:' + stTxtCol + ';padding:2px 6px;border-radius:999px;font-size:.62rem">' + liveStatus.toUpperCase() + '</span>' : '') +
+        '</div>';
       return {
         name: m.name,
         species: speciesOf(m),
-        hp: m.hpPct,
+        hp: liveHp,
         fainted: C.isFainted(m),
         active: m === activeMon,
-        status: m.status,
+        status: liveStatus,
         statusColor: stCol,
         pct: pct,
         hpCol: hpCol,
