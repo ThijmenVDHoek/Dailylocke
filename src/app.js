@@ -382,11 +382,31 @@
         try {
           fmt = D.parseKey(today).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
         } catch (e) {}
-        main.innerHTML = '<span class="hr-badge ' + result.outcome + '">' +
+        // Build Pokemon images for the glass button
+        var monsHtml = '';
+        if (result.mvp && result.mvp.id) {
+          monsHtml += '<div class="daily-mon">' + bigSprite(result.mvp.id, '', 38, 38, 1, false) + '</div>';
+        }
+        if (result.starter && result.starter.id) {
+          monsHtml += '<div class="daily-mon">' + bigSprite(result.starter.id, '', 38, 38, 1, false) + '</div>';
+        }
+        // Show party Pokemon if available in the result (we store lastDailyRun)
+        if (window._lastDailyParty) {
+          var party = window._lastDailyParty;
+          for (var pi = 0; pi < Math.min(party.length, 2); pi++) {
+            if (party[pi] && party[pi].id) {
+              monsHtml += '<div class="daily-mon">' + bigSprite(party[pi].id, '', 38, 38, 1, party[pi].shiny) + '</div>';
+            }
+          }
+        }
+        main.innerHTML = (monsHtml ? '<div class="daily-mons">' + monsHtml + '</div>' : '') +
+          '<div>' +
+          '<span class="daily-result-badge ' + result.outcome + '">' +
           (result.outcome === 'complete' ? 'Cleared' : 'Fell at S' + result.sections) +
-          '</span> ' + fmt;
-        sub.textContent = 'Puzzle #' + result.n + ' \u00b7 Score: ' + result.score.toLocaleString() +
-          ' \u00b7 ' + result.battles + ' battles \u00b7 ' + result.caught + ' caught \u00b7 ' + result.lost + ' lost';
+          '</span>' +
+          '<div style="color:var(--ink-2);font-size:.78rem;margin-top:2px">' + fmt + '</div>' +
+          '</div>';
+        sub.innerHTML = '<span class="daily-score">Puzzle #' + result.n + ' \u00b7 Score: ' + result.score.toLocaleString() + '</span>';
       } else if (dailySave) {
         main.textContent = 'Resume Daily';
         sub.textContent = 'Section ' + (dailySave.section || 1) + ' of ' + D.SECTIONS +
@@ -420,6 +440,7 @@
 
     // ---- Free Play row ----
     var freeRow = $('titleFreeRun'), contSub = $('continueSub');
+    var freeSep = $('titleFreeSep');
     if (freeRow) freeRow.hidden = !free;
     if (free && contSub) {
       var sec = free.section || 1, won = free.battlesWon || 0;
@@ -429,7 +450,28 @@
         (n === 1 ? ' Pokemon' : ' Pokemon');
     }
     var fresh = $('titleFresh');
-    if (fresh) fresh.hidden = !!free;
+    var btnNewRun = $('btnNewRun');
+    // After completing a daily run, "New random run" becomes the primary CTA
+    if (fresh && btnNewRun) {
+      var dailyComplete = !!result;
+      var showFresh = !free;
+      fresh.hidden = !showFresh;
+      if (btnNewRun) {
+        if (dailyComplete) {
+          // Make it primary (white background, big)
+          btnNewRun.classList.remove('btn-glass');
+          btnNewRun.classList.add('btn-white', 'btn-daily', 'is-primary');
+          btnNewRun.innerHTML = '<span class="bd-main">New random run</span><span class="bd-sub">Endless, unlimited runs</span>';
+        } else {
+          // Restore to secondary (glass)
+          btnNewRun.classList.remove('btn-white', 'btn-daily', 'is-primary');
+          btnNewRun.classList.add('btn-glass');
+          btnNewRun.innerHTML = '<span class="bd-main">New random run</span><span class="bd-sub">Endless, unlimited runs</span>';
+        }
+      }
+      // Hide Free Play separator when daily is complete but no free play
+      if (freeSep) freeSep.hidden = dailyComplete;
+    }
 
     // ---- archived Daily offer ----
     var ar = $('btnArchiveDaily');
@@ -3049,6 +3091,8 @@
     // zero-HP Pokemon on some simultaneous-KO battle endings.
     lastDailyRun = outcome === 'complete' && N.alive(run).length
       ? ST.snapshot(run) : null;
+    // Store party for the daily summary button on title screen
+    window._lastDailyParty = run.party ? run.party.slice() : [];
     clearSave('daily');
     showDailyResult(entry, { fresh: true });
   }
