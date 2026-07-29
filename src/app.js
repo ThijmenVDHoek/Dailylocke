@@ -1880,7 +1880,13 @@
     if (!host) throw new Error('battle host element is missing');
     if (!window.BattleUI) throw new Error('battle renderer failed to load');
     host.innerHTML = '';
-    host._bm = null;                    // clear any stale mount marker
+    host._bm = null;
+    // Force a reflow so the host reports real dimensions. Without this,
+    // show('Battle') just removed [hidden] and the browser hasn't laid out
+    // #battleHost yet — mount() would see 0×0 and defer via rAF, causing
+    // setupBattle to queue and the battle to appear stuck (no biome, no
+    // sprites, no moves).
+    void host.offsetHeight;
     ui = new window.BattleUI(); ui.mount(host);
     return ui;
   }
@@ -1991,9 +1997,11 @@
       biomeTypes: e.types
     });
     // "Match theme" overrides the random biome after setupBattle picks one.
-    var biomeKey = profile && (profile.battlefield || 'dynamic') === 'match'
-      ? THEME_BIOME[profile.theme || 'default'] || 'meadow' : null;
-    if (biomeKey) u.buildBiome(biomeKey);
+    try {
+      var biomeKey = profile && (profile.battlefield || 'dynamic') === 'match'
+        ? THEME_BIOME[profile.theme || 'default'] || 'meadow' : null;
+      if (biomeKey) u.buildBiome(biomeKey);
+    } catch (_) { /* profile may be null on first run */ }
     if (!cfg.isWild) u.log(cfg.trainer.name + ' ' + cfg.trainer.tag);
     if (cfg.isWild && cfg.enemies[0] && cfg.enemies[0].shiny) {
       // A shiny outranks the ordinary catch banner: it is always catchable and

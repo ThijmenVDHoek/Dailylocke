@@ -114,7 +114,7 @@ body {
 ::selection { background:rgba(91,140,255,.35); color:#fff; }
 ::-moz-selection { background:rgba(91,140,255,.35); color:#fff; }
 main { max-width:560px; margin:0 auto; padding:0 0 40px; }
-section { padding:14px var(--pad) 26px; contain:content; }
+section { padding:14px var(--pad) 26px; }
 h1,h2,h3,h4 { font-weight:normal; }
 b { color:var(--gold); font-weight:normal; }
 .hint { color:var(--ink-2); font-size:.92rem; line-height:1.45; }
