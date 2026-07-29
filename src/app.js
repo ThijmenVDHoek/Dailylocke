@@ -587,6 +587,9 @@
 
   // --------------------------------------------------------- CROSSROADS ---
   function renderCrossroads() {
+    // If the app was closed mid-battle, the synced HP/status is preserved in
+    // run.party but the battle is lost. Clear the flag so the user can continue.
+    if (run._inBattle) { run._inBattle = false; saveGame(); }
     renderHud();
     var trainerNext = N.nextIsTrainer(run);
     var n = run.battleInSection;
@@ -2044,6 +2047,23 @@
     return ui;
   }
 
+  // Sync live battle HP/status back to run.party so closing mid-fight
+  // doesn't let the player cheat by restoring full HP on reload.
+  function syncBattleToRun() {
+    if (!battle || !battle.battle || !run) return;
+    try {
+      var p1 = battle.battle.p1;
+      if (!p1 || !p1.pokemon) return;
+      for (var i = 0; i < Math.min(run.party.length, p1.pokemon.length); i++) {
+        var bp = p1.pokemon[i];
+        var rp = run.party[i];
+        if (!bp || !rp) continue;
+        rp.hpPct = (bp.maxhp > 0) ? Math.max(0, bp.hp / bp.maxhp) : 0;
+        rp.status = bp.status || '';
+      }
+    } catch (e) {}
+  }
+
   // Guards against a second battle being spun up while the first is still
   // rolling its team (double-tap on "Battle", or a stray keyboard activation).
   // Two concurrent runs of this used to fight over `bctx`/`battle` and leave
@@ -2118,6 +2138,9 @@
     for (var i = 0; i < run.party.length; i++) { if (!C.isFainted(run.party[i])) { lead = i; break; } }
     if (lead !== 0) run.party.unshift(run.party.splice(lead, 1)[0]);
     run.party.forEach(function (m) { N.trackMon(run, m); });
+    // Mark that a battle is in progress so the save reflects this.
+    run._inBattle = true;
+    saveGame();
 
     bctx = { cfg: cfg, enemies: cfg.enemies, caught: false, ended: false };
     run.trainingPaidThisRound = false;
@@ -2331,16 +2354,20 @@
         } else q([{ m: 'idle', d: 0 }]);
         if (pct > 0) ui.floatN(s2, pct, 'damage');
         if (src) say(who + ' was hurt by ' + src + '!');
+        if (s2 === 'p') { syncBattleToRun(); saveGame(); }
       } else if (cmd === '-heal') {
         if (pct > 0) { ui.floatN(s2, pct, 'heal'); ui.flashHeal(s2); }
         say(who + ' restored HP' + (src ? ' with ' + src : '') + '!');
+        if (s2 === 'p') { syncBattleToRun(); saveGame(); }
       }
     } else if (cmd === '-status') {
       ui.setStatus(sideOf(p[1]), p[2]);
       say(nameFromIdent(p[1]) + ' ' + statusVerb(p[2]) + '!');
+      if (sideOf(p[1]) === 'p') { syncBattleToRun(); saveGame(); }
     } else if (cmd === '-curestatus') {
       ui.setStatus(sideOf(p[1]), null);
       say(nameFromIdent(p[1]) + ' was cured of its ' + statusName(p[2]) + '!');
+      if (sideOf(p[1]) === 'p') { syncBattleToRun(); saveGame(); }
     } else if (cmd === '-supereffective') {
       ui.floatT("It's super effective!", 'se'); say("It's super effective!");
       if (atkSide && !atkHit) { q([{ m: atkSide === 'p' ? 'enemyHit' : 'playerHit', d: 0 }]); atkHit = true; }
@@ -2370,6 +2397,7 @@
       var fname = nameFromIdent(p[1]);
       if (fs === 'p') { say(fname + ' fainted... and is gone forever.'); ui.log(fname + ' is gone forever.'); }
       else say('The foe ' + fname + ' fainted!');
+      syncBattleToRun(); saveGame();
     } else if (cmd === 'switch' || cmd === 'drag' || cmd === 'replace') {
       var isP = sideOf(p[1]) === 'p';
       var sp = Dex.species.get((p[2] || '').split(',')[0].trim());
@@ -2629,6 +2657,9 @@
   function handleRequest(req) {
     if (!ui || !req) return;
     if (req.wait) { ui.setMoves([], {}, null); return; }
+    // Sync live battle state to run.party before handing control to the player.
+    // This ensures closing the app mid-battle preserves damage taken so far.
+    syncBattleToRun(); saveGame();
     // While the intro is still flushing, render immediately so Fight/Bag/Ball
     // /Party are usable from the very first frame of the battle.
     if (!opening && (evQ.length || evTimer)) { pendingRequest = req; return; }
@@ -2716,6 +2747,8 @@
     if (!bctx || bctx.ended || !bctx.cfg.isWild) return;
     bctx.ended = true;
     bctx.fled = true;
+    run._inBattle = false;
+    syncBattleToRun(); saveGame();
     ui.setPanel(null);
     ui.setBallRail(null);
     ui.setMsg('Got away safely!');
@@ -3052,6 +3085,8 @@
     // a literal 0 (it was caught, so it can't join the party already fainted).
     if (clone.hpPct <= 0) clone.hpPct = 1 / Math.max(1, C.maxHP(clone));
     bctx.caught = true;
+    run._inBattle = false;
+    syncBattleToRun(); saveGame();
     // A shiny caught OUTSIDE the designated capture encounter is a bonus: it
     // must not consume this section's one legitimate catch.
     var bonusShiny = clone.shiny && !bctx.cfg.catchable;
@@ -3158,6 +3193,8 @@
     if (bctx.ended) return;
     if (res.result === 'caught') return;
     bctx.ended = true;
+    run._inBattle = false;
+    syncBattleToRun(); saveGame();
     // Wait for the event queue to ACTUALLY drain (the faint animation is the
     // last thing in it) instead of guessing a duration. `win` arrives on the
     // same chunk as `faint`, so a fixed timer would cut the KO short.
@@ -3866,6 +3903,13 @@
       if (saveData._history) {
         mergeHistory(saveData._history);
       }
+      // Overwrite daily results if present — prevents stale local daily state
+      // from letting the user resume a daily that was already finished elsewhere.
+      if (saveData._daily && window.Daily) {
+        window.Daily.save(saveData._daily);
+      }
+      // Clear stale in-battle flag on import
+      if (run) run._inBattle = false;
       saveGame();                          // persist to THIS device's storage
       setContinueState();                  // title button reflects the import
       return { ok: true };
@@ -3915,6 +3959,10 @@
         if (profile.theme) slim._theme = profile.theme;
         if (profile.history && profile.history.length) slim._history = profile.history;
       }
+    } catch (e) {}
+    // Include daily results so importing overwrites the local daily state
+    try {
+      if (window.Daily) slim._daily = window.Daily.load();
     } catch (e) {}
     var code = SC.encode(slim);
     if (!code) { toast('Could not create a save code.'); return false; }
