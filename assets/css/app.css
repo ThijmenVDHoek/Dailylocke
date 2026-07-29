@@ -328,6 +328,17 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .btn-daily .bd-main { font-size:1.5rem; letter-spacing:1.5px; line-height:1; }
 .btn-daily .bd-sub { font-size:.76rem; color:#000; opacity:.62; letter-spacing:0; }
 
+.btn-daily.done {
+  background:var(--bg-2); color:var(--ink-1); border:1px solid rgba(255,255,255,.1);
+  box-shadow:none;
+}
+.btn-daily.done:hover { background:var(--surface-hi); transform:translateY(-2px); }
+.btn-daily.done .bd-main {
+  font-size:1.1rem; letter-spacing:.5px; display:flex; align-items:center;
+  justify-content:center; gap:10px; color:#fff;
+}
+.btn-daily.done .bd-sub { color:var(--ink-3); opacity:1; margin-top:5px; }
+
 /* everything else stays glass */
 
 /* Secondary title actions. There is no panel behind them any more, so they
@@ -1460,11 +1471,9 @@ textarea.search.save-code {
   display:flex; align-items:center; gap:12px; padding:12px 14px;
   border-radius:var(--r-md); background:var(--surface); margin-bottom:8px;
 }
-.hr-n { font-size:.8rem; color:var(--ink-3); width:32px; flex:0 0 auto; }
 .hr-main { flex:1; min-width:0; }
-.hr-top { display:flex; align-items:baseline; gap:9px; }
+.hr-top { display:flex; align-items:center; gap:9px; }
 .hr-top b { color:#fff; font-size:1.02rem; }
-.hr-sec { font-size:.78rem; color:var(--gold); }
 .hr-sub { font-size:.74rem; color:var(--ink-3); margin-top:2px; }
 .hr-mvp { display:flex; flex-direction:column; align-items:center; gap:2px; flex:0 0 auto; }
 .hr-mvp span { font-size:.66rem; color:var(--ink-3); max-width:62px;
