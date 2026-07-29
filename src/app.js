@@ -45,6 +45,8 @@
     if (!forme) {
       if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/' + (isBack ? 'back/' : '') + pa + num + '.gif');
       if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + (isBack ? 'back/' : '') + pa + num + '.png');
+      // Official artwork as last resort before the silhouette
+      if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/' + pa + num + '.png');
     }
     // last resort: the non-shiny art, so something always renders
     if (shiny) spriteUrls(speciesId, isBack, false).forEach(add);
@@ -230,13 +232,18 @@
       var pick2 = C.pickN(pool, 2, Math.random);
       var A = pick2[0] || 'gengar', B = pick2[1] || 'nidorino';
       var sa = Dex.species.get(A), sb = Dex.species.get(B);
+      var titleBiomeKey = null;
+      if ((profile && profile.battlefield || 'dynamic') === 'match') {
+        titleBiomeKey = THEME_BIOME[(profile && profile.theme) || 'default'] || 'meadow';
+      }
       titleUI.setupBattle({
         player: { name: sa.name, lv: 100, types: sa.types.slice(), hp: 1, max: 100, st: null,
                   h: worldH(A), sid: sa.spriteid || A, num: sa.num, u: spriteUrls(A, true) },
         enemy:  { name: sb.name, lv: 100, types: sb.types.slice(), hp: 1, max: 100, st: null,
                   h: worldH(B), sid: sb.spriteid || B, num: sb.num, u: spriteUrls(B, false) },
         biomeSeed: 'title|' + A + '|' + B,
-        biomeTypes: sa.types
+        biomeTypes: sa.types,
+        biomeKey: titleBiomeKey
       });
       titleUI.setMsg('');
       // Use the REAL battle slots and the real battle camera -- the whole
@@ -428,7 +435,6 @@
             result.caught + ' caught \u00b7 ' +
             result.lost + ' lost' +
           '</div>' +
-          (result.marks && result.marks.length ? '<div class="hr-marks">' + result.marks.join('') + '</div>' : '') +
         '</div>' + rosterHtml;
         sub.textContent = '';
       } else if (dailySave) {
@@ -1402,6 +1408,16 @@
     document.documentElement.style.setProperty('--title-ring', choice.id === 'default' ? '#ffffff' : (choice.p['--blue'] || '#ffffff'));
   }
 
+  // Map each theme to a battlefield biome for "Match theme" mode.
+  var THEME_BIOME = {
+    'default': 'meadow', 'normal': 'meadow', 'fire': 'volcano',
+    'water': 'beach', 'electric': 'cave', 'grass': 'forest',
+    'ice': 'snow', 'fighting': 'desert', 'poison': 'forest',
+    'ground': 'desert', 'flying': 'meadow', 'psychic': 'psychic',
+    'bug': 'forest', 'rock': 'cave', 'ghost': 'cave',
+    'dragon': 'cave', 'dark': 'cave', 'steel': 'cave', 'fairy': 'psychic'
+  };
+
   function updateMenuAvatar() {
     var src = avatarUrl((profile && profile.avatar) || 'red');
     var e = $('menuAvatar'); if (e) e.innerHTML = '<img src="' + src + '" alt="">';
@@ -1412,15 +1428,22 @@
     closeMenu(); loadProfile(); applyTheme(); updateMenuAvatar();
     var shinies = profile.shinies.length, av = profile.avatar || 'red';
     var cur = run && !run.over ? '<div class="prof-now"><div class="pd-label">Current run</div><div class="prof-grid">' + statCard(run.battlesWon || 0, 'Battles won') + statCard('S' + (run.section || 1), 'Section') + statCard(run.caught || 0, 'Caught') + statCard('$' + (run.money || 0).toLocaleString(), 'Cash') + '</div></div>' : '<p class="hint center">No run in progress.</p>';
+    var bf = profile.battlefield || 'dynamic';
     $('profBody').innerHTML = '<div class="profile-hero"><div class="profile-avatar"><img src="' + avatarUrl(av) + '" alt="Avatar"></div><div style="flex:1"><div class="profile-name">Trainer Profile</div><div class="profile-sub">Customize your look and game theme</div></div><button id="editAvatar" class="btn-mini">Edit sprite</button></div>' +
       '' +
       '<div class="profile-section">Theme</div><div class="theme-grid">' + THEMES.map(function (t) { return '<button class="theme-choice' + (t.id === (profile.theme || 'default') ? ' on' : '') + '" data-theme="' + t.id + '" style="--theme-dot:' + t.dot + '"><span class="theme-dot"></span>' + t.name + '</button>'; }).join('') + '</div>' +
+      '<div class="profile-section">Battlefield</div>' +
+      '<div class="bf-toggle">' +
+        '<button class="bf-btn' + (bf === 'dynamic' ? ' on' : '') + '" data-bf="dynamic"><b>Dynamic</b><span>Biome from enemy types</span></button>' +
+        '<button class="bf-btn' + (bf === 'match' ? ' on' : '') + '" data-bf="match"><b>Match theme</b><span>Battlefield follows your theme</span></button>' +
+      '</div>' +
       '<div class="profile-section">Sound</div><div class="vol-group">' + volumeRow('music', 'Music', 'Battle themes') + volumeRow('sfx', 'Sound effects', 'Cries and battle sounds') + '</div>' +
       '<div class="profile-section">Career</div><div class="prof-grid big">' + statCard(profile.totalRuns, 'Runs played') + statCard(profile.bestBattles, 'Best battles') + statCard('S' + profile.bestSection, 'Furthest') + statCard(shinies, 'Shinies') + '</div>' + cur;
     $('editAvatar').onclick = openAvatarPicker;
     wireVolumeRows($('profBody'));
     // Full gallery is rendered only inside the dedicated sheet.
     $('profBody').querySelectorAll('[data-theme]').forEach(function (b) { b.onclick = function () { profile.theme = b.dataset.theme; saveProfile(); applyTheme(); showProfile(); }; });
+    $('profBody').querySelectorAll('[data-bf]').forEach(function (b) { b.onclick = function () { profile.battlefield = b.dataset.bf; saveProfile(); showProfile(); }; });
     show('Profile');
   }
 
@@ -1585,7 +1608,6 @@
             r.caught + ' caught \u00b7 ' +
             r.lost + ' lost' +
           '</div>' +
-          (r.marks && r.marks.length ? '<div class="hr-marks">' + r.marks.join('') + '</div>' : '') +
         '</div>' +
         rosterRowHtml(r.roster, r.mvp ? r.mvp.id : null) +
       '</div>';
@@ -1958,6 +1980,10 @@
     var p = run.party[0], e = cfg.enemies[0];
     u.setSpeciesLabels(speciesOf(p), cfg.isWild ? 'Wild ' + speciesOf(e) : speciesOf(e));
     u._catchEntrance = !!cfg.catchable;
+    var biomeKey = null;
+    if ((profile.battlefield || 'dynamic') === 'match') {
+      biomeKey = THEME_BIOME[profile.theme || 'default'] || 'meadow';
+    }
     u.setupBattle({
       player: { name: p.name, lv: 100, types: p.types.slice(), hp: p.hpPct, max: 100, st: p.status || null,
                 h: worldH(p.id), sid: Dex.species.get(p.id).spriteid || p.id, num: Dex.species.get(p.id).num,
@@ -1966,7 +1992,8 @@
                h: worldH(e.id), sid: Dex.species.get(e.id).spriteid || e.id, num: Dex.species.get(e.id).num,
                u: spriteUrls(e.id, false, e.shiny) },
       biomeSeed: run.seed + '|' + run.section + '|' + run.battleInSection,
-      biomeTypes: e.types
+      biomeTypes: e.types,
+      biomeKey: biomeKey
     });
     if (!cfg.isWild) u.log(cfg.trainer.name + ' ' + cfg.trainer.tag);
     if (cfg.isWild && cfg.enemies[0] && cfg.enemies[0].shiny) {
