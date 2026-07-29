@@ -415,7 +415,6 @@
             '</span>' +
           '</div>' +
           '<div class="hr-sub">' +
-            'Score: ' + result.score.toLocaleString() + ' \u00b7 ' +
             result.battles + ' battles \u00b7 ' +
             result.caught + ' caught \u00b7 ' +
             result.lost + ' lost' +
@@ -1557,7 +1556,6 @@
             '</span>' +
           '</div>' +
           '<div class="hr-sub">' +
-            'Score: ' + r.score.toLocaleString() + ' \u00b7 ' +
             r.battles + ' battles \u00b7 ' +
             r.caught + ' caught \u00b7 ' +
             r.lost + ' lost' +

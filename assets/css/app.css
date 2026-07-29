@@ -368,10 +368,10 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .btn-daily.done .hr-top { display:flex; align-items:center; gap:9px; }
 .btn-daily.done .hr-top b { color:#fff; font-size:1.02rem; }
 .btn-daily.done .hr-top .hr-badge { margin-left:auto; }
-.btn-daily.done .hr-sub { font-size:.74rem; color:var(--ink-3); margin-top:2px; }
-.btn-daily.done .hr-marks { font-size:.95rem; letter-spacing:1px; margin-top:3px; }
+.btn-daily.done .hr-sub { font-size:.74rem; color:rgba(255,255,255,.5); margin-top:2px; }
+.btn-daily.done .hr-marks { font-size:.95rem; letter-spacing:1px; margin-top:3px; opacity:.5; }
 .btn-daily.done .hr-mvp { display:flex; flex-direction:column; align-items:center; gap:2px; flex:0 0 auto; }
-.btn-daily.done .hr-mvp span { font-size:.66rem; color:var(--ink-3); max-width:62px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.btn-daily.done .hr-mvp span { font-size:.66rem; color:rgba(255,255,255,.5); max-width:62px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* everything else stays glass */
 
@@ -1569,7 +1569,9 @@ textarea.search.save-code {
 .hr-top { display:flex; align-items:center; gap:9px; }
 .hr-top b { color:#fff; font-size:1.02rem; }
 .hr-top .hr-badge { margin-left:auto; }
-.hr-sub { font-size:.74rem; color:var(--ink-3); margin-top:2px; }
+.hr-sub { font-size:.74rem; color:rgba(255,255,255,.5); margin-top:2px; }
+.hr-marks { font-size:.95rem; letter-spacing:1px; margin-top:3px; opacity:.5; }
+.hr-mvp span { opacity:.5; }
 .hr-mvp { display:flex; flex-direction:column; align-items:center; gap:2px; flex:0 0 auto; }
 .hr-mvp span { font-size:.66rem; color:var(--ink-3); max-width:62px;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
