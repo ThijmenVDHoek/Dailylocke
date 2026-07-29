@@ -695,6 +695,8 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
   display:block; text-align:left; margin:14px 0 6px 2px;
   font-size:.74rem; color:var(--ink-3); text-transform:uppercase; letter-spacing:1.4px;
 }
+.save-run-picker { margin-bottom:0; cursor:pointer; }
+.save-run-picker option { background:#171c30; color:#fff; }
 textarea.search.save-code {
   font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size:.78rem; line-height:1.5; word-break:break-all;

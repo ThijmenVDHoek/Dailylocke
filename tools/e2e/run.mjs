@@ -223,6 +223,27 @@ try {
     check('the title offers to RESUME the Daily', /resume/i.test(resumed.label),
       resumed.label);
 
+    // Regression: after save slots were split, title-menu transfer only looked
+    // in Free Play. An unfinished Daily therefore said there was no run even
+    // though the same title screen offered to resume it.
+    await page.click('#btnTitleMenu');
+    await page.waitForSelector('#screenMenu:not([hidden])');
+    await page.click('#btnMenuTransfer');
+    await page.waitForSelector('#screenSaveExport:not([hidden])');
+    const transferred = await page.evaluate(() => {
+      const code = document.getElementById('saveCodeOut').value;
+      const save = window.SaveCode.decode(code);
+      return save && {
+        mode: save.mode,
+        section: save.section,
+        party: (save.party || []).map((m) => m.name),
+      };
+    });
+    check('an ongoing Daily can be transferred from the title menu',
+      transferred && transferred.mode === 'daily' && transferred.party.includes('Testmon'),
+      JSON.stringify(transferred));
+    await page.click('#btnSaveExportClose');
+
     await page.click('#btnDaily');
     await page.waitForSelector('#screenCrossroads:not([hidden])', { timeout: 20000 });
     const party = await page.evaluate(() => window.Game.run.party.map((m) => m.name));

@@ -393,12 +393,12 @@
           ' \u00b7 ' + (dailySave.battlesWon || 0) + ' battles won';
       } else {
         main.textContent = 'Daily Run';
-        var fmt = today;
+        var dailyFmt = today;
         try {
-          fmt = D.parseKey(today).toLocaleDateString(undefined,
+          dailyFmt = D.parseKey(today).toLocaleDateString(undefined,
             { weekday: 'short', month: 'short', day: 'numeric' });
         } catch (e) {}
-        sub.textContent = D.SECTIONS + ' sections \u00b7 one scored run today \u00b7 ' + fmt;
+        sub.textContent = D.SECTIONS + ' sections \u00b7 one scored run today \u00b7 ' + dailyFmt;
       }
     }
 
@@ -3508,38 +3508,45 @@
   // ---- EXPORT MODAL -------------------------------------------------------
   var saveShareUrl = '';       // share link backing the current export modal
 
-  // The state a transfer should carry: the live run when one exists, else the
-  // run parked in storage (so "Transfer save" works from the title's Menu).
-  function exportSourceState() {
-    if (run && !run.over) return saveGameState();
-    return loadGame();
+  // The state a transfer should carry: the live run when one exists, otherwise
+  // every run parked in storage. Daily and Free Play have separate slots, so
+  // the title menu must look in BOTH; the old Free-Play-only fallback made an
+  // unfinished Daily incorrectly report "No run in progress to save".
+  function exportSourceStates() {
+    if (run && !run.over) {
+      var live = saveGameState();
+      return live ? [live] : [];
+    }
+    var daily = loadGame('daily');
+    var free = loadGame('free');
+    return [daily, free].filter(function (s) { return !!s; });
   }
 
-  function openSaveExport() {
+  function exportSourceLabel(snap) {
+    var section = snap.section || 1;
+    if (snap.mode === 'daily' || snap.dailyDate) {
+      return 'Daily' + (snap.dailyDate ? ' \u00b7 ' + snap.dailyDate : '') +
+        ' \u00b7 Section ' + section;
+    }
+    return 'Free Play \u00b7 Section ' + section;
+  }
+
+  function renderSaveExport(snap) {
     var SC = window.SaveCode;
-    if (!SC || !SC.enabled()) { toast('Save transfer is unavailable right now.'); return; }
-    var snap = exportSourceState();
-    if (!snap) { toast('No run in progress to save.'); return; }
     // The rolling battle log is never displayed, only bloats the QR payload.
     var slim = {};
     Object.keys(snap).forEach(function (k) { if (k !== 'log') slim[k] = snap[k]; });
-    // Include shiny collection, avatar, and theme in the save code/link/QR
+    // Include shiny collection, avatar, and theme in the save code/link/QR.
     try {
       loadProfile();
       if (profile) {
-        if (profile.shinies && profile.shinies.length) {
-          slim._shiny = profile.shinies;
-        }
-        if (profile.avatar) {
-          slim._avatar = profile.avatar;
-        }
-        if (profile.theme) {
-          slim._theme = profile.theme;
-        }
+        if (profile.shinies && profile.shinies.length) slim._shiny = profile.shinies;
+        if (profile.avatar) slim._avatar = profile.avatar;
+        if (profile.theme) slim._theme = profile.theme;
       }
     } catch (e) {}
     var code = SC.encode(slim);
-    if (!code) { toast('Could not create a save code.'); return; }
+    if (!code) { toast('Could not create a save code.'); return false; }
     saveShareUrl = SC.buildShareUrl(code);
     $('saveCodeOut').value = code;
     $('saveExportMsg').textContent = '';
@@ -3549,9 +3556,32 @@
     qrBox.hidden = !qr.ok;
     qrNote.hidden = qr.ok;
     if (!qr.ok) qrNote.textContent = qr.reason || 'QR code unavailable.';
-    // Wire up Save QR button visibility
     var qrBtn = $('btnSaveQR');
     if (qrBtn) qrBtn.hidden = !qr.ok;
+    return true;
+  }
+
+  function openSaveExport() {
+    var SC = window.SaveCode;
+    if (!SC || !SC.enabled()) { toast('Save transfer is unavailable right now.'); return; }
+    var states = exportSourceStates();
+    if (!states.length) { toast('No run in progress to save.'); return; }
+
+    // A live run is always the only candidate. From the title there can be an
+    // ongoing Daily AND Free Play run, so let the player choose rather than
+    // silently exporting whichever slot happened to be checked first.
+    var pickerWrap = $('saveRunPickerWrap'), picker = $('saveRunPicker');
+    picker.innerHTML = '';
+    states.forEach(function (snap, i) {
+      var opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = exportSourceLabel(snap);
+      picker.appendChild(opt);
+    });
+    pickerWrap.hidden = states.length < 2;
+    picker.onchange = function () { renderSaveExport(states[Number(picker.value)] || states[0]); };
+
+    if (!renderSaveExport(states[0])) return;
     window.Modal.open('screenSaveExport');
   }
 
