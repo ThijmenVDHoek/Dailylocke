@@ -3115,7 +3115,7 @@
       starter: run.starterMeta || null,
       mvp: m ? { id: m.id, name: m.name, damage: m.damage } : null,
       marks: (run.sectionMarks || []).filter(Boolean),
-      roster: (run.party || []).map(function (p) {
+      roster: (run.party || []).concat(run.graveyard || []).map(function (p) {
         return { id: p.id, name: p.name, shiny: !!p.shiny };
       })
     });
@@ -3445,7 +3445,7 @@
       caught: run.caught || 0, trainers: run.trainersBeaten || 0,
       mvp: m ? { id: m.id, name: m.name, damage: m.damage } : null,
       seed: run.seed,
-      roster: (run.party || []).map(function (p) {
+      roster: (run.party || []).concat(run.graveyard || []).map(function (p) {
         return { id: p.id, name: p.name, shiny: !!p.shiny };
       })
     });
