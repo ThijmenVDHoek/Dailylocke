@@ -378,10 +378,15 @@
     if (main && sub && btn) {
       btn.classList.toggle('done', !!result);
       if (result) {
-        main.textContent = 'Daily complete';
-        sub.textContent = result.outcome === 'complete'
-          ? 'Cleared all ' + D.SECTIONS + ' sections \u00b7 see your result'
-          : 'Fell in Section ' + result.sections + ' \u00b7 see your result';
+        var fmt = today;
+        try {
+          fmt = D.parseKey(today).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        } catch (e) {}
+        main.innerHTML = '<span class="hr-badge ' + result.outcome + '">' +
+          (result.outcome === 'complete' ? 'Cleared' : 'Fell at S' + result.sections) +
+          '</span> ' + fmt;
+        sub.textContent = 'Puzzle #' + result.n + ' \u00b7 Score: ' + result.score.toLocaleString() +
+          ' \u00b7 ' + result.battles + ' battles \u00b7 ' + result.caught + ' caught \u00b7 ' + result.lost + ' lost';
       } else if (dailySave) {
         main.textContent = 'Resume Daily';
         sub.textContent = 'Section ' + (dailySave.section || 1) + ' of ' + D.SECTIONS +
@@ -1470,14 +1475,27 @@
     }
     html += keys.map(function (k) {
       var r = store.results[k];
+      var d = D.parseKey(k);
+      var fmt = k;
+      try {
+        fmt = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      } catch (e) {}
+
       return '<div class="hist-row">' +
-        '<div class="hr-n">#' + r.n + '</div>' +
         '<div class="hr-main">' +
-          '<div class="hr-top"><b>' + r.score.toLocaleString() + '</b>' +
+          '<div class="hr-top">' +
             '<span class="hr-badge ' + r.outcome + '">' +
-            (r.outcome === 'complete' ? 'Cleared' : 'Section ' + r.sections) + '</span></div>' +
-          '<div class="hr-sub">' + r.battles + ' battles \u00b7 ' + r.caught + ' caught \u00b7 ' +
-            r.lost + ' lost \u00b7 ' + r.date + '</div>' +
+              (r.outcome === 'complete' ? 'Cleared' : 'Fell at S' + r.sections) +
+            '</span>' +
+            '<b>' + fmt + '</b>' +
+          '</div>' +
+          '<div class="hr-sub">' +
+            'Puzzle #' + r.n + ' \u00b7 ' +
+            'Score: ' + r.score.toLocaleString() + ' \u00b7 ' +
+            r.battles + ' battles \u00b7 ' +
+            r.caught + ' caught \u00b7 ' +
+            r.lost + ' lost' +
+          '</div>' +
           (r.marks && r.marks.length ? '<div class="hr-marks">' + r.marks.join('') + '</div>' : '') +
         '</div>' +
         (r.mvp ? '<div class="hr-mvp">' + animSprite(r.mvp.id, 40, 46, '', 1.45) +
@@ -1495,16 +1513,22 @@
     }
     return h.map(function (r, i) {
       var d = new Date(r.at);
+      var fmt = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
       return '<div class="hist-row">' +
-        '<div class="hr-n">#' + (h.length - i) + '</div>' +
         '<div class="hr-main">' +
-          '<div class="hr-top"><b>' + r.battles + ' battles</b>' +
-            '<span class="hr-sec">Section ' + r.section + '</span></div>' +
-          '<div class="hr-sub">' + r.caught + ' caught \u00b7 ' + r.trainers + ' trainers \u00b7 ' +
-            d.toLocaleDateString() + '</div>' +
+          '<div class="hr-top">' +
+            '<span class="hr-badge wipe">Fell at S' + r.section + '</span>' +
+            '<b>' + fmt + '</b>' +
+          '</div>' +
+          '<div class="hr-sub">' +
+            'Run #' + (h.length - i) + ' \u00b7 ' +
+            r.battles + ' battles \u00b7 ' +
+            r.caught + ' caught \u00b7 ' +
+            r.trainers + ' trainers' +
+          '</div>' +
         '</div>' +
         (r.mvp ? '<div class="hr-mvp">' + animSprite(r.mvp.id, 40, 46, '', 1.45) +
-                 '<span>' + r.mvp.name + '</span></div>' : '') +
+                 '<span>' + escapeHtml(r.mvp.name) + '</span></div>' : '') +
       '</div>';
     }).join('');
   }
