@@ -1194,17 +1194,23 @@
     var dmg = Math.round(run.damageDealt[mon.uid] || 0);
     var kos = run.knockouts[mon.uid] || 0;
 
-    // Quick-switch party grid
-    var gridHtml = '<div class="pd-party-strip">';
-    for (var gi = 0; gi < run.party.length; gi++) {
+    // Quick-switch party grid — same 6-slot layout as the team strip
+    var gridHtml = '<div class="team-strip" style="margin:0 0 14px">';
+    for (var gi = 0; gi < N.MAX_PARTY; gi++) {
       var gm = run.party[gi];
-      var gSel = gi === partySel ? ' sel' : '';
-      var gPct = pctHP(gm.hpPct);
-      var gCol = gm.hpPct > 0.5 ? '#4ade80' : gm.hpPct > 0.2 ? '#facc15' : '#ef4444';
-      gridHtml += '<button class="pd-pslot' + gSel + '" data-gi="' + gi + '">' +
-        animSprite(gm.id, 34, 38, '', 1.4, gm.shiny) +
-        '<span class="pd-pslot-bar"><i style="width:' + gPct + '%;background:' + gCol + '"></i></span>' +
-        '</button>';
+      if (gm) {
+        var gPct = pctHP(gm.hpPct);
+        var gCol = gm.hpPct > 0.5 ? '#4ade80' : gm.hpPct > 0.2 ? '#facc15' : '#ef4444';
+        gridHtml += '<button class="tslot' + (gi === partySel ? ' sel' : '') + '" data-gi="' + gi + '">' +
+          (gi === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
+          '<span class="ts-art">' + animSprite(gm.id, 46, 52, '', 1.4, gm.shiny) + '</span>' +
+          '<span class="ts-name">' + gm.name + '</span>' +
+          '<span class="ts-bar"><i style="width:' + gPct + '%;background:' + gCol + '"></i></span>' +
+          statusBadgeHtml(gm.status) +
+          '</button>';
+      } else {
+        gridHtml += '<div class="tslot empty"><span class="dock-ball"></span></div>';
+      }
     }
     gridHtml += '</div>';
 
@@ -1241,8 +1247,8 @@
       : 'Train Pokemon \u00b7 $' + SERVICE_PRICE.toLocaleString();
 
     host.innerHTML =
+      gridHtml +
       '<div class="party-detail">' +
-        gridHtml +
         '<div class="pd-hero">' +
           '<div class="pd-art">' + bigSprite(mon.id, '', 104, 104, 1, mon.shiny) + '</div>' +
           '<div class="pd-id">' +
@@ -1301,11 +1307,11 @@
         evoRowHtml(mon, partySel) +
         formeRowHtml(mon) +
 
-        '<button type="button" class="btn-secondary wide pd-close">Close</button>' +
-      '</div>';
+      '</div>' +
+      '<button type="button" class="btn-secondary wide pd-close">Close</button>';
 
     // Party grid click handlers
-    host.querySelectorAll('.pd-pslot').forEach(function (b) {
+    host.querySelectorAll('.tslot[data-gi]').forEach(function (b) {
       b.addEventListener('click', function () {
         partySel = +b.dataset.gi;
         drawPartyDetail();
