@@ -1032,11 +1032,20 @@ textarea.search.save-code {
 }
 .x-cash b { color:var(--gold); }
 .menu-pill {
-  padding:6px 18px; border-radius:var(--r-pill); font-size:.86rem;
-  background:var(--surface); color:var(--ink);
-  transition:background-color .15s, color .15s;
+  width:48px; height:48px; padding:4px; border-radius:50%;
+  background:var(--surface); color:var(--ink); border:2px solid var(--gold);
+  transition:background-color .15s, color .15s, transform .12s;
 }
-.menu-pill:hover { background:var(--surface-hi); color:#fff; }
+.menu-pill:hover { background:var(--surface-hi); color:#fff; transform:scale(1.05); }
+.menu-button-avatar { display:block; width:100%; height:100%; }
+.menu-button-avatar img { width:100%; height:100%; object-fit:contain; image-rendering:pixelated; }
+
+.menu-intro { display:flex; align-items:center; gap:18px; padding:8px 4px 22px; border-bottom:1px solid rgba(255,255,255,.1); margin-bottom:18px; }
+.menu-profile-avatar { width:92px; height:92px; flex:0 0 92px; border-radius:50%; background:var(--surface-hi); display:grid; place-items:center; }
+.menu-profile-avatar img { width:100%; height:100%; object-fit:contain; image-rendering:pixelated; }
+.menu-kicker { color:var(--gold); text-transform:uppercase; letter-spacing:2px; font-size:.72rem; font-weight:700; }
+.menu-intro h3 { color:#fff; font-size:1.55rem; line-height:1.1; margin:4px 0; }
+.menu-intro p { color:var(--ink-2); font-size:1rem; line-height:1.35; margin:0; }
 
 .x-eyebrow {
   font-size:.7rem; letter-spacing:2.6px; text-transform:uppercase;
@@ -1203,12 +1212,7 @@ textarea.search.save-code {
   position:absolute; top:4px; right:3px; font-size:.48rem;
   background:var(--red); color:#fff; padding:0 3px; border-radius:var(--r-pill);
 }
-.pd-close {
-  margin-left:auto; align-self:flex-start; width:30px; height:30px;
-  border-radius:50%; background:rgba(255,255,255,.08); color:var(--ink-2);
-  font-size:1.2rem; line-height:1;
-}
-.pd-close:hover { background:rgba(255,255,255,.18); color:#fff; }
+.pd-close { margin-top:16px; }
 .pd-facts { grid-template-columns:repeat(2,1fr); }
 .pd-actions { display:flex; flex-direction:column; gap:8px; }
 .pd-train { display:flex; align-items:center; justify-content:center; gap:9px; }
@@ -1307,11 +1311,11 @@ textarea.search.save-code {
 }
 
 /* ===== MENU SHEET ===== */
-.menu-card { max-width:420px; }
-.menu-list { display:flex; flex-direction:column; gap:8px; margin:6px 0 14px; }
+.menu-card { max-width:520px; }
+.menu-list { display:flex; flex-direction:column; gap:11px; margin:6px 0 18px; }
 .menu-item {
-  display:flex; align-items:center; gap:13px; width:100%; text-align:left;
-  padding:13px 15px; border-radius:var(--r-md);
+  display:flex; align-items:center; gap:16px; width:100%; text-align:left;
+  padding:16px 18px; border-radius:var(--r-md);
   background:var(--surface); color:var(--ink); box-shadow:var(--e1);
   transition:background-color .15s, transform .12s;
 }
@@ -1323,6 +1327,9 @@ textarea.search.save-code {
 .menu-img { object-fit:contain; image-rendering:pixelated; }
 .avatar-ic { width:34px; height:34px; margin:-6px; overflow:visible; background:none; }
 .avatar-ic img { width:100%; height:100%; object-fit:contain; image-rendering:pixelated; transform:none; }
+.mi-t { min-width:0; flex:1; }
+.mi-t b { display:block; font-size:1rem; line-height:1.2; color:#fff; }
+.mi-t em { display:block; font-size:.86rem; line-height:1.35; color:var(--ink-2); font-style:normal; margin-top:5px; }
 .profile-hero { display:flex; align-items:center; gap:16px; padding:18px; border-radius:var(--r-lg); background:var(--surface); box-shadow:var(--e2); margin-bottom:16px; }
 .profile-avatar { width:82px; height:82px; flex:0 0 auto; overflow:visible; background:none; }
 .profile-avatar img { width:100%; height:100%; object-fit:contain; image-rendering:pixelated; transform:none; }
@@ -1620,5 +1627,8 @@ body.modal-open { overflow:hidden; }
 /* A dialog card is programmatically focused on open. That focus ring is
    correct for keyboards but noise for a pointer user, so only show it when
    focus actually came from the keyboard. */
+.overlay-card:focus { outline:none; }
+.overlay-card:focus-visible { outline:2px solid var(--title-ring, #fff); outline-offset:3px; }
+he keyboard. */
 .overlay-card:focus { outline:none; }
 .overlay-card:focus-visible { outline:2px solid var(--title-ring, #fff); outline-offset:3px; }

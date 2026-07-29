@@ -1066,7 +1066,6 @@
             '<div class="pd-name">' + mon.name + '</div>' +
             '<div class="types">' + typeChips(mon.types) + '</div>' +
           '</div>' +
-          '<button class="pd-close" title="Close">\u00d7</button>' +
         '</div>' +
 
         '<div class="pd-hp">' +
@@ -1102,6 +1101,7 @@
               '</div>';
           }).join('') + '</div>' +
         '</div>' +
+        '<button type="button" class="btn-secondary wide pd-close">Close</button>' +
 
         evoRowHtml(mon, partySel) +
         formeRowHtml(mon) +
@@ -1261,6 +1261,7 @@
     $('miHistCount').textContent = h
       ? h + (h === 1 ? ' run finished' : ' runs finished')
       : 'No runs finished';
+    updateMenuAvatar();
     window.Modal.open('screenMenu');
   }
   function closeMenu() { window.Modal.close('screenMenu'); }
@@ -1305,7 +1306,12 @@
   function closeAvatarPicker() { window.Modal.close('screenAvatarPicker'); }
   function applyTheme() { if (!profile) return; var choice = THEMES.filter(function (t) { return t.id === profile.theme; })[0] || THEMES[0]; profile.theme = choice.id; Object.keys(choice.p).forEach(function (k) { document.documentElement.style.setProperty(k, choice.p[k]); }); document.documentElement.style.setProperty('--cta', '#ffffff'); document.documentElement.style.setProperty('--cta-hi', '#ffffff'); document.documentElement.style.setProperty('--cta-text', '#080a12'); document.documentElement.style.setProperty('--title-ring', choice.id === 'default' ? '#ffffff' : (choice.p['--blue'] || '#ffffff')); }
 
-  function updateMenuAvatar() { var e = $('menuAvatar'); if (e) e.innerHTML = '<img src="' + avatarUrl((profile && profile.avatar) || 'red') + '" alt="">'; }
+  function updateMenuAvatar() {
+    var src = avatarUrl((profile && profile.avatar) || 'red');
+    var e = $('menuAvatar'); if (e) e.innerHTML = '<img src="' + src + '" alt="">';
+    var button = $('menuButtonAvatar'); if (button) button.innerHTML = '<img src="' + src + '" alt="">';
+    var hero = $('menuProfileAvatar'); if (hero) hero.innerHTML = '<img src="' + src + '" alt="">';
+  }
   function showProfile() {
     closeMenu(); loadProfile(); applyTheme(); updateMenuAvatar();
     var shinies = profile.shinies.length, av = profile.avatar || 'red';
