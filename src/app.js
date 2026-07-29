@@ -382,31 +382,28 @@
         try {
           fmt = D.parseKey(today).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
         } catch (e) {}
-        // Build Pokemon images for the glass button
-        var monsHtml = '';
+        // Build the hist-row style tile inside the button
+        var mvpHtml = '';
         if (result.mvp && result.mvp.id) {
-          monsHtml += '<div class="daily-mon">' + bigSprite(result.mvp.id, '', 38, 38, 1, false) + '</div>';
+          mvpHtml = '<div class="hr-mvp">' + animSprite(result.mvp.id, 40, 46, '', 1.45) +
+                    '<span>' + escapeHtml(result.mvp.name) + '</span></div>';
         }
-        if (result.starter && result.starter.id) {
-          monsHtml += '<div class="daily-mon">' + bigSprite(result.starter.id, '', 38, 38, 1, false) + '</div>';
-        }
-        // Show party Pokemon if available in the result (we store lastDailyRun)
-        if (window._lastDailyParty) {
-          var party = window._lastDailyParty;
-          for (var pi = 0; pi < Math.min(party.length, 2); pi++) {
-            if (party[pi] && party[pi].id) {
-              monsHtml += '<div class="daily-mon">' + bigSprite(party[pi].id, '', 38, 38, 1, party[pi].shiny) + '</div>';
-            }
-          }
-        }
-        main.innerHTML = (monsHtml ? '<div class="daily-mons">' + monsHtml + '</div>' : '') +
-          '<div>' +
-          '<span class="daily-result-badge ' + result.outcome + '">' +
-          (result.outcome === 'complete' ? 'Cleared' : 'Fell at S' + result.sections) +
-          '</span>' +
-          '<div style="color:var(--ink-2);font-size:.78rem;margin-top:2px">' + fmt + '</div>' +
-          '</div>';
-        sub.innerHTML = '<span class="daily-score">Puzzle #' + result.n + ' \u00b7 Score: ' + result.score.toLocaleString() + '</span>';
+        main.innerHTML = '<div class="hr-main">' +
+          '<div class="hr-top">' +
+            '<b>' + fmt + '</b>' +
+            '<span class="hr-badge ' + result.outcome + '">' +
+              (result.outcome === 'complete' ? 'Cleared' : 'Fell at S' + result.sections) +
+            '</span>' +
+          '</div>' +
+          '<div class="hr-sub">' +
+            'Score: ' + result.score.toLocaleString() + ' \u00b7 ' +
+            result.battles + ' battles \u00b7 ' +
+            result.caught + ' caught \u00b7 ' +
+            result.lost + ' lost' +
+          '</div>' +
+          (result.marks && result.marks.length ? '<div class="hr-marks">' + result.marks.join('') + '</div>' : '') +
+        '</div>' + mvpHtml;
+        sub.textContent = '';
       } else if (dailySave) {
         main.textContent = 'Resume Daily';
         sub.textContent = 'Section ' + (dailySave.section || 1) + ' of ' + D.SECTIONS +
@@ -526,7 +523,11 @@
         '<div class="ability">' + mon.ability + '</div>' +
         '<div class="movelist">' + mon.moves.map(function (m) {
           var d = Dex.moves.get(m);
-          return '<span class="mv-chip type-' + d.type + '" data-tip="move:' + d.id + '" tabindex="0">' + d.name + '</span>';
+          var pw = d.category === 'Status' ? 'Status' : (d.basePower ? 'Pow ' + d.basePower : '');
+          return '<div class="move-card-inline" data-tip="move:' + d.id + '" tabindex="0">' +
+            '<div class="mci-top"><span class="mv-chip type-' + d.type + '">' + d.type + '</span>' +
+            '<span class="mci-pw">' + pw + '</span></div>' +
+            '<span class="mci-name">' + d.name + '</span></div>';
         }).join('') + '</div>' +
         '<button class="btn-primary pick-btn">Choose</button>';
       card.querySelector('.pick-btn').addEventListener('click', function () {
@@ -1141,10 +1142,15 @@
             var mxpp = Math.floor(mv.pp * 1.6);
             var have = mon.pp[m] != null ? mon.pp[m] : mxpp;
             var low = have / mxpp < 0.25;
+            var frac = mxpp ? have / mxpp : 0;
+            var ppCol = low ? '#ef4444' : '#fff';
+            var pw = mv.category === 'Status' ? 'Status' : (mv.basePower ? 'Pow ' + mv.basePower : '');
             return '<div class="pd-move" data-tip="move:' + mv.id + '" tabindex="0">' +
-              '<span class="mv-chip type-' + mv.type + '">' + mv.type + '</span>' +
+              '<div class="pd-move-top"><span class="mv-chip type-' + mv.type + '">' + mv.type + '</span>' +
+              '<span class="pd-mv-pw">' + pw + '</span></div>' +
               '<span class="pd-mn">' + mv.name + '</span>' +
-              '<span class="pd-mp' + (low ? ' low' : '') + '">' + have + '/' + mxpp + '</span>' +
+              '<div class="pd-mp-bar"><div class="pd-mp-track"><div class="pd-mp-fill" style="width:' + (frac * 100) + '%;background:' + ppCol + '"></div></div>' +
+              '<span class="pd-mp' + (low ? ' low' : '') + '">' + have + '/' + mxpp + '</span></div>' +
               '</div>';
           }).join('') + '</div>' +
         '</div>' +
@@ -1526,13 +1532,12 @@
       return '<div class="hist-row">' +
         '<div class="hr-main">' +
           '<div class="hr-top">' +
+            '<b>' + fmt + '</b>' +
             '<span class="hr-badge ' + r.outcome + '">' +
               (r.outcome === 'complete' ? 'Cleared' : 'Fell at S' + r.sections) +
             '</span>' +
-            '<b>' + fmt + '</b>' +
           '</div>' +
           '<div class="hr-sub">' +
-            'Puzzle #' + r.n + ' \u00b7 ' +
             'Score: ' + r.score.toLocaleString() + ' \u00b7 ' +
             r.battles + ' battles \u00b7 ' +
             r.caught + ' caught \u00b7 ' +
@@ -1559,8 +1564,8 @@
       return '<div class="hist-row">' +
         '<div class="hr-main">' +
           '<div class="hr-top">' +
-            '<span class="hr-badge wipe">Fell at S' + r.section + '</span>' +
             '<b>' + fmt + '</b>' +
+            '<span class="hr-badge wipe">Fell at S' + r.section + '</span>' +
           '</div>' +
           '<div class="hr-sub">' +
             'Run #' + (h.length - i) + ' \u00b7 ' +
@@ -2804,7 +2809,11 @@
       '<div class="ability" style="margin:6px 0;opacity:0.8;">' + clone.ability + '</div>' +
       '<div class="movelist">' + clone.moves.map(function (m) {
         var d = Dex.moves.get(m);
-        return '<span class="mv-chip type-' + d.type + '">' + d.name + '</span>';
+        var pw = d.category === 'Status' ? 'Status' : (d.basePower ? 'Pow ' + d.basePower : '');
+        return '<div class="move-card-inline">' +
+          '<div class="mci-top"><span class="mv-chip type-' + d.type + '">' + d.type + '</span>' +
+          '<span class="mci-pw">' + pw + '</span></div>' +
+          '<span class="mci-name">' + d.name + '</span></div>';
       }).join('') + '</div></div></div>' +
       '<p class="hint">It keeps the HP, PP and status it had when caught.</p>' +
       '<p class="reward-money">+$' + money + '</p>';
