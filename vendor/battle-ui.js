@@ -150,11 +150,11 @@ BattleUI.prototype.mount = function(host){
   cam.position.set(0,4.8,10.5);cam.lookAt(0,1.2,0);this.cam=cam;
   // Layer 1: Sprite container (projected <img> elements, z-index between canvas and HUD)
   var sp=document.createElement('div');sp.className='bm-sprites';
-  sp.style.cssText='position:absolute;inset:0;z-index:2;pointer-events:none;overflow:hidden;';
+  sp.style.cssText='position:absolute;inset:0;z-index:2;pointer-events:none;overflow:visible;';
   host.appendChild(sp);this.sprites=sp;
   // Layer 2: HUD (glass UI + floaters)
   var hud=document.createElement('div');hud.className='battle-hud';
-  hud.style.cssText='position:absolute;inset:0;pointer-events:none;font-family:VT323,"Courier New",monospace;color:#fff;overflow:hidden;z-index:3;';
+  hud.style.cssText='position:absolute;inset:0;pointer-events:none;font-family:VT323,"Courier New",monospace;color:#fff;overflow:visible;z-index:3;';
   host.appendChild(hud);this.hud=hud;
   injectCSS();
   ['b','p','e','w','f'].forEach(function(k){this.g[k]=new T.Group();sc.add(this.g[k]);},this);
@@ -1066,7 +1066,7 @@ function injectCSS(){
     // HUD, all text in VT323 pixel font (matches build/loading/dead screens).
     // No glass backgrounds on cards/buttons — only full-bleed top + bottom gradients
     // frame the play field. Containers are transparent; text relies on shadow for legibility.
-    '.battle-hud{position:absolute;inset:0;pointer-events:none;font-family:VT323,"Courier New",monospace;color:#fff;overflow:hidden;font-size:18px;}',
+    '.battle-hud{position:absolute;inset:0;pointer-events:none;font-family:VT323,"Courier New",monospace;color:#fff;overflow:visible;font-size:18px;}',
     // Top + bottom vignette gradients are painted as fixed full-width pseudo layers
     // so they span edge-to-edge regardless of the centered .col width.
     '.battle-hud::before,.battle-hud::after{content:"";position:fixed;left:0;right:0;width:100vw;pointer-events:none;z-index:0;}',
