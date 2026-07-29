@@ -524,6 +524,7 @@
     run.dailyNumber = opts.dailyNumber || 0;
     run.maxSections = opts.maxSections || 0;    // 0 = endless
     run.sectionMarks = [];                      // share-card squares
+    run.trainingPaidThisRound = false;
     var rand = C.mulberry32(seed ^ 0x1234);
     var pool = C.speciesPool().filter(function (id) {
       var b = C.bst(id);
@@ -842,17 +843,25 @@
   var SERVICE_PRICE = 2000;
 
   var NATURES = [
-    ['Adamant','Atk','SpA'], ['Modest','SpA','Atk'], ['Jolly','Spe','SpA'],
-    ['Timid','Spe','Atk'],   ['Bold','Def','Atk'],   ['Calm','SpD','Atk'],
-    ['Impish','Def','SpA'],  ['Careful','SpD','SpA'],['Brave','Atk','Spe'],
-    ['Quiet','SpA','Spe'],   ['Relaxed','Def','Spe'],['Sassy','SpD','Spe'],
-    ['Naive','Spe','SpD'],   ['Hasty','Spe','Def'],  ['Serious','\u2014','\u2014']
+    ['Hardy','\u2014','\u2014'],  ['Lonely','Atk','Def'],  ['Brave','Atk','Spe'],
+    ['Adamant','Atk','SpA'],    ['Naughty','Atk','SpD'],
+    ['Bold','Def','Atk'],       ['Docile','\u2014','\u2014'],['Relaxed','Def','Spe'],
+    ['Impish','Def','SpA'],     ['Lax','Def','SpD'],
+    ['Timid','Spe','Atk'],      ['Hasty','Spe','Def'],    ['Serious','\u2014','\u2014'],
+    ['Jolly','Spe','SpA'],      ['Naive','Spe','SpD'],
+    ['Modest','SpA','Atk'],     ['Mild','SpA','Def'],     ['Quiet','SpA','Spe'],
+    ['Bashful','\u2014','\u2014'],['Rash','SpA','SpD'],
+    ['Calm','SpD','Atk'],       ['Gentle','SpD','Def'],   ['Sassy','SpD','Spe'],
+    ['Careful','SpD','SpA'],    ['Quirky','\u2014','\u2014']
   ];
   var STAT_KEYS = [['hp','HP'],['atk','Atk'],['def','Def'],['spa','SpA'],['spd','SpD'],['spe','Spe']];
 
   function openTrainer(mon) {
-    if (run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
-    run.money -= SERVICE_PRICE;
+    if (!run.trainingPaidThisRound) {
+      if (run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
+      run.money -= SERVICE_PRICE;
+      run.trainingPaidThisRound = true;
+    }
     svc = { mon: mon, tab: 'moves', replaceSlot: null, all: null };
     renderHud(); saveGame();
     $('btnTutorBack').textContent = 'Done';
@@ -1012,9 +1021,46 @@
     var MAXP = C.SP_MAX, TOTAL = C.SP_TOTAL;
     function used() { return C.spUsed(mon); }
 
+    // Compute base stats and final stats
+    var sp = Dex.species.get(mon.id);
+    var base = sp.exists ? sp.baseStats : {hp:100,atk:100,def:100,spa:100,spd:100,spe:100};
+    var natArr = NATURES.filter(function (n) { return n[0] === (mon.nature || 'Serious'); });
+    var natPlus = natArr.length ? natArr[0][1] : '\u2014';
+    var natMinus = natArr.length ? natArr[0][2] : '\u2014';
+
+    function finalStat(key) {
+      var b = base[key] || 100;
+      var ev = C.spToEv(mon.sp ? mon.sp[key] : 0);
+      var iv = 31;
+      if (key === 'hp') return Math.floor(((2 * b + iv + Math.floor(ev / 4)) * 100) / 100) + 100 + 10;
+      var nat = 1;
+      var label = {atk:'Atk',def:'Def',spa:'SpA',spd:'SpD',spe:'Spe'}[key];
+      if (natPlus === label) nat = 1.1;
+      else if (natMinus === label) nat = 0.9;
+      return Math.floor((Math.floor(((2 * b + iv + Math.floor(ev / 4)) * 100) / 100) + 5) * nat);
+    }
+
+    var statsTable = '<div class="stats-table">' +
+      '<div class="st-row st-head"><span></span><span class="st-base">Base</span><span class="st-ev">EVs</span><span class="st-fin">Final</span></div>' +
+      STAT_KEYS.map(function (k) {
+        var ev = mon.sp ? (mon.sp[k[0]] || 0) : 0;
+        var fin = finalStat(k[0]);
+        var label = {hp:'HP',atk:'Atk',def:'Def',spa:'SpA',spd:'SpD',spe:'Spe'}[k[0]];
+        var isPlus = natPlus === label, isMinus = natMinus === label;
+        var natClass = isPlus ? ' st-plus' : (isMinus ? ' st-minus' : '');
+        return '<div class="st-row' + natClass + '">' +
+          '<span class="st-name">' + k[1] + '</span>' +
+          '<span class="st-base">' + (base[k[0]] || 0) + '</span>' +
+          '<span class="st-ev">' + ev + '</span>' +
+          '<span class="st-fin">' + fin + '</span>' +
+          '</div>';
+      }).join('') +
+      '</div>';
+
     // Build once, then only patch values on input: re-rendering the whole
     // block mid-drag would tear the slider out from under the pointer.
     body.innerHTML =
+      statsTable +
       '<div class="sp-head">Stat Points left <b id="spLeft">0</b> <span>/ ' + TOTAL + '</span></div>' +
       STAT_KEYS.map(function (k) {
         var v = mon.sp[k[0]] || 0;
@@ -1030,6 +1076,7 @@
 
     var leftEl = body.querySelector('#spLeft');
     var rows = [].slice.call(body.querySelectorAll('.sp-range'));
+    var stRows = [].slice.call(body.querySelectorAll('.st-row:not(.st-head)'));
 
     function paint() {
       var left = TOTAL - used();
@@ -1043,6 +1090,15 @@
         r.style.setProperty('--fill', (v / MAXP * 100) + '%');
         // a stat that cannot go any higher is worth showing as capped
         r.parentNode.classList.toggle('maxed', v >= MAXP);
+      });
+      // Update final stats in the table
+      stRows.forEach(function (row, idx) {
+        var k = STAT_KEYS[idx];
+        if (!k) return;
+        var evCell = row.querySelector('.st-ev');
+        var finCell = row.querySelector('.st-fin');
+        if (evCell) evCell.textContent = mon.sp ? (mon.sp[k[0]] || 0) : 0;
+        if (finCell) finCell.textContent = finalStat(k[0]);
       });
     }
 
@@ -1138,8 +1194,55 @@
     var dmg = Math.round(run.damageDealt[mon.uid] || 0);
     var kos = run.knockouts[mon.uid] || 0;
 
+    // Quick-switch party grid
+    var gridHtml = '<div class="pd-party-strip">';
+    for (var gi = 0; gi < run.party.length; gi++) {
+      var gm = run.party[gi];
+      var gSel = gi === partySel ? ' sel' : '';
+      var gPct = pctHP(gm.hpPct);
+      var gCol = gm.hpPct > 0.5 ? '#4ade80' : gm.hpPct > 0.2 ? '#facc15' : '#ef4444';
+      gridHtml += '<button class="pd-pslot' + gSel + '" data-gi="' + gi + '">' +
+        animSprite(gm.id, 34, 38, '', 1.4, gm.shiny) +
+        '<span class="pd-pslot-bar"><i style="width:' + gPct + '%;background:' + gCol + '"></i></span>' +
+        '</button>';
+    }
+    gridHtml += '</div>';
+
+    // Potion suggestion
+    var potionHtml = '';
+    if (mon.hpPct < 1 && !C.isFainted(mon)) {
+      var bestPotion = null;
+      var potionOrder = ['maxpotion', 'fullrestore', 'hyperpotion', 'superpotion', 'potion'];
+      for (var pi = 0; pi < potionOrder.length; pi++) {
+        if (run.bag[potionOrder[pi]] && run.bag[potionOrder[pi]] > 0) { bestPotion = potionOrder[pi]; break; }
+      }
+      if (bestPotion) {
+        potionHtml = '<button class="btn-secondary wide pd-potion-btn" data-potion="' + bestPotion + '">' +
+          (window.ItemArt ? window.ItemArt.itemImg(bestPotion, 18) : '') +
+          'Use ' + itemName(bestPotion) + '</button>';
+      }
+    }
+
+    // Ether suggestion
+    var etherHtml = '';
+    var needsEther = mon.moves.some(function (m) { return (mon.pp[m] || 0) <= 0; });
+    if (needsEther) {
+      var bestEther = run.bag['maxether'] ? 'maxether' : (run.bag['ether'] ? 'ether' : null);
+      if (bestEther) {
+        etherHtml = '<button class="btn-secondary wide pd-ether-btn" data-ether="' + bestEther + '">' +
+          (window.ItemArt ? window.ItemArt.itemImg(bestEther, 18) : '') +
+          'Use ' + itemName(bestEther) + '</button>';
+      }
+    }
+
+    // Train button text
+    var trainLabel = run.trainingPaidThisRound
+      ? 'Train more \u00b7 already paid this round'
+      : 'Train Pokemon \u00b7 $' + SERVICE_PRICE.toLocaleString();
+
     host.innerHTML =
       '<div class="party-detail">' +
+        gridHtml +
         '<div class="pd-hero">' +
           '<div class="pd-art">' + bigSprite(mon.id, '', 104, 104, 1, mon.shiny) + '</div>' +
           '<div class="pd-id">' +
@@ -1153,6 +1256,7 @@
           '<div class="hm-b big"><i style="width:' + pct + '%;background:' + col + '"></i></div>' +
           '<span>' + cur + ' / ' + mx + (mon.status ? '  \u00b7  ' + mon.status.toUpperCase() : '') + '</span>' +
         '</div>' +
+        potionHtml +
 
         '<div class="pd-facts">' +
           '<div class="pd-fact" data-tip="ability:' + mon.ability + '" tabindex="0"><span class="k">Ability</span><span class="v">' + mon.ability + '</span></div>' +
@@ -1161,12 +1265,9 @@
           '<div class="pd-fact"><span class="k">KOs</span><span class="v">' + kos + '</span></div>' +
         '</div>' +
 
-        '<div class="pd-sec"><div class="pd-label">Held item</div>' +
-          (mon.item
-            ? '<button class="pd-held" data-take="1" data-tip="item:' + mon.item + '">' +
-                (window.ItemArt ? window.ItemArt.itemImg(mon.item, 26) : '') +
-                '<span>' + itemName(mon.item) + '</span><em>tap to remove</em></button>'
-            : '<div class="pd-empty">Nothing held \u2014 give one from your Bag.</div>') +
+        '<div class="pd-actions">' +
+          '<button class="btn-primary pd-train"><img class="ic-train-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/power-bracer.png" alt="">' + trainLabel + '</button>' +
+          (partySel > 0 ? '<button class="btn-secondary pd-lead">Make lead</button>' : '') +
         '</div>' +
 
         '<div class="pd-sec"><div class="pd-label">Moves</div>' +
@@ -1187,21 +1288,67 @@
               '</div>';
           }).join('') + '</div>' +
         '</div>' +
-        '<button type="button" class="btn-secondary wide pd-close">Close</button>' +
+        etherHtml +
+
+        '<div class="pd-sec"><div class="pd-label">Held item</div>' +
+          (mon.item
+            ? '<button class="pd-held" data-take="1" data-tip="item:' + mon.item + '">' +
+                (window.ItemArt ? window.ItemArt.itemImg(mon.item, 26) : '') +
+                '<span>' + itemName(mon.item) + '</span><em>tap to remove</em></button>'
+            : '<div class="pd-empty">Nothing held \u2014 give one from your Bag.</div>') +
+        '</div>' +
 
         evoRowHtml(mon, partySel) +
         formeRowHtml(mon) +
 
-        '<div class="pd-actions">' +
-          '<button class="btn-primary pd-train"><span class="ic-train"></span>Train Pokemon \u00b7 $' +
-            SERVICE_PRICE.toLocaleString() + '</button>' +
-          (partySel > 0 ? '<button class="btn-secondary pd-lead">Make lead</button>' : '') +
-        '</div>' +
+        '<button type="button" class="btn-secondary wide pd-close">Close</button>' +
       '</div>';
 
+    // Party grid click handlers
+    host.querySelectorAll('.pd-pslot').forEach(function (b) {
+      b.addEventListener('click', function () {
+        partySel = +b.dataset.gi;
+        drawPartyDetail();
+      });
+    });
     var close = host.querySelector('.pd-close');
     if (close) close.addEventListener('click', function () {
       window.Modal.close('xTeamDetail');
+    });
+    // Potion button
+    var potionBtn = host.querySelector('.pd-potion-btn');
+    if (potionBtn) potionBtn.addEventListener('click', function () {
+      var itemId = potionBtn.dataset.potion;
+      var h = C.HEAL_ITEMS[itemId];
+      if (!h || !h.healPct) return;
+      var amount = Math.max(1, Math.round(mx * h.healPct));
+      var got = Math.min(mx - cur, amount);
+      if (got <= 0) { toast('Already at full HP.'); return; }
+      N.useItem(run, itemId);
+      mon.hpPct = Math.min(1, mon.hpPct + got / mx);
+      toast(mon.name + ' recovered ' + got + ' HP!');
+      saveGame(); drawPartyDetail(); drawTeamStrip(); renderHud();
+    });
+    // Ether button
+    var etherBtn = host.querySelector('.pd-ether-btn');
+    if (etherBtn) etherBtn.addEventListener('click', function () {
+      var itemId = etherBtn.dataset.ether;
+      var h = C.HEAL_ITEMS[itemId];
+      if (!h) return;
+      var restored = false;
+      for (var ei = 0; ei < mon.moves.length; ei++) {
+        var mvId = mon.moves[ei];
+        if ((mon.pp[mvId] || 0) <= 0) {
+          var maxpp = Math.floor(Dex.moves.get(mvId).pp * 1.6);
+          mon.pp[mvId] = h.pp === 999 ? maxpp : Math.min(maxpp, (h.pp || 10));
+          restored = true;
+          break;
+        }
+      }
+      if (!restored) { toast('All moves have PP.'); return; }
+      N.useItem(run, itemId);
+      toast('PP restored!');
+      saveGame(); drawPartyDetail();
     });
     // Backdrop clicks and Escape are handled by the shared modal controller.
     var take = host.querySelector('[data-take]');
@@ -1209,11 +1356,11 @@
       N.addItem(run, mon.item, 1);
       toast('Took the ' + itemName(mon.item) + '.');
       mon.item = '';
-      renderCrossroads(); saveGame();
+      renderCrossroads(); saveGame(); drawPartyDetail();
     });
     var train = host.querySelector('.pd-train');
     if (train) train.addEventListener('click', function () {
-      if (run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
+      if (!run.trainingPaidThisRound && run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
       window.Modal.close('xTeamDetail');
       openTrainer(mon);
     });
@@ -1967,6 +2114,7 @@
     run.party.forEach(function (m) { N.trackMon(run, m); });
 
     bctx = { cfg: cfg, enemies: cfg.enemies, caught: false, ended: false };
+    run.trainingPaidThisRound = false;
     // A fresh, randomly chosen track per battle — rival themes for wilds,
     // trainer themes for trainers, the two "final" themes for bosses.
     if (window.GameAudio) {

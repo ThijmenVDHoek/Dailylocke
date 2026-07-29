@@ -1744,3 +1744,55 @@ body.modal-open { overflow:hidden; }
    focus actually came from the keyboard. */
 .overlay-card:focus { outline:none; }
 .overlay-card:focus-visible { outline:2px solid var(--title-ring, #fff); outline-offset:3px; }
+
+/* ===== PARTY DETAIL: QUICK-SWITCH STRIP ===== */
+.pd-party-strip {
+  display:flex; gap:6px; margin-bottom:14px; padding-bottom:12px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  overflow-x:auto; -webkit-overflow-scrolling:touch;
+}
+.pd-pslot {
+  flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding:5px 4px; border-radius:var(--r-md); min-width:44px;
+  background:rgba(255,255,255,.04); border:2px solid transparent;
+  transition:background-color .12s, border-color .12s;
+}
+.pd-pslot:hover { background:rgba(255,255,255,.08); }
+.pd-pslot.sel { border-color:var(--blue); background:rgba(91,140,255,.14); }
+.pd-pslot .anim-mon { width:34px; height:34px; }
+.pd-pslot-bar { display:block; width:34px; height:3px; border-radius:999px; background:rgba(0,0,0,.5); overflow:hidden; }
+.pd-pslot-bar i { display:block; height:100%; border-radius:999px; }
+
+/* ===== POTION / ETHER SUGGESTION BUTTONS ===== */
+.pd-potion-btn, .pd-ether-btn {
+  display:flex; align-items:center; justify-content:center; gap:7px;
+  margin-top:8px; font-size:.92rem; padding:10px 14px;
+  background:rgba(74,222,128,.14); color:var(--green);
+}
+.pd-potion-btn:hover { background:rgba(74,222,128,.24); }
+.pd-ether-btn { background:rgba(91,140,255,.14); color:var(--blue); }
+.pd-ether-btn:hover { background:rgba(91,140,255,.24); }
+.pd-potion-btn .itemimg, .pd-ether-btn .itemimg { width:18px; height:18px; }
+
+/* ===== TRAIN BUTTON ICON ===== */
+.ic-train-img {
+  width:22px; height:22px; flex:0 0 auto;
+  image-rendering:pixelated; image-rendering:-moz-crisp-edges; image-rendering:crisp-edges;
+  vertical-align:middle;
+}
+
+/* ===== STATS TABLE (training) ===== */
+.stats-table {
+  margin-bottom:18px; padding:12px 14px;
+  background:rgba(255,255,255,.05); border-radius:var(--r-md);
+}
+.st-row { display:grid; grid-template-columns:42px 1fr 1fr 1fr; gap:4px; align-items:center; padding:4px 0; font-size:.88rem; }
+.st-head { font-size:.66rem; color:var(--ink-3); text-transform:uppercase; letter-spacing:.8px; border-bottom:1px solid rgba(255,255,255,.08); padding-bottom:6px; margin-bottom:2px; }
+.st-name { color:var(--ink-2); font-weight:normal; }
+.st-base { color:var(--ink-2); text-align:center; }
+.st-ev { color:var(--blue); text-align:center; font-variant-numeric:tabular-nums; }
+.st-fin { color:#fff; text-align:center; font-weight:normal; font-variant-numeric:tabular-nums; }
+.st-plus .st-name { color:var(--red); }
+.st-plus .st-fin { color:var(--red); }
+.st-minus .st-name { color:var(--blue); }
+.st-minus .st-fin { color:var(--blue); }
