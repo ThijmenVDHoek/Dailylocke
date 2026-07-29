@@ -479,7 +479,7 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .starter-card:hover { transform:translateY(-3px); box-shadow:var(--e3); }
 .starter-card img {
   image-rendering:pixelated; image-rendering:-moz-crisp-edges; image-rendering:crisp-edges;
-  filter:drop-shadow(0 8px 16px rgba(0,0,0,.45));
+  filter:none;
 }
 .starter-card .sprite-box {
   height:118px; display:flex; align-items:flex-end; justify-content:center; margin-bottom:6px;
@@ -616,7 +616,7 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 }
 .catch-new img {
   image-rendering:pixelated; image-rendering:-moz-crisp-edges; image-rendering:crisp-edges;
-  filter:drop-shadow(0 8px 18px rgba(0,0,0,.5));
+  filter:none;
 }
 .catch-new .types { justify-content:flex-start; }
 .swap-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
@@ -845,7 +845,7 @@ textarea.search.save-code {
   height:50px; min-width:40px;
 }
 .evop-to .anim-mon {
-  filter:brightness(0) saturate(0) drop-shadow(0 0 7px rgba(192,124,232,.7));
+  filter:brightness(0) saturate(0);
   animation:evopPulse 2.4s ease-in-out infinite;
 }
 .evop-to.shown .anim-mon { filter:none; animation:none; }
@@ -862,13 +862,13 @@ textarea.search.save-code {
 .evo-sprite {
   position:absolute; width:200px; height:200px; object-fit:contain;
   image-rendering:pixelated; image-rendering:-moz-crisp-edges; image-rendering:crisp-edges;
-  filter:drop-shadow(0 6px 18px rgba(0,0,0,.6));
+  filter:none;
 }
 .evo-sprite.from { opacity:1; }
 .evo-sprite.to { opacity:0; }
 .evo-stage .evo-sprite.from { animation:evoShake .5s ease-in-out 3; }
 @keyframes evoShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
-.evo-stage.morphing .evo-sprite { filter:brightness(0) invert(1) drop-shadow(0 0 26px rgba(255,255,255,.95)); }
+.evo-stage.morphing .evo-sprite { filter:brightness(0) invert(1); }
 .evo-stage.morphing .evo-sprite.from { animation:evoFlipA 1.8s steps(1) forwards; }
 .evo-stage.morphing .evo-sprite.to { animation:evoFlipB 1.8s steps(1) forwards; }
 @keyframes evoFlipA {
@@ -977,14 +977,14 @@ textarea.search.save-code {
 .x-ic.x-art { width:34px; height:34px; display:inline-flex; align-items:center; justify-content:center; }
 .x-ic.x-art img, .x-ic.x-art .itemimg { width:32px !important; height:32px !important; object-fit:contain; filter:drop-shadow(0 2px 4px rgba(0,0,0,.42)); }
 .x-ic.x-art.wild-art { width:48px; height:48px; }
-.x-ic.x-art.wild-art img { width:48px !important; height:48px !important; image-rendering:pixelated; filter:brightness(0) drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+.x-ic.x-art.wild-art img { width:48px !important; height:48px !important; image-rendering:pixelated; filter:brightness(0); }
 .x-ic.x-art.trainer-art img { image-rendering:pixelated; transform:scale(1.28); transform-origin:center bottom; }
 /* ===== NICKNAME PROMPT ===== */
 .nick-card { text-align:center; }
 .nick-sprite { display:flex; align-items:flex-end; justify-content:center; height:130px; margin-bottom:4px; }
 .nick-sprite img {
   image-rendering:pixelated; image-rendering:-moz-crisp-edges; image-rendering:crisp-edges;
-  filter:drop-shadow(0 8px 18px rgba(0,0,0,.5));
+  filter:none;
 }
 .nick-species { font-size:1.55rem; color:#fff; line-height:1.1; }
 .nick-card .types { justify-content:center; margin-bottom:8px; }
@@ -1061,7 +1061,7 @@ textarea.search.save-code {
 .pd-art { flex:0 0 auto; width:108px; display:flex; justify-content:center; }
 .pd-art img {
   image-rendering:pixelated; image-rendering:-moz-crisp-edges; image-rendering:crisp-edges;
-  filter:drop-shadow(0 8px 16px rgba(0,0,0,.45));
+  filter:none;
 }
 .pd-id { min-width:0; }
 .pd-species { font-size:.78rem; color:var(--ink-3); text-transform:uppercase; letter-spacing:1.4px; }
@@ -1150,7 +1150,7 @@ textarea.search.save-code {
 /* ===== ANIMATED SPRITES + EMPTY-SLOT BALLS ===== */
 .anim-mon {
   image-rendering:pixelated; image-rendering:-moz-crisp-edges; image-rendering:crisp-edges;
-  filter:drop-shadow(0 3px 6px rgba(0,0,0,.6));
+  filter:none;
 }
 .dock-ball {
   width:30px; height:30px; border-radius:50%; position:relative; opacity:.34;
@@ -1554,7 +1554,7 @@ textarea.search.save-code {
 
 /* a shiny sprite anywhere in the UI gets a warm rim */
 .anim-mon.is-shiny, img.is-shiny {
-  filter:drop-shadow(0 0 7px rgba(255,215,110,.85)) drop-shadow(0 3px 6px rgba(0,0,0,.55));
+  filter:none;
 }
 
 /* ===== HISTORY ===== */

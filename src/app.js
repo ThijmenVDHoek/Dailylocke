@@ -2814,7 +2814,7 @@
     // Shinies have a 100% catch rate -- any ball, any HP.
     var tgt = bctx.enemies[0];
     var res = (tgt && tgt.shiny)
-      ? { caught: true, shakes: 4 }
+      ? { caught: true, shakes: 3 }
       : C.rollCatch(ballId, info.id, info.hpPct, info.status,
           { turn: battle.state.turn, targetTypes: info.types }, run.rand);
     ballAnim(ballId, res.shakes, res.caught, function () {

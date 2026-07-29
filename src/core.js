@@ -453,7 +453,7 @@
   // ----------------------------------------------------- CATCH FORMULA ----
   // Gen 3/4-style Poke Ball formula using real capture_rate from PokeAPI.
   //   a = ((3*max - 2*cur) * rate * ballBonus / (3*max)) * statusBonus
-  //   b = 65536 / (255/a)^0.1875  -> 4 shake checks
+  //   b = 65536 / (255/a)^0.1875  -> 3 shake checks
   var BALLS = {
     pokeball:   { name: 'Poke Ball',   bonus: 1,   price: 200,  desc: 'A standard ball. 1x catch rate.' },
     greatball:  { name: 'Great Ball',  bonus: 1.5, price: 600,  desc: '1.5x catch rate.' },
@@ -488,24 +488,24 @@
     if (a >= 255) return 1;
     var b = 65536 / Math.pow(255 / a, 0.1875);
     var p = b / 65536;
-    return Math.max(0, Math.min(1, Math.pow(p, 4)));
+    return Math.max(0, Math.min(1, Math.pow(p, 3)));
   }
 
   function rollCatch(ballId, targetId, hpPct, status, ctx, rand) {
-    if (ballId === 'masterball') return { caught: true, shakes: 4 };
+    if (ballId === 'masterball') return { caught: true, shakes: 3 };
     var rate = captureRate(targetId);
     var bb = ballBonus(ballId, ctx || {});
     var sb = STATUS_BONUS[status] || 1;
     var max = 1000, cur = Math.max(1, Math.round(max * hpPct));
     var a = ((3 * max - 2 * cur) * rate * bb / (3 * max)) * sb;
-    if (a >= 255) return { caught: true, shakes: 4 };
+    if (a >= 255) return { caught: true, shakes: 3 };
     var b = Math.floor(65536 / Math.pow(255 / a, 0.1875));
     var shakes = 0;
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 3; i++) {
       if (Math.floor((rand || Math.random)() * 65536) < b) shakes++;
       else break;
     }
-    return { caught: shakes === 4, shakes: shakes };
+    return { caught: shakes === 3, shakes: shakes };
   }
 
   // ------------------------------------------------------------- SHOP ----

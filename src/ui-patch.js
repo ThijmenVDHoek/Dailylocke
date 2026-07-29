@@ -132,6 +132,9 @@
       img.style.transformOrigin = '50% 100%';
       img.style.transform = 'scale(0.05)';
       img.style.opacity = '0';
+      // Also shrink the ground shadow disc to zero
+      var sh = this.s.e.sh;
+      if (sh) { sh.material.opacity = 0; sh.scale.set(0, 0, 1); }
     } catch (e) {}
   };
 
