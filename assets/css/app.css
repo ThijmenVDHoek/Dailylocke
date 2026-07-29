@@ -1745,24 +1745,6 @@ body.modal-open { overflow:hidden; }
 .overlay-card:focus { outline:none; }
 .overlay-card:focus-visible { outline:2px solid var(--title-ring, #fff); outline-offset:3px; }
 
-/* ===== PARTY DETAIL: QUICK-SWITCH STRIP ===== */
-.pd-party-strip {
-  display:flex; gap:6px; margin-bottom:14px; padding-bottom:12px;
-  border-bottom:1px solid rgba(255,255,255,.08);
-  overflow-x:auto; -webkit-overflow-scrolling:touch;
-}
-.pd-pslot {
-  flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:2px;
-  padding:5px 4px; border-radius:var(--r-md); min-width:44px;
-  background:rgba(255,255,255,.04); border:2px solid transparent;
-  transition:background-color .12s, border-color .12s;
-}
-.pd-pslot:hover { background:rgba(255,255,255,.08); }
-.pd-pslot.sel { border-color:var(--blue); background:rgba(91,140,255,.14); }
-.pd-pslot .anim-mon { width:34px; height:34px; }
-.pd-pslot-bar { display:block; width:34px; height:3px; border-radius:999px; background:rgba(0,0,0,.5); overflow:hidden; }
-.pd-pslot-bar i { display:block; height:100%; border-radius:999px; }
-
 /* ===== POTION / ETHER SUGGESTION BUTTONS ===== */
 .pd-potion-btn, .pd-ether-btn {
   display:flex; align-items:center; justify-content:center; gap:7px;
