@@ -2727,6 +2727,9 @@
   }
 
   function ballAnim(ballId, shakes, caught, done) {
+    // Cap visual shakes at 3 — the engine uses 4 checks for probability but
+    // the player only ever sees at most 3 wobbles.
+    shakes = Math.min(3, shakes);
     var host = $('battleHost');
     var target = enemyRect();
     if (!host || !target) { done(); return; }
@@ -2814,7 +2817,7 @@
     // Shinies have a 100% catch rate -- any ball, any HP.
     var tgt = bctx.enemies[0];
     var res = (tgt && tgt.shiny)
-      ? { caught: true, shakes: 3 }
+      ? { caught: true, shakes: 4 }
       : C.rollCatch(ballId, info.id, info.hpPct, info.status,
           { turn: battle.state.turn, targetTypes: info.types }, run.rand);
     ballAnim(ballId, res.shakes, res.caught, function () {
