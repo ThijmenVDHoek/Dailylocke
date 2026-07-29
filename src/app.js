@@ -18,19 +18,34 @@
   // Sprite fallback chain. `shiny` swaps in Showdown's parallel -shiny
   // directories and PokeAPI's /shiny/ path; every tier of the chain has a
   // shiny twin, so a shiny never silently falls back to normal colours.
+  // True when a species is an alternate forme whose sprite differs from its
+  // base species. PokeAPI sprites are keyed by national dex number, so they
+  // always show the DEFAULT forme -- using them as a fallback for e.g.
+  // Sneasel-Hisui would silently show regular Sneasel.
+  function isForme(sp) {
+    return sp.exists && sp.baseSpecies && sp.baseSpecies !== sp.name;
+  }
+
   function spriteUrls(speciesId, isBack, shiny) {
     var urls = [];
     var sp = Dex.species.get(speciesId);
     var sd = String((sp.exists && sp.spriteid) || speciesId || 'unknown').toLowerCase().replace(/[^a-z0-9-]+/g, '');
     var num = sp.exists ? sp.num : 0;
+    var forme = isForme(sp);
     var bs = isBack ? '-back' : '';
     var sh = shiny ? '-shiny' : '';
     var pa = shiny ? 'shiny/' : '';
     function add(u) { if (u && urls.indexOf(u) < 0) urls.push(u); }
     add('https://play.pokemonshowdown.com/sprites/ani' + bs + sh + '/' + sd + '.gif');
-    if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/' + (isBack ? 'back/' : '') + pa + num + '.gif');
     add('https://play.pokemonshowdown.com/sprites/gen5' + bs + sh + '/' + sd + '.png');
-    if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + (isBack ? 'back/' : '') + pa + num + '.png');
+    // PokeAPI sprites use the national dex number which is identical across all
+    // formes of a species.  For alternate formes (Hisui, Alola, Galar, Paldea,
+    // regional variants, Rotom-Wash, Deoxys-Attack, etc.) these URLs always
+    // return the DEFAULT forme's sprite, so we skip them entirely.
+    if (!forme) {
+      if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/' + (isBack ? 'back/' : '') + pa + num + '.gif');
+      if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + (isBack ? 'back/' : '') + pa + num + '.png');
+    }
     // last resort: the non-shiny art, so something always renders
     if (shiny) spriteUrls(speciesId, isBack, false).forEach(add);
     return urls;
@@ -76,9 +91,13 @@
   // Still needed for <img> fallbacks on the big artwork sprites.
   function iconUrl(id) {
     var sp = Dex.species.get(id);
-    return sp.exists && sp.num
-      ? 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + sp.num + '.png'
-      : 'https://play.pokemonshowdown.com/sprites/gen5/' + id + '.png';
+    // Alternate formes share the national dex number with the base species,
+    // so the PokeAPI URL always returns the default forme's sprite.
+    // Prefer Showdown's gen5 static sprite which is keyed by spriteid.
+    if (isForme(sp) || !sp.num) {
+      return 'https://play.pokemonshowdown.com/sprites/gen5/' + id + '.png';
+    }
+    return 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + sp.num + '.png';
   }
 
   // The END of every sprite fallback chain: a bundled, offline-safe silhouette.
