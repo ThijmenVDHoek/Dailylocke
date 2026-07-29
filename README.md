@@ -313,6 +313,24 @@ The E2E suite needs a Chromium. It uses Playwright's own download if present,
 otherwise a system browser, otherwise `DAILYLOCKE_CHROMIUM=/path/to/chromium` —
 and **skips cleanly** rather than failing when none is available.
 
+### CI (needs one manual step)
+
+A ready-to-use GitHub Actions workflow lives at
+[`tools/ci/check.yml`](tools/ci/check.yml). It runs lint + the JSDOM suite +
+the service-worker revision guard, and a second job for the Playwright suite on
+Chromium.
+
+It is **not active yet** — GitHub rejects pushes that touch
+`.github/workflows/` from an app without `workflows` permission, so it could
+not be added by the PR that introduced it. Activate it with:
+
+```sh
+mkdir -p .github/workflows && git mv tools/ci/check.yml .github/workflows/
+```
+
+Worth doing: `static.yml` currently deploys `main` to Pages with no checks at
+all, so nothing today stops a broken build from going live.
+
 ```sh
 npx playwright install chromium --prefix tools
 ```

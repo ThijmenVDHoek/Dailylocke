@@ -1,3 +1,14 @@
+# ============================================================================
+# NOT ACTIVE YET -- move this file to .github/workflows/check.yml to enable it:
+#
+#     mkdir -p .github/workflows && git mv tools/ci/check.yml .github/workflows/
+#
+# It lives here because the bot account that opened this PR has no `workflows`
+# permission, so GitHub rejects any push that adds or edits a file under
+# .github/workflows/. Committing it here keeps the config reviewable in the
+# same PR; a maintainer with normal permissions can activate it in one move.
+# ============================================================================
+
 # Quality gate. Runs on every push and PR so a broken build never reaches the
 # deploy workflow (which publishes `main` straight to Pages with no checks).
 name: Checks
