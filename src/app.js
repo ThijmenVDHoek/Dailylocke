@@ -2228,7 +2228,8 @@
         var swMon = isP ? battle.activeMon() : (bctx && bctx.enemies && bctx.enemies[0]);
         var swShiny = !!(swMon && swMon.shiny);
         var pay = { name: shown, types: sp.types.slice(), h: worldH(sp.id),
-                    sid: sp.spriteid || sp.id, num: sp.num, u: spriteUrls(sp.id, isP, swShiny) };
+                    sid: sp.spriteid || sp.id, num: sp.num, u: spriteUrls(sp.id, isP, swShiny),
+                    silent: opening };
         if (isP) ui.setPlayer(pay); else ui.setEnemy(pay);
       }
       ui.setHp(isP ? 'p' : 'e', RB.parseHp(p[3]));
@@ -3930,6 +3931,7 @@
     }
 
     $('btnGoBattle').addEventListener('click', startNextBattle);
+    $('btnStarterBack').addEventListener('click', function () { show('Title'); setContinueState(); });
     $('btnTutorBack').addEventListener('click', function () {
       svc = null; renderCrossroads(); show('Crossroads');
     });
@@ -4027,9 +4029,7 @@
     $('btnMenuImport').addEventListener('click', function () { closeMenu(); openSaveImport(); });
     $('btnRulesBack').addEventListener('click', backToRoute);
     $('btnMenuQuit').addEventListener('click', function () {
-      if (confirm('Abandon this run? Your team is lost.')) {
-        closeMenu(); clearSave(); run = null; show('Title'); setContinueState();
-      }
+      closeMenu(); show('Title'); setContinueState();
     });
     $('btnProfBack').addEventListener('click', backToRoute);
     $('btnShinyBack').addEventListener('click', backToRoute);

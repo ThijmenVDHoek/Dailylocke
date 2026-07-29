@@ -27,7 +27,7 @@ const CACHE_PREFIX = 'dailylocke-';
 
 // ---- GENERATED: do not edit by hand -------------------------------------
 // `npm run build:sw --prefix tools` recomputes this from the shell contents.
-const SHELL_REV = 'a9c89ee80882';
+const SHELL_REV = 'da6a8fc1b10d';
 // -------------------------------------------------------------------------
 
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${SHELL_REV}`;
