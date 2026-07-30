@@ -335,8 +335,6 @@
         clearSave('gauntlet'); if (run && run.mode === 'gauntlet') run = null; setContinueState();
       }
     });
-    var tl = $('btnTitleLoad');
-    if (tl) tl.addEventListener('click', function () { openSaveImport(); });
     $('btnTitleMenu').addEventListener('click', openMenu);
     var ab = $('btnAbandonTitle');
     if (ab) ab.addEventListener('click', function () {
@@ -496,52 +494,35 @@
         (won === 1 ? ' battle won' : ' battles won') + ' \u00b7 ' + n +
         (n === 1 ? ' Pokemon' : ' Pokemon');
     }
-    var fresh = $('titleFresh');
     var btnNewRun = $('btnNewRun');
-    // After completing a daily run, "New random run" becomes the primary CTA
-    if (fresh && btnNewRun) {
-      var dailyComplete = !!result;
-      var showFresh = !free;
-      fresh.hidden = !showFresh;
-      if (btnNewRun) {
-        if (dailyComplete) {
-          // Make it primary (white background, big)
-          btnNewRun.classList.remove('btn-glass');
-          btnNewRun.classList.add('btn-white', 'btn-daily', 'is-primary');
-          btnNewRun.innerHTML = '<span class="bd-main">New random run</span><span class="bd-sub">Endless, unlimited runs</span>';
-        } else {
-          // Restore to secondary (glass)
-          btnNewRun.classList.remove('btn-white', 'btn-daily', 'is-primary');
-          btnNewRun.classList.add('btn-glass');
-          btnNewRun.innerHTML = '<span class="bd-main">New random run</span><span class="bd-sub">Endless, unlimited runs</span>';
-        }
-      }
-      // Hide Free Play separator when daily is complete but no free play
-      if (freeSep) freeSep.hidden = dailyComplete;
-    }
+    // A parked Free Play run gets its own Continue action; do not offer a
+    // second random run that would overwrite it. Keep the Free Play heading
+    // visible because the gauntlet is the other option in that group.
+    if (btnNewRun) btnNewRun.hidden = !!free;
+    if (freeSep) freeSep.hidden = false;
 
-    // ---- Gauntlet row ----
-    // The third slot is independent too: a parked Gauntlet turns the CTA into
-    // a resume button, exactly like the Free Play row above.
+    // ---- Full team gauntlet ----
+    // The gauntlet is presented as a Free Play option, while retaining its
+    // separate parked run so either kind of run can be resumed safely.
     var gauntlet = loadGame('gauntlet');
-    var gMain = $('gauntletMain'), gSub = $('gauntletSub'), gBtn = $('btnGauntlet');
-    var gAb = $('btnAbandonGauntlet');
-    if (gMain && gSub && gBtn) {
+    var gMain = $('gauntletMain'), gBtn = $('btnGauntlet');
+    var gAb = $('btnAbandonGauntlet'), gControls = $('titleGauntlet');
+    if (gMain && gBtn) {
       if (gauntlet) {
         gBtn.classList.remove('btn-glass');
         gBtn.classList.add('btn-white', 'btn-daily');
-        gMain.textContent = 'Resume Gauntlet';
-        gSub.textContent = 'Trainer ' + (gauntlet.section || 1) + ' \u00b7 ' +
-          (gauntlet.trainersBeaten || 0) + ' beaten \u00b7 ' +
-          ((gauntlet.party && gauntlet.party.length) || 0) + ' Pokemon left';
+        gMain.textContent = 'Resume gauntlet';
+        gBtn.title = 'Trainer ' + (gauntlet.section || 1) + ' · ' +
+          (gauntlet.trainersBeaten || 0) + ' beaten';
       } else {
         gBtn.classList.add('btn-glass');
         gBtn.classList.remove('btn-white', 'btn-daily');
-        gMain.textContent = 'Team Gauntlet';
-        gSub.textContent = 'Build 6 free Pokemon \u00b7 trainers only';
+        gMain.textContent = 'Full team gauntlet';
+        gBtn.removeAttribute('title');
       }
     }
     if (gAb) gAb.hidden = !gauntlet;
+    if (gControls) gControls.hidden = !gauntlet;
 
     // ---- archived Daily offer ----
     var ar = $('btnArchiveDaily');

@@ -88,28 +88,18 @@
         </button>
         <button type="button" id="btnAbandonTitle" class="btn-glass">Abandon Free Play run</button>
       </div>
-      <div class="title-btns" id="titleFresh">
+      <!-- Both Free Play options live together: start a randomized run or
+           build a full team for the trainer-only gauntlet. -->
+      <div class="title-btns title-free-actions">
         <button type="button" id="btnNewRun" class="btn-glass">
-          <span class="bd-main">New random run</span>
-          <span class="bd-sub">Endless, unlimited runs</span>
+          <span class="bd-main">Random run</span>
         </button>
-      </div>
-
-      <!-- Team Gauntlet: a third independent slot. Build any team of six for
-           free, then fight trainer after trainer with the same difficulty
-           curve the other modes use -- no wilds, no cash, no items, no run. -->
-      <div class="title-sep" id="titleGauntletSep"><span>Gauntlet</span></div>
-
-      <div class="title-btns" id="titleGauntlet">
         <button type="button" id="btnGauntlet" class="btn-glass">
-          <span class="bd-main" id="gauntletMain">Team Gauntlet</span>
-          <span class="bd-sub" id="gauntletSub">Build 6 free Pokemon &middot; trainers only</span>
+          <span class="bd-main" id="gauntletMain">Full team gauntlet</span>
         </button>
-        <button type="button" id="btnAbandonGauntlet" class="btn-glass" hidden>Abandon Gauntlet run</button>
       </div>
-
-      <div class="title-btns">
-        <button type="button" id="btnTitleLoad" class="btn-glass">Load save</button>
+      <div class="title-btns" id="titleGauntlet">
+        <button type="button" id="btnAbandonGauntlet" class="btn-glass" hidden>Abandon Gauntlet run</button>
       </div>
     </div>
   </section>
