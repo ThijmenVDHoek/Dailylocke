@@ -82,7 +82,17 @@
       // alternates, Megas, Gmax, CAP/custom entries, etc. while preserving the
       // one canonical entry for each National Dex number.
       if (s.battleOnly || s.isMega || s.isPrimal) continue;
-      if (s.forme || s.baseSpecies && s.baseSpecies !== s.name) continue;
+      // Exclude BATTLE-EXCLUSIVE formes only (Arceus type plates, Silvally
+      // memories, etc. -- these are formes whose BASE SPECIES has a `baseForme`
+      // property, meaning the base species is the "real" one and the forme is
+      // a temporary battle-time swap). Keep REGIONAL formes (Hisui, Alola,
+      // Galar, Paldea) and permanent alternate formes (Rotom appliances,
+      // Marowak-Alola, etc.) -- these have `baseSpecies` but the base species
+      // does NOT have `baseForme`, so they pass through and stay in the pool.
+      if (s.baseSpecies && s.baseSpecies !== s.name) {
+        var baseSp = Dex.species.get(s.baseSpecies);
+        if (baseSp && baseSp.exists && baseSp.baseForme) continue;
+      }
       pool.push(s.id);
     }
     // Fail loudly during development if a simulator data update silently
