@@ -102,7 +102,7 @@
       // not to have a `baseForme` property.
       if (s.baseSpecies && s.baseSpecies !== s.name) {
         var f = (s.forme || '');
-        var isRegional = /alola|galar|hisui|paldea/i.test(f);
+        var isRegional = /alola|galar|hisui|paldea|bloodmoon/i.test(f);
         if (!isRegional && !s.isCosmeticForme) continue;
       }
       pool.push(s.id);
