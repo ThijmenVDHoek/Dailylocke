@@ -613,7 +613,7 @@
   // exactly like a starter (role-based moveset, competitive SP/nature).
   var GB_MAX = 6;
   var GB_PAGE = 60;              // rendered search results cap (perf guard)
-  var gbTeam = [];               // [{id,name,types,bst}] in draft order
+  var gbTeam = [];               // [{id,name,types,bst,mon}] in draft order
 
   var _gbPool = null;
   function gbPool() {
@@ -666,18 +666,29 @@
     for (var i = 0; i < GB_MAX; i++) {
       var p = gbTeam[i];
       if (p) {
-        slots += '<button class="tslot filled" data-i="' + i + '" title="Tap to remove">' +
+        slots += '<div class="tslot filled" data-i="' + i + '">' +
           (i === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
           '<span class="ts-art">' + animSprite(p.id, 46, 52, '', 1.4, false) + '</span>' +
-          '<span class="ts-name">' + escapeHtml(p.name) + '</span></button>';
+          '<span class="ts-name">' + escapeHtml(p.name) + '</span>' +
+          (p.mon && p.mon.item ? '<span class="ts-st" style="background:#5b8cff;color:#fff;font-size:.55rem;padding:1px 4px;border-radius:999px;margin-top:2px">' + escapeHtml(itemName(p.mon.item)) + '</span>' : '') +
+          '<button class="ts-rm" data-rm="' + i + '" title="Remove">\u00d7</button></div>';
       } else {
         slots += '<div class="tslot empty">?</div>';
       }
     }
     teamHost.innerHTML = slots;
-    teamHost.querySelectorAll('.tslot[data-i]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        gbTeam.splice(+b.dataset.i, 1);
+    // Clicking a filled slot opens its configuration panel
+    teamHost.querySelectorAll('.tslot.filled[data-i]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        if (e.target.closest('.ts-rm')) return; // remove button handled separately
+        openGbConfig(+b.dataset.i);
+      });
+    });
+    // Remove buttons
+    teamHost.querySelectorAll('.ts-rm[data-rm]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        gbTeam.splice(+b.dataset.rm, 1);
         drawBuilder();
       });
     });
@@ -711,23 +722,267 @@
       ? '<div class="tb-empty">More matches \u2014 keep typing to narrow it down.</div>'
       : '');
     listHost.querySelectorAll('.tb-row[data-id]').forEach(function (b) {
-      b.addEventListener('click', function () {
+      b.addEventListener('click', async function () {
         var id = b.dataset.id;
         if (gbChosen(id) || gbTeam.length >= GB_MAX) return;
         var p = gbMatches($('tbSearch').value).hits.filter(function (x) { return x.id === id; })[0];
         if (!p) return;
-        gbTeam.push(p);
+        b.disabled = true;
+        b.querySelector('.tb-add').textContent = 'Loading\u2026';
+        try {
+          var mon = N.trainPlayerMon(await C.makeMon(id));
+          mon.species = C.cleanName(mon.id);
+          gbTeam.push({ id: p.id, name: p.name, types: p.types, bst: p.bst, mon: mon });
+        } catch (e) {
+          console.error('[gauntlet] makeMon failed', e);
+          toast('Failed to create Pokemon. Try again.');
+          drawBuilder();
+          return;
+        }
         try { playCry(id); } catch (e) {}
         drawBuilder();
         if (gbTeam.length >= GB_MAX) {
-          toast('Team complete \u2014 tap Start Gauntlet!');
+          toast('Team complete \u2014 tap a slot to configure, then Start Gauntlet!');
         }
       });
     });
   }
 
-  // Draft done -> create the run. All six mons are made fresh (the player
-  // pays nothing, hence "no cost": no catches, no cash, no shop).
+  // ---- GAUNTLET TEAM BUILDER CONFIG PANEL ----------------------------------
+  // Opens a detail/config panel for a team builder Pokemon. Reuses the
+  // xTeamDetail overlay but reads from gbTeam instead of run.party.
+  var gbConfigIdx = -1;
+
+  function openGbConfig(idx) {
+    var entry = gbTeam[idx];
+    if (!entry || !entry.mon) return;
+    gbConfigIdx = idx;
+    drawGbDetail();
+    window.Modal.open('xTeamDetail', { onClose: function () { gbConfigIdx = -1; } });
+  }
+
+  function drawGbDetail() {
+    var overlay = $('xTeamDetail');
+    if (!overlay) return;
+    var host = overlay.querySelector('.overlay-card');
+    if (!host) return;
+    var entry = gbTeam[gbConfigIdx];
+    if (!entry || !entry.mon) { window.Modal.close('xTeamDetail'); host.innerHTML = ''; return; }
+    var mon = entry.mon;
+
+    // Held item picker: all curated held items
+    var heldItems = C.HELD_ITEMS.filter(function (id) { return Dex.items.get(id).exists; });
+    var formeTargets = [];
+    if (window.Forme) {
+      // Check all forme items for this Pokemon
+      var FM = window.Forme;
+      Object.keys(FM.CUSTOM).forEach(function (cid) {
+        FM.targetsFor(mon, cid).forEach(function (t) { formeTargets.push({ item: cid, target: t }); });
+      });
+      // Also check Showdown forme items
+      var idx = FM.index();
+      var baseId = PS.toID(Dex.species.get(mon.id).baseSpecies || mon.id);
+      (idx.byBase[baseId] || []).forEach(function (e) {
+        FM.targetsFor(mon, e.item).forEach(function (t) { formeTargets.push({ item: e.item, target: t }); });
+      });
+    }
+
+    var heldHtml = '<div class="pd-sec"><div class="pd-label">Held item</div>';
+    if (mon.item) {
+      heldHtml += '<button class="pd-held" data-gb-take="1" data-tip="item:' + mon.item + '">' +
+        (window.ItemArt ? window.ItemArt.itemImg(mon.item, 26) : '') +
+        '<span>' + itemName(mon.item) + '</span><em>tap to change</em></button>';
+    } else {
+      heldHtml += '<div class="pd-empty">Nothing held \u2014 tap to pick one.</div>';
+    }
+    heldHtml += '<button class="btn-secondary wide" style="margin-top:8px" data-gb-held="1">Pick Held Item</button></div>';
+
+    var formeHtml = '';
+    if (formeTargets.length) {
+      formeHtml = '<div class="evo-box forme-box"><div class="evo-title">Forme change</div>' +
+        formeTargets.map(function (ft) {
+          return '<button class="evo-btn forme-btn ready" data-gb-forme-item="' + ft.item + '" data-gb-forme="' + ft.target.id + '">' +
+            evoPreviewHtml(mon.id, ft.target.id, { reveal: true }) +
+            '<span class="evo-txt"><span class="evo-n">' + ft.target.name + '</span>' +
+            '<span class="evo-r">Switch forme</span></span></button>';
+        }).join('') + '</div>';
+    }
+
+    host.innerHTML =
+      '<div class="party-detail">' +
+        '<div class="pd-hero">' +
+          '<div class="pd-art">' + bigSprite(mon.id, '', 104, 104, 1, mon.shiny) + '</div>' +
+          '<div class="pd-id">' +
+            '<div class="pd-species">' + speciesOf(mon) + '</div>' +
+            '<div class="pd-name">' + escapeHtml(mon.name) + '</div>' +
+            '<div class="types">' + typeChips(mon.types) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="pd-facts">' +
+          '<div class="pd-fact" data-tip="ability:' + mon.ability + '" tabindex="0"><span class="k">Ability</span><span class="v">' + mon.ability + '</span></div>' +
+          '<div class="pd-fact"><span class="k">Nature</span><span class="v">' + (mon.nature || 'Serious') + '</span></div>' +
+          '<div class="pd-fact"><span class="k">BST</span><span class="v">' + C.bst(mon.id) + '</span></div>' +
+        '</div>' +
+        '<div class="pd-actions">' +
+          '<button class="btn-primary pd-gb-train">Train \u00b7 free</button>' +
+        '</div>' +
+        '<div class="pd-sec"><div class="pd-label">Moves</div>' +
+          '<div class="pd-moves">' + mon.moves.map(function (m) {
+            var mv = Dex.moves.get(m);
+            var pw = mv.category === 'Status' ? 'Status' : (mv.basePower ? 'Pow ' + mv.basePower : '');
+            return '<div class="pd-move" data-tip="move:' + mv.id + '" tabindex="0">' +
+              '<div class="pd-move-top"><span class="mv-chip type-' + mv.type + '">' + mv.type + '</span>' +
+              '<span class="pd-mv-pw">' + pw + '</span></div>' +
+              '<span class="pd-mn">' + mv.name + '</span></div>';
+          }).join('') + '</div>' +
+        '</div>' +
+        heldHtml +
+        formeHtml +
+      '</div>' +
+      '<button type="button" class="btn-secondary wide pd-close">Close</button>';
+
+    // Wire up event handlers
+    var close = host.querySelector('.pd-close');
+    if (close) close.addEventListener('click', function () { window.Modal.close('xTeamDetail'); });
+
+    // Train button
+    var trainBtn = host.querySelector('.pd-gb-train');
+    if (trainBtn) trainBtn.addEventListener('click', function () {
+      gbTraining = true;
+      window.Modal.close('xTeamDetail');
+      openTrainer(mon, true);
+    });
+
+    // Take/change held item
+    var takeBtn = host.querySelector('[data-gb-take]');
+    if (takeBtn) takeBtn.addEventListener('click', function () {
+      mon.item = '';
+      toast('Removed held item.');
+      drawGbDetail();
+    });
+
+    // Pick held item button
+    host.querySelectorAll('[data-gb-held]').forEach(function (b) {
+      b.addEventListener('click', function () { openGbHeldPicker(); });
+    });
+
+    // Forme change buttons
+    host.querySelectorAll('[data-gb-forme]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var itemId = b.dataset.gbFormeItem;
+        var formeId = b.dataset.gbForme;
+        gbFormeChange(itemId, formeId);
+      });
+    });
+  }
+
+  // Held item picker for the gauntlet team builder
+  function openGbHeldPicker() {
+    var entry = gbTeam[gbConfigIdx];
+    if (!entry || !entry.mon) return;
+    var mon = entry.mon;
+    var host = $('xTeamDetail').querySelector('.overlay-card');
+    if (!host) return;
+
+    var tiers = [
+      { key: 'common', label: 'Common' },
+      { key: 'core', label: 'Core' },
+      { key: 'rare', label: 'Rare' },
+      { key: 'typed', label: 'Type-Boosting' }
+    ];
+    var html = '<div style="margin-bottom:12px"><button class="btn-secondary wide pd-gb-back">\u2190 Back to ' + escapeHtml(mon.name) + '</button></div>';
+    html += '<div class="pd-label" style="margin-bottom:8px">Pick a held item for ' + escapeHtml(mon.name) + '</div>';
+    tiers.forEach(function (tier) {
+      var items = C.ITEM_TIERS[tier.key].filter(function (id) { return Dex.items.get(id).exists; });
+      if (!items.length) return;
+      html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">' + tier.label + '</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+      items.forEach(function (id) {
+        var info = C.heldItemInfo(id);
+        var on = mon.item === id;
+        html += '<button class="btn-mini' + (on ? ' on' : '') + '" data-gb-give="' + id + '" style="font-size:.7rem;padding:4px 8px"' +
+          ' data-tip="item:' + id + '">' + escapeHtml(info.name) + '</button>';
+      });
+      html += '</div>';
+    });
+    // Also show mega stones if applicable
+    if (window.Mega) {
+      var MG = window.Mega;
+      var stones = MG.relevantStones ? MG.relevantStones({ party: [mon] }) : [];
+      if (stones.length) {
+        html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">Mega Stones</div>';
+        html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+        stones.forEach(function (st) {
+          var on = mon.item === st.id;
+          html += '<button class="btn-mini mega-item' + (on ? ' on' : '') + '" data-gb-give="' + st.id + '" style="font-size:.7rem;padding:4px 8px"' +
+            ' data-tip="item:' + st.id + '">' + escapeHtml(st.name) + '</button>';
+        });
+        html += '</div>';
+      }
+    }
+    // Clear item button
+    if (mon.item) {
+      html += '<div style="margin-top:12px"><button class="btn-secondary wide" data-gb-give="">Remove held item</button></div>';
+    }
+    host.innerHTML = html;
+
+    // Back button
+    host.querySelector('.pd-gb-back').addEventListener('click', function () { drawGbDetail(); });
+    // Give item buttons
+    host.querySelectorAll('[data-gb-give]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var itemId = b.dataset.gbGive;
+        mon.item = itemId;
+        toast(itemId ? mon.name + ' is now holding ' + itemName(itemId) + '.' : 'Removed held item.');
+        drawGbDetail();
+      });
+    });
+  }
+
+  // Forme change for the gauntlet team builder (no item cost)
+  async function gbFormeChange(itemId, formeId) {
+    var entry = gbTeam[gbConfigIdx];
+    if (!entry || !entry.mon) return;
+    var mon = entry.mon;
+    // Apply the forme change without consuming an item
+    var sp = Dex.species.get(formeId);
+    if (!sp.exists) return;
+    var fromName = mon.species || C.cleanName(mon.id);
+    mon.id = sp.id;
+    mon.species = sp.name;
+    mon.types = sp.types.slice();
+    // Adjust ability if needed
+    var legalAb = [];
+    for (var k in sp.abilities) if (sp.abilities[k]) legalAb.push(sp.abilities[k]);
+    if (legalAb.indexOf(mon.ability) < 0) mon.ability = legalAb[0] || mon.ability;
+    // Keep legal moves, fill with auto if needed
+    var legal = await C.legalMoves(sp.id, { all: true });
+    var kept = mon.moves.filter(function (m) { return legal.indexOf(m) >= 0; });
+    var newPP = {};
+    kept.forEach(function (m) { newPP[m] = mon.pp[m] != null ? mon.pp[m] : Math.floor(Dex.moves.get(m).pp * 1.6); });
+    if (kept.length < 4) {
+      var auto = await C.autoMoveset(sp.id);
+      for (var i = 0; i < auto.length && kept.length < 4; i++) {
+        if (kept.indexOf(auto[i]) >= 0) continue;
+        kept.push(auto[i]);
+        newPP[auto[i]] = Math.floor(Dex.moves.get(auto[i]).pp * 1.6);
+      }
+    }
+    mon.moves = kept;
+    mon.pp = newPP;
+    // Update the team entry metadata
+    entry.name = sp.name;
+    entry.id = sp.id;
+    entry.types = sp.types.slice();
+    entry.bst = C.bst(sp.id);
+    toast(fromName + ' changed to ' + sp.name + '!');
+    try { playCry(sp.id); } catch (e) {}
+    drawGbDetail();
+    drawBuilder();
+  }
+
+  // Draft done -> create the run. Mon objects are already built and configured
+  // by the player during the team builder phase.
   var gbStarting = false;
   async function confirmGauntlet() {
     if (gbStarting || gbTeam.length !== GB_MAX) return;
@@ -745,8 +1000,12 @@
       run.trainingPaidThisRound = false;
       run.money = 0;                // no cash in the Gauntlet -- ever
       for (var i = 0; i < gbTeam.length; i++) {
-        var mon = N.trainPlayerMon(await C.makeMon(gbTeam[i].id));
-        mon.species = C.cleanName(mon.id);
+        var mon = gbTeam[i].mon;
+        if (!mon) {
+          // Fallback: create the mon if it somehow wasn't built
+          mon = N.trainPlayerMon(await C.makeMon(gbTeam[i].id));
+          mon.species = C.cleanName(mon.id);
+        }
         run.party.push(mon);
         N.trackMon(run, mon);
         run.seenSpecies[mon.id] = 1;
@@ -1038,6 +1297,7 @@
   // One paid session that covers everything: moves, ability, nature and EVs.
   // Pay once, change as much as you like, press Done.
   var svc = null;
+  var gbTraining = false;   // true when training a gauntlet team-builder mon
   var SERVICE_PRICE = 2000;
 
   var NATURES = [
@@ -1054,14 +1314,16 @@
   ];
   var STAT_KEYS = [['hp','HP'],['atk','Atk'],['def','Def'],['spa','SpA'],['spd','SpD'],['spe','Spe']];
 
-  function openTrainer(mon) {
-    if (!run.trainingPaidThisRound) {
-      if (run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
-      run.money -= SERVICE_PRICE;
-      run.trainingPaidThisRound = true;
+  function openTrainer(mon, free) {
+    if (!free) {
+      if (!run.trainingPaidThisRound) {
+        if (run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
+        run.money -= SERVICE_PRICE;
+        run.trainingPaidThisRound = true;
+      }
     }
-    svc = { mon: mon, tab: 'moves', replaceSlot: null, all: null };
-    renderHud(); saveGame();
+    svc = { mon: mon, tab: 'moves', replaceSlot: null, all: null, free: !!free };
+    if (!free) { renderHud(); saveGame(); }
     $('btnTutorBack').textContent = 'Done';
     drawTrainer();
     show('Tutor');
@@ -1164,13 +1426,19 @@
         mon.moves.push(moveId);
         mon.pp[moveId] = Math.floor(nm.pp * 1.6);
       } else {
-        N.teachMove(run, mon, slot, moveId);
+        if (run && !svc.free) N.teachMove(run, mon, slot, moveId);
+        else {
+          var old = mon.moves[slot];
+          if (old) delete mon.pp[old];
+          mon.moves[slot] = moveId;
+          mon.pp[moveId] = Math.floor(nm.pp * 1.6);
+        }
       }
       svc.replaceSlot = null;
       toast(mon.name + ' learned ' + nm.name + '!');
       drawCurrent();
       drawList($('tutorSearch') ? $('tutorSearch').value : '');
-      saveGame();
+      if (run && !svc.free) saveGame();
     }
 
     drawCurrent();
@@ -1192,7 +1460,7 @@
       b.addEventListener('click', function () {
         mon.ability = b.dataset.a;
         toast(mon.name + '\u2019s ability is now ' + b.dataset.a + '.');
-        drawTrainer(); saveGame();
+        drawTrainer(); if (run && !svc.free) saveGame();
       });
     });
   }
@@ -1209,7 +1477,7 @@
       b.addEventListener('click', function () {
         mon.nature = b.dataset.n;
         toast(mon.name + ' is now ' + b.dataset.n + '.');
-        drawTrainer(); saveGame();
+        drawTrainer(); if (run && !svc.free) saveGame();
       });
     });
   }
@@ -1311,7 +1579,7 @@
         C.syncEVs(mon);
         paint();
       });
-      r.addEventListener('change', function () { saveGame(); });
+      r.addEventListener('change', function () { if (run && !svc.free) saveGame(); });
     });
     paint();
   }
@@ -1439,12 +1707,13 @@
       }
     }
 
-    // Train button text. The Gauntlet has no money and no shop services, so
-    // its detail sheet never offers training, held items or evolutions.
+    // Train button. The Gauntlet offers free training (no money, no cost).
     var isG = N.isGauntlet(run);
-    var trainLabel = run.trainingPaidThisRound
-      ? 'Train more \u00b7 already paid this round'
-      : 'Train Pokemon \u00b7 $' + SERVICE_PRICE.toLocaleString();
+    var trainLabel = isG
+      ? 'Train \u00b7 free'
+      : (run.trainingPaidThisRound
+        ? 'Train more \u00b7 already paid this round'
+        : 'Train Pokemon \u00b7 $' + SERVICE_PRICE.toLocaleString());
 
     host.innerHTML =
       gridHtml +
@@ -1472,10 +1741,9 @@
           '<div class="pd-fact"><span class="k">KOs</span><span class="v">' + kos + '</span></div>' +
         '</div>' +
 
-        (isG ? '' :
         '<div class="pd-actions">' +
           '<button class="btn-primary pd-train"><img class="ic-train-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/power-bracer.png" alt="">' + trainLabel + '</button>' +
-        '</div>') +
+        '</div>' +
 
         '<div class="pd-sec"><div class="pd-label">Moves</div>' +
           '<div class="pd-moves">' + mon.moves.map(function (m) {
@@ -1497,7 +1765,17 @@
         '</div>' +
         etherHtml +
 
-        (isG ? '' :
+        (isG ? (
+        '<div class="pd-sec"><div class="pd-label">Held item</div>' +
+          (mon.item
+            ? '<button class="pd-held" data-take="1" data-tip="item:' + mon.item + '">' +
+                (window.ItemArt ? window.ItemArt.itemImg(mon.item, 26) : '') +
+                '<span>' + itemName(mon.item) + '</span><em>tap to remove</em></button>'
+            : '<div class="pd-empty">Nothing held.</div>') +
+          '<button class="btn-secondary wide" style="margin-top:8px" data-gb-pick-held="1">Pick Held Item</button>' +
+        '</div>' +
+        gbFormeRowHtml(mon)
+        ) :
         '<div class="pd-sec"><div class="pd-label">Held item</div>' +
           (mon.item
             ? '<button class="pd-held" data-take="1" data-tip="item:' + mon.item + '">' +
@@ -1505,7 +1783,6 @@
                 '<span>' + itemName(mon.item) + '</span><em>tap to remove</em></button>'
             : '<div class="pd-empty">Nothing held \u2014 give one from your Bag.</div>') +
         '</div>' +
-
         evoRowHtml(mon, partySel) +
         formeRowHtml(mon)) +
 
@@ -1568,9 +1845,11 @@
     });
     var train = host.querySelector('.pd-train');
     if (train) train.addEventListener('click', function () {
-      if (!run.trainingPaidThisRound && run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
+      if (!isG) {
+        if (!run.trainingPaidThisRound && run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
+      }
       window.Modal.close('xTeamDetail');
-      openTrainer(mon);
+      openTrainer(mon, isG);
     });
     var lead = host.querySelector('.pd-lead');
     if (lead) lead.addEventListener('click', function () {
@@ -1581,6 +1860,10 @@
     });
     host.querySelectorAll('.evo-btn').forEach(function (b) {
       b.addEventListener('click', function () {
+        if (b.dataset.gbRunForme) {   // gauntlet free forme change
+          gbRunFormeChange(mon, b.dataset.gbRunFormeItem, b.dataset.gbRunForme);
+          return;
+        }
         if (b.dataset.item) {   // forme
           if (!run.bag[b.dataset.item]) { toast('You need a ' + itemName(b.dataset.item) + '.'); return; }
           startFormeChange(mon, b.dataset.item, b.dataset.forme);
@@ -1591,6 +1874,12 @@
         if (!window.Evo.canEvolve(run, mon, opt)) { toast('You need a ' + opt.requirement.label + '.'); return; }
         startEvolution(mon, opt);
       });
+    });
+
+    // Gauntlet: pick held item from all available items
+    var gbPickHeld = host.querySelector('[data-gb-pick-held]');
+    if (gbPickHeld) gbPickHeld.addEventListener('click', function () {
+      openGbRunHeldPicker(mon);
     });
   }
 
@@ -3788,6 +4077,114 @@
     return null;
   }
 
+  // Forme options for the gauntlet: all available formes without needing items.
+  function gbFormeRowHtml(mon) {
+    if (!window.Forme) return '';
+    var FM = window.Forme;
+    var formeTargets = [];
+    // Check custom items
+    Object.keys(FM.CUSTOM).forEach(function (cid) {
+      FM.targetsFor(mon, cid).forEach(function (t) { formeTargets.push({ item: cid, target: t }); });
+    });
+    // Check Showdown forme items
+    var idx = FM.index();
+    var baseId = PS.toID(Dex.species.get(mon.id).baseSpecies || mon.id);
+    (idx.byBase[baseId] || []).forEach(function (e) {
+      FM.targetsFor(mon, e.item).forEach(function (t) { formeTargets.push({ item: e.item, target: t }); });
+    });
+    if (!formeTargets.length) return '';
+    var rows = formeTargets.map(function (ft) {
+      return '<button class="evo-btn forme-btn ready" data-gb-run-forme-item="' + ft.item + '" data-gb-run-forme="' + ft.target.id + '">' +
+        evoPreviewHtml(mon.id, ft.target.id, { reveal: true }) +
+        '<span class="evo-txt"><span class="evo-n">' + ft.target.name + '</span>' +
+        '<span class="evo-r">Switch forme (free)</span></span></button>';
+    }).join('');
+    return '<div class="evo-box forme-box"><div class="evo-title">Forme change</div>' + rows + '</div>';
+  }
+
+  // Gauntlet run: held item picker showing all curated items
+  function openGbRunHeldPicker(mon) {
+    var overlay = $('xTeamDetail');
+    if (!overlay) return;
+    var host = overlay.querySelector('.overlay-card');
+    if (!host) return;
+
+    var tiers = [
+      { key: 'common', label: 'Common' },
+      { key: 'core', label: 'Core' },
+      { key: 'rare', label: 'Rare' },
+      { key: 'typed', label: 'Type-Boosting' }
+    ];
+    var html = '<div style="margin-bottom:12px"><button class="btn-secondary wide pd-gb-back">\u2190 Back to ' + escapeHtml(mon.name) + '</button></div>';
+    html += '<div class="pd-label" style="margin-bottom:8px">Pick a held item for ' + escapeHtml(mon.name) + '</div>';
+    tiers.forEach(function (tier) {
+      var items = C.ITEM_TIERS[tier.key].filter(function (id) { return Dex.items.get(id).exists; });
+      if (!items.length) return;
+      html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">' + tier.label + '</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+      items.forEach(function (id) {
+        var info = C.heldItemInfo(id);
+        var on = mon.item === id;
+        html += '<button class="btn-mini' + (on ? ' on' : '') + '" data-gb-run-give="' + id + '" style="font-size:.7rem;padding:4px 8px"' +
+          ' data-tip="item:' + id + '">' + escapeHtml(info.name) + '</button>';
+      });
+      html += '</div>';
+    });
+    // Mega stones
+    if (window.Mega) {
+      var MG = window.Mega;
+      var gauntRun = { party: [mon], bag: {} };
+      var stones = MG.relevantStones ? MG.relevantStones(gauntRun) : [];
+      if (stones.length) {
+        html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">Mega Stones</div>';
+        html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+        stones.forEach(function (st) {
+          var on = mon.item === st.id;
+          html += '<button class="btn-mini mega-item' + (on ? ' on' : '') + '" data-gb-run-give="' + st.id + '" style="font-size:.7rem;padding:4px 8px"' +
+            ' data-tip="item:' + st.id + '">' + escapeHtml(st.name) + '</button>';
+        });
+        html += '</div>';
+      }
+    }
+    if (mon.item) {
+      html += '<div style="margin-top:12px"><button class="btn-secondary wide" data-gb-run-give="">Remove held item</button></div>';
+    }
+    host.innerHTML = html;
+
+    // Back button -> redraw party detail
+    host.querySelector('.pd-gb-back').addEventListener('click', function () {
+      drawPartyDetail();
+    });
+    // Give item buttons
+    host.querySelectorAll('[data-gb-run-give]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var itemId = b.dataset.gbRunGive;
+        mon.item = itemId;
+        toast(itemId ? mon.name + ' is now holding ' + itemName(itemId) + '.' : 'Removed held item.');
+        saveGame();
+        drawPartyDetail();
+      });
+    });
+  }
+
+  // Gauntlet run: apply forme change without consuming items
+  async function gbRunFormeChange(mon, itemId, formeId) {
+    var sp = Dex.species.get(formeId);
+    if (!sp.exists) return;
+    // Use the existing Forme.applyForme but without consuming an item
+    // We need a temporary run-like bag object so the function doesn't fail
+    var res = await window.Forme.applyForme(run, mon, formeId);
+    if (res.ok) {
+      toast(mon.name + ' became ' + res.to + '!');
+      try { playCry(mon.id); } catch (e) {}
+      if (mon.shiny) recordShiny(mon, 'forme');
+    } else {
+      toast(res.msg || 'Nothing happened.');
+    }
+    saveGame();
+    drawPartyDetail();
+  }
+
   // Forme options this Pokemon could switch to, given what is in the bag.
   function formeRowHtml(mon) {
     if (!window.Forme) return '';
@@ -4396,7 +4793,7 @@
     $('btnGoBattle').addEventListener('click', startNextBattle);
     $('btnStarterBack').addEventListener('click', function () { show('Title'); setContinueState(); });
     // Team Gauntlet draft screen.
-    $('btnTbBack').addEventListener('click', function () { show('Title'); setContinueState(); });
+    $('btnTbBack').addEventListener('click', function () { gbConfigIdx = -1; gbTraining = false; show('Title'); setContinueState(); });
     $('btnTbStart').addEventListener('click', confirmGauntlet);
     $('tbSearch').addEventListener('input', drawBuilder);
 
@@ -4444,7 +4841,19 @@
       }
     } catch (e) { console.warn('[boot] auto-resume failed', e); }
     $('btnTutorBack').addEventListener('click', function () {
-      svc = null; renderCrossroads(); show('Crossroads');
+      svc = null;
+      if (gbTraining) {
+        gbTraining = false;
+        if (gbConfigIdx >= 0) {
+          drawBuilder();
+          openGbConfig(gbConfigIdx);
+        } else {
+          drawBuilder();
+          show('TeamBuilder');
+        }
+      } else {
+        renderCrossroads(); show('Crossroads');
+      }
     });
     // "Save progress" lives on every battle/section finish screen.
     $('btnRewardSave').addEventListener('click', openSaveExport);
