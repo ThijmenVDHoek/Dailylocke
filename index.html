@@ -44,7 +44,9 @@
     <div id="titleStage" class="title-stage"></div>
     <div class="title-veil"></div>
 
-    <button type="button" id="btnTitleMenu" class="title-menu">Menu</button>
+    <button type="button" id="btnTitleMenu" class="menu-pill title-menu-pos">
+      <span class="menu-avatar-wrap" id="menuButtonAvatarTitle"></span>
+    </button>
 
     <!-- Floating install pill. Hidden until the browser tells us the app is
          installable (or we detect an iOS/Safari device, which never fires the
@@ -68,10 +70,13 @@
            once: finishing a Daily never costs you a Free Play run, and a good
            Free Play run never locks you out of tomorrow's Daily. -->
       <div class="title-btns">
-        <button type="button" id="btnDaily" class="btn-white btn-daily">
-          <span class="bd-main" id="dailyMain">Daily Run</span>
-          <span class="bd-sub" id="dailyDate"></span>
-        </button>
+        <div class="run-col">
+          <button type="button" id="btnDaily" class="btn-white btn-daily">
+            <span class="bd-main" id="dailyMain">Daily Run</span>
+            <span class="bd-sub" id="dailyDate"></span>
+          </button>
+          <button type="button" id="btnAbandonDaily" class="btn-secondary" hidden>Abandon run</button>
+        </div>
         <div class="streak-chip" id="dailyStreak" hidden></div>
         <button type="button" id="btnArchiveDaily" class="btn-glass btn-archive" hidden>
           <span class="bd-main">Move old Daily to Free Play</span>
@@ -81,25 +86,23 @@
 
       <div class="title-sep" id="titleFreeSep"><span>Free Play</span></div>
 
-      <div class="title-btns" id="titleFreeRun" hidden>
-        <button type="button" id="btnContinue" class="btn-white btn-daily">
-          <span class="bd-main">Continue run</span>
-          <span class="bd-sub" id="continueSub"></span>
-        </button>
-        <button type="button" id="btnAbandonTitle" class="btn-glass">Abandon Free Play run</button>
-      </div>
-      <!-- Both Free Play options live together: start a randomized run or
-           build a full team for the trainer-only gauntlet. -->
       <div class="title-btns title-free-actions">
-        <button type="button" id="btnNewRun" class="btn-glass">
-          <span class="bd-main">Random run</span>
-        </button>
-        <button type="button" id="btnGauntlet" class="btn-glass">
-          <span class="bd-main" id="gauntletMain">Full team gauntlet</span>
-        </button>
-      </div>
-      <div class="title-btns" id="titleGauntlet">
-        <button type="button" id="btnAbandonGauntlet" class="btn-glass" hidden>Abandon Gauntlet run</button>
+        <div class="run-col">
+          <button type="button" id="btnNewRun" class="btn-glass">
+            <span class="bd-main">Random run</span>
+          </button>
+          <button type="button" id="btnContinue" class="btn-white" hidden>
+            <span class="bd-main">Continue run</span>
+            <span class="bd-sub" id="continueSub"></span>
+          </button>
+          <button type="button" id="btnAbandonTitle" class="btn-secondary" hidden>Abandon run</button>
+        </div>
+        <div class="run-col">
+          <button type="button" id="btnGauntlet" class="btn-glass">
+            <span class="bd-main" id="gauntletMain">Full team gauntlet</span>
+          </button>
+          <button type="button" id="btnAbandonGauntlet" class="btn-secondary" hidden>Abandon run</button>
+        </div>
       </div>
     </div>
   </section>
@@ -175,6 +178,9 @@
   <section id="screenTeamBuilder" hidden>
     <div class="sub-head">
       <button type="button" id="btnTbBack" class="back-pill">Back</button>
+      <button type="button" id="btnMenuTB" class="menu-pill menu-left">
+        <span class="menu-avatar-wrap" id="menuButtonAvatarTB"></span>
+      </button>
       <h2 class="scr-title">Build your team</h2>
     </div>
     <p class="hint center">Pick any 6 Pokemon &mdash; no cost, fully trained.
@@ -210,7 +216,9 @@
   <section id="screenCrossroads" hidden>
     <div class="x-top">
       <span class="x-cash" id="xCashPill">$<b id="xCash">0</b></span>
-      <button type="button" id="btnMenu" class="menu-pill">Menu</button>
+      <button type="button" id="btnMenu" class="menu-pill">
+        <span class="menu-avatar-wrap" id="menuButtonAvatar"></span>
+      </button>
     </div>
 
     <div class="x-head">
