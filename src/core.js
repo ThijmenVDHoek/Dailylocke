@@ -593,8 +593,21 @@
              'blackbelt','poisonbarb','softsand','sharpbeak','twistedspoon','silverpowder',
              'hardstone','spelltag','dragonfang','blackglasses','metalcoat','fairyfeather']
   };
-  var HELD_ITEMS = ITEM_TIERS.common.concat(ITEM_TIERS.core, ITEM_TIERS.rare, ITEM_TIERS.typed)
-    .filter(function (id) { return Dex.items.get(id).exists; });
+  // Complete held-item pool for unrestricted modes. Showdown marks battle
+  // items (including berries, plates, drives, memories and mega stones) with
+  // a sprite number; non-holdable key items and TMs do not have one.
+  function allHeldItems() {
+    var out = [];
+    for (var id in Dex.data.Items) {
+      var it = Dex.items.get(id);
+      if (!it.exists || it.spritenum == null) continue;
+      out.push(it.id);
+    }
+    return out.sort(function (a, b) {
+      return Dex.items.get(a).name.localeCompare(Dex.items.get(b).name);
+    });
+  }
+  var HELD_ITEMS = allHeldItems();
 
   // PokeAPI's shop prices are wildly inconsistent for modern held items --
   // Clear Amulet and Mirror Herb are listed at $30,000, which is 15+ battles
@@ -642,7 +655,7 @@
     makeMon: makeMon, maxHP: maxHP, curHP: curHP, isFainted: isFainted, toSet: toSet,
     SP_MAX: SP_MAX, SP_TOTAL: SP_TOTAL, STAT_IDS: STAT_IDS,
     spToEv: spToEv, evToSp: evToSp, ensureSP: ensureSP, syncEVs: syncEVs, spUsed: spUsed,
-    BALLS: BALLS, HEAL_ITEMS: HEAL_ITEMS, HELD_ITEMS: HELD_ITEMS, ITEM_TIERS: ITEM_TIERS,
+    BALLS: BALLS, HEAL_ITEMS: HEAL_ITEMS, HELD_ITEMS: HELD_ITEMS, allHeldItems: allHeldItems, ITEM_TIERS: ITEM_TIERS,
     healAmountFor: healAmountFor,
     catchChance: catchChance, rollCatch: rollCatch, ballBonus: ballBonus,
     itemPrice: itemPrice, heldItemInfo: heldItemInfo, heldPrice: heldPrice

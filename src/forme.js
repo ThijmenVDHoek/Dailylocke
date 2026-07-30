@@ -161,7 +161,11 @@
   // Every forme item usable by anything alive in the party.
   function relevantItems(run) {
     var out = [], seen = {};
-    var living = run.party.filter(function (m) { return !C.isFainted(m); });
+    // A forme item is party-dependent, not battle-dependent: a fainted
+    // Pokemon is still in the party and can use its item after being healed.
+    // Keep the whole party here so the shop does not unexpectedly hide plates,
+    // drives, memories, etc. after a faint.
+    var living = run.party || [];
 
     living.forEach(function (mon) {
       var sp = Dex.species.get(mon.id);

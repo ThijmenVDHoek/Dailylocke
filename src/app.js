@@ -670,7 +670,7 @@
           (i === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
           '<span class="ts-art">' + animSprite(p.id, 46, 52, '', 1.4, false) + '</span>' +
           '<span class="ts-name">' + escapeHtml(p.name) + '</span>' +
-          (p.mon && p.mon.item ? '<span class="ts-st" style="background:#5b8cff;color:#fff;font-size:.55rem;padding:1px 4px;border-radius:999px;margin-top:2px">' + escapeHtml(itemName(p.mon.item)) + '</span>' : '') +
+          (p.mon && p.mon.item ? '<span class="ts-st ts-item" title="' + escapeHtml(itemName(p.mon.item)) + '" style="background:#5b8cff;color:#fff;font-size:.55rem;padding:2px 5px;border-radius:999px;margin-top:2px;display:inline-flex;align-items:center;gap:2px">' + (window.ItemArt ? window.ItemArt.itemImg(p.mon.item, 18) : '') + '<span>' + escapeHtml(itemName(p.mon.item)) + '</span></span>' : '') +
           '<button class="ts-rm" data-rm="' + i + '" title="Remove">\u00d7</button></div>';
       } else {
         slots += '<div class="tslot empty">?</div>';
@@ -796,6 +796,9 @@
     heldHtml += '<button class="btn-secondary wide" style="margin-top:8px" data-gb-held="1">Pick Held Item</button></div>';
 
     var formeHtml = '';
+    // A Gauntlet forme switch is available only for the item currently held.
+    // (Giving that item first automatically enforces its forme.)
+    formeTargets = formeTargets.filter(function (ft) { return mon.item === ft.item; });
     if (formeTargets.length) {
       formeHtml = '<div class="evo-box forme-box"><div class="evo-title">Forme change</div>' +
         formeTargets.map(function (ft) {
@@ -898,13 +901,30 @@
       html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">' + tier.label + '</div>';
       html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
       items.forEach(function (id) {
-        var info = C.heldItemInfo(id);
+        var info = (window.Forme && window.Forme.isFormeItem(id))
+        ? { name: window.Forme.itemName(id) } : C.heldItemInfo(id);
         var on = mon.item === id;
         html += '<button class="btn-mini' + (on ? ' on' : '') + '" data-gb-give="' + id + '" style="font-size:.7rem;padding:4px 8px"' +
           ' data-tip="item:' + id + '">' + escapeHtml(info.name) + '</button>';
       });
       html += '</div>';
     });
+    // Gauntlet is unrestricted: include every item the simulator allows a
+    // Pokemon to hold, not just the rotating shop's competitive shortlist.
+    var allHeld = C.allHeldItems ? C.allHeldItems() : C.HELD_ITEMS;
+    if (window.Forme) Object.keys(window.Forme.CUSTOM).forEach(function (id) {
+      if (allHeld.indexOf(id) < 0) allHeld.push(id);
+    });
+    html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">All Held Items</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+    allHeld.forEach(function (id) {
+      var on = mon.item === id;
+      var info = (window.Forme && window.Forme.isFormeItem(id))
+        ? { name: window.Forme.itemName(id) } : C.heldItemInfo(id);
+      html += '<button class="btn-mini' + (on ? ' on' : '') + '" data-gb-give="' + id + '" style="font-size:.7rem;padding:4px 8px" data-tip="item:' + id + '">' +
+        (window.ItemArt ? window.ItemArt.itemImg(id, 18) : '') + escapeHtml(info.name) + '</button>';
+    });
+    html += '</div>';
     // Also show mega stones if applicable
     if (window.Mega) {
       var MG = window.Mega;
@@ -948,6 +968,12 @@
     var entry = gbTeam[gbConfigIdx];
     if (!entry || !entry.mon) return;
     var mon = entry.mon;
+    // The item is not consumed in Gauntlet, but it is still mandatory.
+    if (!mon.item || !window.Forme || mon.item !== itemId ||
+        !window.Forme.targetsFor(mon, itemId).some(function (t) { return t.id === formeId; })) {
+      toast('Hold the proper item to switch to that forme.');
+      return;
+    }
     // Apply the forme change without consuming an item
     var sp = Dex.species.get(formeId);
     if (!sp.exists) return;
@@ -4101,6 +4127,10 @@
     (idx.byBase[baseId] || []).forEach(function (e) {
       FM.targetsFor(mon, e.item).forEach(function (t) { formeTargets.push({ item: e.item, target: t }); });
     });
+    // Forme changes are only legal while the required held item is equipped.
+    // This is deliberately checked in the view as well as in the click handler
+    // so the Gauntlet cannot offer a free, itemless forme switch.
+    formeTargets = formeTargets.filter(function (ft) { return mon.item === ft.item; });
     if (!formeTargets.length) return '';
     var rows = formeTargets.map(function (ft) {
       return '<button class="evo-btn forme-btn ready" data-gb-run-forme-item="' + ft.item + '" data-gb-run-forme="' + ft.target.id + '">' +
@@ -4111,7 +4141,7 @@
     return '<div class="evo-box forme-box"><div class="evo-title">Forme change</div>' + rows + '</div>';
   }
 
-  // Gauntlet run: held item picker showing all curated items
+    // Gauntlet run: held item picker showing every legal held item
   function openGbRunHeldPicker(mon) {
     var overlay = $('xTeamDetail');
     if (!overlay) return;
@@ -4132,13 +4162,29 @@
       html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">' + tier.label + '</div>';
       html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
       items.forEach(function (id) {
-        var info = C.heldItemInfo(id);
+        var info = (window.Forme && window.Forme.isFormeItem(id))
+        ? { name: window.Forme.itemName(id) } : C.heldItemInfo(id);
         var on = mon.item === id;
         html += '<button class="btn-mini' + (on ? ' on' : '') + '" data-gb-run-give="' + id + '" style="font-size:.7rem;padding:4px 8px"' +
           ' data-tip="item:' + id + '">' + escapeHtml(info.name) + '</button>';
       });
       html += '</div>';
     });
+    // Gauntlet is unrestricted: include every legal held item.
+    var allHeld = C.allHeldItems ? C.allHeldItems() : C.HELD_ITEMS;
+    if (window.Forme) Object.keys(window.Forme.CUSTOM).forEach(function (id) {
+      if (allHeld.indexOf(id) < 0) allHeld.push(id);
+    });
+    html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">All Held Items</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+    allHeld.forEach(function (id) {
+      var on = mon.item === id;
+      var info = (window.Forme && window.Forme.isFormeItem(id))
+        ? { name: window.Forme.itemName(id) } : C.heldItemInfo(id);
+      html += '<button class="btn-mini' + (on ? ' on' : '') + '" data-gb-run-give="' + id + '" style="font-size:.7rem;padding:4px 8px" data-tip="item:' + id + '">' +
+        (window.ItemArt ? window.ItemArt.itemImg(id, 18) : '') + escapeHtml(info.name) + '</button>';
+    });
+    html += '</div>';
     // Mega stones
     if (window.Mega) {
       var MG = window.Mega;
@@ -4182,6 +4228,11 @@
 
   // Gauntlet run: apply forme change without consuming items
   async function gbRunFormeChange(mon, itemId, formeId) {
+    if (!mon.item || mon.item !== itemId || !window.Forme ||
+        !window.Forme.targetsFor(mon, itemId).some(function (t) { return t.id === formeId; })) {
+      toast('Hold the proper item to switch to that forme.');
+      return;
+    }
     var sp = Dex.species.get(formeId);
     if (!sp.exists) return;
     // Use the existing Forme.applyForme but without consuming an item
