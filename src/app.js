@@ -930,9 +930,13 @@
     host.querySelector('.pd-gb-back').addEventListener('click', function () { drawGbDetail(); });
     // Give item buttons
     host.querySelectorAll('[data-gb-give]').forEach(function (b) {
-      b.addEventListener('click', function () {
+      b.addEventListener('click', async function () {
         var itemId = b.dataset.gbGive;
-        mon.item = itemId;
+        if (window.Forme && window.Forme.setHeldItemAndEnforce) {
+          await window.Forme.setHeldItemAndEnforce({ party: [mon] }, mon, itemId);
+        } else {
+          mon.item = itemId;
+        }
         toast(itemId ? mon.name + ' is now holding ' + itemName(itemId) + '.' : 'Removed held item.');
         drawGbDetail();
       });
@@ -1837,10 +1841,15 @@
     });
     // Backdrop clicks and Escape are handled by the shared modal controller.
     var take = host.querySelector('[data-take]');
-    if (take) take.addEventListener('click', function () {
-      N.addItem(run, mon.item, 1);
-      toast('Took the ' + itemName(mon.item) + '.');
-      mon.item = '';
+    if (take) take.addEventListener('click', async function () {
+      var oldItem = mon.item;
+      N.addItem(run, oldItem, 1);
+      toast('Took the ' + itemName(oldItem) + '.');
+      if (window.Forme && window.Forme.setHeldItemAndEnforce) {
+        await window.Forme.setHeldItemAndEnforce(run, mon, '');
+      } else {
+        mon.item = '';
+      }
       renderCrossroads(); saveGame(); drawPartyDetail();
     });
     var train = host.querySelector('.pd-train');
@@ -4157,9 +4166,13 @@
     });
     // Give item buttons
     host.querySelectorAll('[data-gb-run-give]').forEach(function (b) {
-      b.addEventListener('click', function () {
+      b.addEventListener('click', async function () {
         var itemId = b.dataset.gbRunGive;
-        mon.item = itemId;
+        if (window.Forme && window.Forme.setHeldItemAndEnforce) {
+          await window.Forme.setHeldItemAndEnforce(run, mon, itemId);
+        } else {
+          mon.item = itemId;
+        }
         toast(itemId ? mon.name + ' is now holding ' + itemName(itemId) + '.' : 'Removed held item.');
         saveGame();
         drawPartyDetail();
@@ -4469,6 +4482,16 @@
     // Ensure _nextWild is cleared so it will be recomputed deterministically
     // via pickWild (which is now hash-based, not rand-based) after refresh.
     if (r._nextWild) delete r._nextWild;
+
+    // Enforce automatic forme changes from held items (Arceus plates, Dialga crystal, etc.)
+    // This fixes old saves where a Pokemon may have the wrong forme for its held item.
+    if (window.Forme) {
+      (async function () {
+        for (var i = 0; i < r.party.length; i++) {
+          try { await window.Forme.enforceHeldForme(r, r.party[i]); } catch (e) {}
+        }
+      })();
+    }
     return r;
   }
 
