@@ -1341,6 +1341,14 @@ textarea.search.save-code {
   transition:background-color .15s, transform .12s;
 }
 .tslot:hover:not(.empty) { background:rgba(255,255,255,.10); transform:translateY(-2px); }
+.ts-rm {
+  position:absolute; top:2px; right:2px; width:18px; height:18px;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(0,0,0,.5); color:#ff5f6d; border:none; border-radius:50%;
+  font-size:.7rem; cursor:pointer; line-height:1; padding:0;
+  opacity:.7; transition:opacity .15s;
+}
+.ts-rm:hover { opacity:1; background:rgba(255,95,109,.2); }
 .tslot.sel { background:rgba(255,255,255,.10); box-shadow:0 0 0 2px var(--blue); }
 .tslot.empty { justify-content:center; min-height:84px; opacity:.6; }
 .ts-art { height:46px; display:flex; align-items:flex-end; justify-content:center; overflow:visible; }
