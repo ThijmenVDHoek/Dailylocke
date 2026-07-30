@@ -181,7 +181,7 @@
        Then fight trainer after trainer: no wilds, no cash, no items, no running.
        Survivors heal after every win.</p>
 
-    <!-- The six picks; tap a slot to remove that Pokemon. -->
+    <!-- The six picks; tap a slot to configure it or use × to remove it. -->
     <div class="tb-count" id="tbCount">0 / 6</div>
     <div class="tb-team team-strip" id="tbTeam"></div>
 
@@ -216,11 +216,6 @@
 
     <!-- the team lives on this screen; no separate menu -->
     <div class="team-strip" id="xTeam"></div>
-
-    <!-- Team detail is now a bottom sheet (modal) instead of inline -->
-    <div id="xTeamDetail" class="overlay" hidden>
-      <div class="overlay-card"></div>
-    </div>
 
     <div class="x-bag" id="xBagBlock">
       <div class="x-bag-head">
@@ -277,6 +272,15 @@
     </div>
     <div id="histBody"></div>
   </section>
+
+  <!-- ===================== TEAM DETAIL (overlay) ===================== -->
+  <!-- Shared by the route roster and the Gauntlet team builder. Keep this at
+       the same level as the screens: nesting it in Crossroads makes it
+       invisible (and leaves the visible screen inert) when opened while the
+       TeamBuilder screen is active. -->
+  <div id="xTeamDetail" class="overlay" hidden>
+    <div class="overlay-card"></div>
+  </div>
 
   <!-- ===================== MENU (overlay) ===================== -->
   <div id="screenMenu" class="overlay" hidden>

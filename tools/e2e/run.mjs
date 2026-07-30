@@ -282,11 +282,38 @@ try {
     check('the draft cannot start empty',
       await page.evaluate(() => document.getElementById('btnTbStart').disabled));
 
-    const roster = ['gengar', 'snorlax', 'garchomp', 'scizor', 'blissey', 'rotomwash'];
-    for (const id of roster) {
+    const roster = ['gengar', 'snorlax', 'garchomp', 'scizor', 'blissey', 'rotom'];
+    for (let i = 0; i < roster.length; i++) {
+      const id = roster[i];
       await page.fill('#tbSearch', id);
       await page.waitForSelector(`#tbList .tb-row[data-id="${id}"]`, { timeout: 15000 });
       await page.click(`#tbList .tb-row[data-id="${id}"]`);
+      await page.waitForFunction((count) =>
+        document.querySelectorAll('#tbTeam .tslot.filled').length === count,
+      i + 1, { timeout: 15000 });
+
+      // Regression: xTeamDetail used to be nested in the hidden Crossroads
+      // screen. Modal.open() still made TeamBuilder inert, but the sheet could
+      // not render, so tapping a drafted Pokemon appeared to freeze the game.
+      if (i === 0) {
+        await page.click('#tbTeam .tslot[data-i="0"]');
+        await page.waitForSelector('#xTeamDetail', { state: 'visible', timeout: 5000 });
+        const config = await page.evaluate(() => ({
+          modalOpen: window.Modal.isOpen('xTeamDetail'),
+          parent: document.getElementById('xTeamDetail').parentElement.tagName,
+          moves: document.querySelectorAll('#xTeamDetail .pd-move').length,
+          close: !!document.querySelector('#xTeamDetail .pd-close'),
+        }));
+        check('a drafted Pokemon opens a visible, usable config sheet',
+          config.modalOpen && config.parent === 'MAIN' && config.moves > 0 && config.close,
+          JSON.stringify(config));
+        await page.click('#xTeamDetail .pd-close');
+        await page.waitForSelector('#xTeamDetail', { state: 'hidden', timeout: 5000 });
+        check('closing draft config restores the team builder',
+          await page.evaluate(() =>
+            document.getElementById('screenTeamBuilder').inert !== true &&
+            !window.Modal.isOpen('xTeamDetail')));
+      }
     }
     check('six picks unlock the start button',
       await page.evaluate(() => !document.getElementById('btnTbStart').disabled &&

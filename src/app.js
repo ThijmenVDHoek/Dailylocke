@@ -770,8 +770,6 @@
     if (!entry || !entry.mon) { window.Modal.close('xTeamDetail'); host.innerHTML = ''; return; }
     var mon = entry.mon;
 
-    // Held item picker: all curated held items
-    var heldItems = C.HELD_ITEMS.filter(function (id) { return Dex.items.get(id).exists; });
     var formeTargets = [];
     if (window.Forme) {
       // Check all forme items for this Pokemon
