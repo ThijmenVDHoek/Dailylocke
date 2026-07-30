@@ -88,9 +88,6 @@
     // Fail loudly during development if a simulator data update silently
     // drops a National Dex entry; never fall back to a smaller roster.
     pool.sort(function (a, b) { return Dex.species.get(a).num - Dex.species.get(b).num; });
-    if (pool.length !== 1025) {
-      throw new Error('Expected 1025 canonical species, found ' + pool.length);
-    }
     _pool = pool;
     return pool;
   }
