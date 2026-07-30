@@ -67,12 +67,21 @@
     var pool = [];
     for (var id in Dex.data.Species) {
       var s = Dex.species.get(id);
-      if (!s.exists || s.num <= 0 || s.id !== id) continue;
+      // This is deliberately the complete National Dex, not a playable-gen
+      // or balance-filtered roster.  `num` is the National Dex number, while
+      // Showdown also stores regional formes, Mega/Gmax formes, and aliases in
+      // the same table.  Keep exactly the canonical entry for every number
+      // 1..1025 so every game mode draws from the same 1025-species pool.
+      if (!s.exists || s.num < 1 || s.num > 1025 || s.id !== id) continue;
       if (s.isNonstandard || s.battleOnly || s.isMega || s.isPrimal) continue;
-      if (s.forme && /Gmax|Mega|Totem|Stellar|Cosplay|Cap|Starter|Partner/i.test(s.forme)) continue;
-      if (s.num > 1025 && s.gen > 9) continue;
-      if (s.baseSpecies === 'Pikachu' && s.forme && s.forme !== 'Alola') continue;
+      if (s.forme || s.baseSpecies && s.baseSpecies !== s.name) continue;
       pool.push(s.id);
+    }
+    // Fail loudly during development if a simulator data update silently
+    // drops a National Dex entry; never fall back to a smaller roster.
+    pool.sort(function (a, b) { return Dex.species.get(a).num - Dex.species.get(b).num; });
+    if (pool.length !== 1025) {
+      throw new Error('Expected 1025 canonical species, found ' + pool.length);
     }
     _pool = pool;
     return pool;

@@ -547,11 +547,10 @@
     run.sectionMarks = [];                      // share-card squares
     run.trainingPaidThisRound = false;
     var rand = C.mulberry32(seed ^ 0x1234);
-    var pool = C.speciesPool().filter(function (id) {
-      var b = C.bst(id);
-      return b >= 380 && b <= 500 && !C.isLegendary(id);
-    });
-    var ids = C.pickN(pool, 3, rand);
+    // Starters use the same complete National Dex pool as wild encounters and
+    // the gauntlet.  No mode-specific species whitelist: all 1025 species are
+    // eligible here, including legendary and unevolved Pokémon.
+    var ids = C.pickN(C.speciesPool(), 3, rand);
     show('Starter');
     $('starterGrid').innerHTML = '<p class="hint center">Loading...</p>';
     starterChoices = [];
