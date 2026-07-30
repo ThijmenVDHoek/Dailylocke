@@ -3,14 +3,22 @@
 A daily nuzlocke challenge, played in the browser. Pick a starter, fight through
 sections of wild encounters and trainers, and try to keep your team alive.
 
-Two modes, **two independent save slots** — so one can never block the other:
+Three modes, **independent save slots** — so one can never block another:
 
-| | **Daily** | **Free Play** |
-| --- | --- | --- |
-| challenge | the same for everyone on that date | randomized each run |
-| length | **5 sections** (20 battles), then it ends | endless |
-| ending | scored, recorded, and shareable | runs until your last Pokemon falls |
-| slot | `dailylocke-run-daily` | `nuzlocke-run` |
+| | **Daily** | **Free Play** | **Team Gauntlet** |
+| --- | --- | --- | --- |
+| challenge | the same for everyone on that date | randomized each run | trainers only, no wilds |
+| team | catch as you go | catch as you go | **draft any 6 Pokemon, free** |
+| length | **5 sections** (20 battles), then it ends | endless | endless trainer rush |
+| rules | — | — | no cash, no items, no running; heal after every win |
+| ending | scored, recorded, and shareable | runs until your last Pokemon falls | runs until your last Pokemon falls |
+| slot | `dailylocke-run-daily` | `nuzlocke-run` | `dailylocke-run-gauntlet` |
+
+In the Gauntlet, trainer N is exactly as hard as the Nth trainer battle of a
+Daily or Free Play run — both funnel through the same difficulty pipeline
+(`Nuz.tier` / `trainerFor` / `makeTrainerTeam`, keyed on the section counter),
+so battle 2 or battle 10 lands on the same challenge everywhere, ascension
+included.
 
 Deployed to GitHub Pages from `main` by `.github/workflows/static.yml`.
 
@@ -102,9 +110,9 @@ app permanently offline-less.
 Runs persist to `localStorage` automatically, and can hop between devices
 with **no server and no accounts**: every battle/section finish screen has a
 **Save progress** button, and the Menu offers *Transfer save* / *Import save*.
-An unfinished Daily or Free Play run can also be transferred directly from the
-title Menu; if both slots are in progress, the export dialog lets you choose
-which run to send.
+An unfinished Daily, Free Play or Team Gauntlet run can also be transferred
+directly from the title Menu; if several slots are in progress, the export
+dialog lets you choose which run to send.
 
 * The run state is serialised by `saveGameState()` (one central function,
   same snapshot autosave writes), compressed with

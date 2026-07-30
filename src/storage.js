@@ -7,11 +7,12 @@
 // simply delegates here, so nothing else had to change.
 //
 // WHAT LIVES WHERE
-//   dailylocke-run-daily   today's Daily run          (finite, dated)
-//   nuzlocke-run           the Free Play run          (endless)
-//   nuzlocke-profile       shinies + all-time history (outlives every run)
-//   dailylocke-daily       Daily results + streak     (src/daily.js owns this)
-//   nuzlocke-audio         volume sliders             (src/audio.js owns this)
+//   dailylocke-run-daily      today's Daily run          (finite, dated)
+//   nuzlocke-run              the Free Play run          (endless)
+//   dailylocke-run-gauntlet   the Team Gauntlet run      (endless, trainers only)
+//   nuzlocke-profile          shinies + all-time history (outlives every run)
+//   dailylocke-daily          Daily results + streak     (src/daily.js owns this)
+//   nuzlocke-audio            volume sliders             (src/audio.js owns this)
 //
 // The run slots are SEPARATE on purpose: they used to share one key, so a good
 // Free Play run blocked today's Daily and finishing a Daily destroyed the other
@@ -26,7 +27,8 @@
 (function () {
   var SLOTS = {
     daily: 'dailylocke-run-daily',
-    free: 'nuzlocke-run'              // the original key stays the Free Play slot
+    free: 'nuzlocke-run',             // the original key stays the Free Play slot
+    gauntlet: 'dailylocke-run-gauntlet'
   };
   var LEGACY_RUN_KEY = 'nuzlocke-run-v1';
   var PROFILE_KEY = 'nuzlocke-profile';
@@ -60,7 +62,9 @@
     } catch (e) { return false; }
   }
 
-  function keyFor(mode) { return SLOTS[mode === 'daily' ? 'daily' : 'free']; }
+  // Unknown/legacy modes (undefined included) fall through to the Free Play
+  // slot, which is what every pre-split caller meant.
+  function keyFor(mode) { return SLOTS[mode] || SLOTS.free; }
 
   // ------------------------------------------------------------- SAVES -----
   // Snapshot a live run WITHOUT writing it. `rand` is a function handle, so it

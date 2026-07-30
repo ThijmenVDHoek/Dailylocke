@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Dailylocke",
   "short_name": "Dailylocke",
-  "description": "A daily nuzlocke challenge played in the browser: five sections, one run per day, plus an endless randomized Free Play mode.",
+  "description": "A daily nuzlocke challenge played in the browser: five sections, one run per day, plus an endless randomized Free Play mode and a build-a-team Trainer Gauntlet.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

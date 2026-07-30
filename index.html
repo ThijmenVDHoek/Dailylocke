@@ -94,6 +94,20 @@
           <span class="bd-sub">Endless, unlimited runs</span>
         </button>
       </div>
+
+      <!-- Team Gauntlet: a third independent slot. Build any team of six for
+           free, then fight trainer after trainer with the same difficulty
+           curve the other modes use -- no wilds, no cash, no items, no run. -->
+      <div class="title-sep" id="titleGauntletSep"><span>Gauntlet</span></div>
+
+      <div class="title-btns" id="titleGauntlet">
+        <button type="button" id="btnGauntlet" class="btn-glass">
+          <span class="bd-main" id="gauntletMain">Team Gauntlet</span>
+          <span class="bd-sub" id="gauntletSub">Build 6 free Pokemon &middot; trainers only</span>
+        </button>
+        <button type="button" id="btnAbandonGauntlet" class="btn-glass" hidden>Abandon Gauntlet run</button>
+      </div>
+
       <div class="title-btns">
         <button type="button" id="btnTitleLoad" class="btn-glass">Load save</button>
       </div>
@@ -109,7 +123,11 @@
     <div class="rules-body">
       <div class="rule">
         <span class="rl-n">1</span>
-        <div><b>Two ways to play</b><p><b>Daily</b> is the same fixed 5-section challenge for everyone, scored and recorded once a day. <b>Free Play</b> is endless and randomized. They use separate save slots, so one never blocks the other.</p></div>
+        <div><b>Three ways to play</b><p><b>Daily</b> is the same fixed 5-section challenge for everyone, scored and recorded once a day. <b>Free Play</b> is endless and randomized. <b>Team Gauntlet</b> is a trainer rush: build any team of 6 for free, then fight trainer after trainer. Each mode has its own save slot, so one never blocks another.</p></div>
+      </div>
+      <div class="rule">
+        <span class="rl-n">&#9876;</span>
+        <div><b>Team Gauntlet</b><p>Pick any 6 Pokemon, fully trained, at no cost. Then it's trainers only: no wild encounters, no catches, no prize money, no items and no running away. Your survivors are fully restored after every win. Trainer 1 is as hard as the 1st trainer of any other run, trainer 10 as the 10th &mdash; including ascension past trainer 15. Fainted is still forever: the run ends when your last Pokemon falls.</p></div>
       </div>
       <div class="rule">
         <span class="rl-n">2</span>
@@ -163,10 +181,36 @@
     <button type="button" id="btnStarterBack" class="btn-secondary wide" style="margin-top:16px">Back</button>
   </section>
 
+  <!-- ===================== TEAM BUILDER (Team Gauntlet) ===================== -->
+  <section id="screenTeamBuilder" hidden>
+    <div class="sub-head">
+      <button type="button" id="btnTbBack" class="back-pill">Back</button>
+      <h2 class="scr-title">Build your team</h2>
+    </div>
+    <p class="hint center">Pick any 6 Pokemon &mdash; no cost, fully trained.
+       Then fight trainer after trainer: no wilds, no cash, no items, no running.
+       Survivors heal after every win.</p>
+
+    <!-- The six picks; tap a slot to remove that Pokemon. -->
+    <div class="tb-count" id="tbCount">0 / 6</div>
+    <div class="tb-team team-strip" id="tbTeam"></div>
+
+    <input type="search" id="tbSearch" class="tb-search"
+           placeholder="Search any Pokemon&hellip;" autocomplete="off"
+           aria-label="Search Pokemon">
+    <div id="tbList" class="tb-list"></div>
+
+    <div class="x-battle-dock">
+      <button type="button" id="btnTbStart" class="btn-primary x-battle-btn" disabled>
+        <span class="x-ic">&#9876;</span><span id="tbStartLabel">Pick 6 Pokemon</span>
+      </button>
+    </div>
+  </section>
+
   <!-- ===================== CROSSROADS ===================== -->
   <section id="screenCrossroads" hidden>
     <div class="x-top">
-      <span class="x-cash">$<b id="xCash">0</b></span>
+      <span class="x-cash" id="xCashPill">$<b id="xCash">0</b></span>
       <button type="button" id="btnMenu" class="menu-pill">Menu</button>
     </div>
 
@@ -188,7 +232,7 @@
       <div class="overlay-card"></div>
     </div>
 
-    <div class="x-bag">
+    <div class="x-bag" id="xBagBlock">
       <div class="x-bag-head">
         <h3 class="x-bag-title">Bag</h3>
         <span class="x-bag-note" id="xBagNote"></span>
@@ -196,7 +240,7 @@
       <div id="xOwned" class="owned-grid"></div>
     </div>
 
-    <div class="x-shop">
+    <div class="x-shop" id="xShopBlock">
       <div class="x-shop-head">
         <h3 class="x-shop-title">Poke Mart</h3>
         <span class="x-shop-note">Tap a Pokemon to train or use items</span>
