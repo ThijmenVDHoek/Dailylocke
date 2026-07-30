@@ -612,7 +612,7 @@
   // Picks go through makeMon() + trainPlayerMon(), so a built mon is raised
   // exactly like a starter (role-based moveset, competitive SP/nature).
   var GB_MAX = 6;
-  var GB_PAGE = 60;              // rendered search results cap (perf guard)
+  var GB_PAGE = 10000;           // the complete national dex; search narrows it
   var gbTeam = [];               // [{id,name,types,bst,mon}] in draft order
 
   var _gbPool = null;
@@ -620,8 +620,8 @@
     if (_gbPool) return _gbPool;
     _gbPool = C.speciesPool().map(function (id) {
       var sp = Dex.species.get(id);
-      return { id: id, name: sp.name, types: sp.types, bst: C.bst(id) };
-    }).sort(function (a, b) { return b.bst - a.bst || (a.name < b.name ? -1 : 1); });
+      return { id: id, name: sp.name, types: sp.types, bst: C.bst(id), stats: sp.baseStats || {} };
+    });
     return _gbPool;
   }
 
@@ -649,6 +649,14 @@
       hits.push(p);
       if (hits.length >= GB_PAGE) break;
     }
+    var stat = ($('tbSortStat') && $('tbSortStat').value) || 'bst';
+    var dir = ($('tbSortDir') && $('tbSortDir').value) || 'desc';
+    hits.sort(function (a, b) {
+      var av = stat === 'name' ? a.name.toLowerCase() : (stat === 'bst' ? a.bst : (a.stats[stat] || 0));
+      var bv = stat === 'name' ? b.name.toLowerCase() : (stat === 'bst' ? b.bst : (b.stats[stat] || 0));
+      var n = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+      return (dir === 'asc' ? n : -n) || a.name.localeCompare(b.name);
+    });
     return { hits: hits, capped: hits.length >= GB_PAGE, query: q };
   }
 
@@ -668,9 +676,9 @@
       if (p) {
         slots += '<div class="tslot filled" data-i="' + i + '">' +
           (i === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
-          '<span class="ts-art">' + animSprite(p.id, 46, 52, '', 1.4, false) + '</span>' +
+          '<span class="ts-art">' + animSprite(p.id, 46, 52, '', 1.4, p.mon && p.mon.shiny) + '</span>' +
           '<span class="ts-name">' + escapeHtml(p.name) + '</span>' +
-          (p.mon && p.mon.item ? '<span class="ts-st ts-item" title="' + escapeHtml(itemName(p.mon.item)) + '" style="background:#5b8cff;color:#fff;font-size:.55rem;padding:2px 5px;border-radius:999px;margin-top:2px;display:inline-flex;align-items:center;gap:2px">' + (window.ItemArt ? window.ItemArt.itemImg(p.mon.item, 18) : '') + '<span>' + escapeHtml(itemName(p.mon.item)) + '</span></span>' : '') +
+          (p.mon && p.mon.item ? '<span class="ts-item" title="' + escapeHtml(itemName(p.mon.item)) + '">' + (window.ItemArt ? window.ItemArt.itemImg(p.mon.item, 20) : '') + '</span>' : '') +
           '<button class="ts-rm" data-rm="' + i + '" title="Remove">\u00d7</button></div>';
       } else {
         slots += '<div class="tslot empty">?</div>';
@@ -796,9 +804,9 @@
     heldHtml += '<button class="btn-secondary wide" style="margin-top:8px" data-gb-held="1">Pick Held Item</button></div>';
 
     var formeHtml = '';
-    // A Gauntlet forme switch is available only for the item currently held.
-    // (Giving that item first automatically enforces its forme.)
-    formeTargets = formeTargets.filter(function (ft) { return mon.item === ft.item; });
+    // Held forme items require the item; custom key-item forme tools are free
+    // and are deliberately never placed in the held-item picker.
+    formeTargets = formeTargets.filter(function (ft) { return (window.Forme.CUSTOM && window.Forme.CUSTOM[ft.item]) || mon.item === ft.item; });
     if (formeTargets.length) {
       formeHtml = '<div class="evo-box forme-box"><div class="evo-title">Forme change</div>' +
         formeTargets.map(function (ft) {
@@ -826,6 +834,7 @@
         '</div>' +
         '<div class="pd-actions">' +
           '<button class="btn-primary pd-gb-train">Train \u00b7 free</button>' +
+          (hasCollectedShiny(mon.id) ? '<button class="btn-secondary wide pd-gb-shiny" data-gb-shiny="1">' + (mon.shiny ? 'Use normal colours' : 'Make shiny') + '</button>' : '') +
         '</div>' +
         '<div class="pd-sec"><div class="pd-label">Moves</div>' +
           '<div class="pd-moves">' + mon.moves.map(function (m) {
@@ -855,13 +864,20 @@
       gbConfigIdx = saveIdx;
       openTrainer(mon, true);
     });
+    var shinyBtn = host.querySelector('[data-gb-shiny]');
+    if (shinyBtn) shinyBtn.addEventListener('click', function () {
+      mon.shiny = !mon.shiny;
+      toast(mon.shiny ? mon.name + ' is now shiny!' : mon.name + ' is back to normal colours.');
+      drawGbDetail(); drawBuilder();
+    });
 
     // Take/change held item
     var takeBtn = host.querySelector('[data-gb-take]');
-    if (takeBtn) takeBtn.addEventListener('click', function () {
-      mon.item = '';
+    if (takeBtn) takeBtn.addEventListener('click', async function () {
+      if (window.Forme && window.Forme.setHeldItemAndEnforce) await window.Forme.setHeldItemAndEnforce({ party: [mon] }, mon, '');
+      else mon.item = '';
       toast('Removed held item.');
-      drawGbDetail();
+      drawGbDetail(); drawBuilder();
     });
 
     // Pick held item button
@@ -880,87 +896,41 @@
   }
 
   // Held item picker for the gauntlet team builder
+  // Gauntlet item picker: one searchable list. Forme-change key items in
+  // Forme.CUSTOM are intentionally absent: they are free-use tools, not held items.
   function openGbHeldPicker() {
     var entry = gbTeam[gbConfigIdx];
     if (!entry || !entry.mon) return;
-    var mon = entry.mon;
-    var host = $('xTeamDetail').querySelector('.overlay-card');
+    var mon = entry.mon, host = $('xTeamDetail').querySelector('.overlay-card');
     if (!host) return;
-
-    var tiers = [
-      { key: 'common', label: 'Common' },
-      { key: 'core', label: 'Core' },
-      { key: 'rare', label: 'Rare' },
-      { key: 'typed', label: 'Type-Boosting' }
-    ];
-    var html = '<div style="margin-bottom:12px"><button class="btn-secondary wide pd-gb-back">\u2190 Back to ' + escapeHtml(mon.name) + '</button></div>';
-    html += '<div class="pd-label" style="margin-bottom:8px">Pick a held item for ' + escapeHtml(mon.name) + '</div>';
-    tiers.forEach(function (tier) {
-      var items = C.ITEM_TIERS[tier.key].filter(function (id) { return Dex.items.get(id).exists; });
-      if (!items.length) return;
-      html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">' + tier.label + '</div>';
-      html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
-      items.forEach(function (id) {
-        var info = (window.Forme && window.Forme.isFormeItem(id))
-        ? { name: window.Forme.itemName(id) } : C.heldItemInfo(id);
-        var on = mon.item === id;
-        html += '<button class="btn-mini' + (on ? ' on' : '') + '" data-gb-give="' + id + '" style="font-size:.7rem;padding:4px 8px"' +
-          ' data-tip="item:' + id + '">' + escapeHtml(info.name) + '</button>';
-      });
-      html += '</div>';
+    var items = (C.allHeldItems ? C.allHeldItems() : C.HELD_ITEMS).filter(function (id) {
+      return !(window.Forme && window.Forme.CUSTOM && window.Forme.CUSTOM[id]);
     });
-    // Gauntlet is unrestricted: include every item the simulator allows a
-    // Pokemon to hold, not just the rotating shop's competitive shortlist.
-    var allHeld = C.allHeldItems ? C.allHeldItems() : C.HELD_ITEMS;
-    if (window.Forme) Object.keys(window.Forme.CUSTOM).forEach(function (id) {
-      if (allHeld.indexOf(id) < 0) allHeld.push(id);
-    });
-    html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">All Held Items</div>';
-    html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
-    allHeld.forEach(function (id) {
-      var on = mon.item === id;
-      var info = (window.Forme && window.Forme.isFormeItem(id))
-        ? { name: window.Forme.itemName(id) } : C.heldItemInfo(id);
-      html += '<button class="btn-mini' + (on ? ' on' : '') + '" data-gb-give="' + id + '" style="font-size:.7rem;padding:4px 8px" data-tip="item:' + id + '">' +
-        (window.ItemArt ? window.ItemArt.itemImg(id, 18) : '') + escapeHtml(info.name) + '</button>';
-    });
-    html += '</div>';
-    // Also show mega stones if applicable
-    if (window.Mega) {
-      var MG = window.Mega;
-      var stones = MG.relevantStones ? MG.relevantStones({ party: [mon] }) : [];
-      if (stones.length) {
-        html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">Mega Stones</div>';
-        html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
-        stones.forEach(function (st) {
-          var on = mon.item === st.id;
-          html += '<button class="btn-mini mega-item' + (on ? ' on' : '') + '" data-gb-give="' + st.id + '" style="font-size:.7rem;padding:4px 8px"' +
-            ' data-tip="item:' + st.id + '">' + escapeHtml(st.name) + '</button>';
-        });
-        html += '</div>';
-      }
+    function render() {
+      var q = (host.querySelector('.gb-item-search').value || '').toLowerCase().trim();
+      var shown = items.filter(function (id) { return itemName(id).toLowerCase().indexOf(q) >= 0; });
+      host.querySelector('.gb-item-results').innerHTML = shown.map(function (id) {
+        return '<button class="btn-mini' + (mon.item === id ? ' on' : '') + '" data-gb-give="' + id + '" data-tip="item:' + id + '">' +
+          (window.ItemArt ? window.ItemArt.itemImg(id, 20) : '') + escapeHtml(itemName(id)) + '</button>';
+      }).join('') || '<div class="tb-empty">No held items match.</div>';
+      host.querySelectorAll('[data-gb-give]').forEach(function (b) { b.addEventListener('click', async function () {
+        var id = b.dataset.gbGive;
+        await (window.Forme && window.Forme.setHeldItemAndEnforce ? window.Forme.setHeldItemAndEnforce({ party: [mon] }, mon, id) : (mon.item = id));
+        toast(mon.name + ' is now holding ' + itemName(id) + '.'); drawGbDetail(); drawBuilder();
+      }); });
     }
-    // Clear item button
-    if (mon.item) {
-      html += '<div style="margin-top:12px"><button class="btn-secondary wide" data-gb-give="">Remove held item</button></div>';
-    }
-    host.innerHTML = html;
-
-    // Back button
-    host.querySelector('.pd-gb-back').addEventListener('click', function () { drawGbDetail(); });
-    // Give item buttons
-    host.querySelectorAll('[data-gb-give]').forEach(function (b) {
-      b.addEventListener('click', async function () {
-        var itemId = b.dataset.gbGive;
-        if (window.Forme && window.Forme.setHeldItemAndEnforce) {
-          await window.Forme.setHeldItemAndEnforce({ party: [mon] }, mon, itemId);
-        } else {
-          mon.item = itemId;
-        }
-        toast(itemId ? mon.name + ' is now holding ' + itemName(itemId) + '.' : 'Removed held item.');
-        drawGbDetail();
-      });
+    host.innerHTML = '<button class="btn-secondary wide pd-gb-back">← Back to ' + escapeHtml(mon.name) + '</button>' +
+      '<div class="pd-label" style="margin:12px 0 8px">Search held items</div>' +
+      '<input class="tb-search gb-item-search" type="search" placeholder="Type to filter items…" autocomplete="off">' +
+      '<div class="gb-item-results" style="display:flex;flex-wrap:wrap;gap:6px"></div>' +
+      (mon.item ? '<button class="btn-secondary wide" style="margin-top:12px" data-gb-clear="1">Remove held item</button>' : '');
+    host.querySelector('.pd-gb-back').addEventListener('click', drawGbDetail);
+    host.querySelector('.gb-item-search').addEventListener('input', render);
+    var clear = host.querySelector('[data-gb-clear]');
+    if (clear) clear.addEventListener('click', async function () {
+      await window.Forme.setHeldItemAndEnforce({ party: [mon] }, mon, ''); toast('Removed held item.'); drawGbDetail(); drawBuilder();
     });
+    render();
   }
 
   // Forme change for the gauntlet team builder (no item cost)
@@ -968,10 +938,10 @@
     var entry = gbTeam[gbConfigIdx];
     if (!entry || !entry.mon) return;
     var mon = entry.mon;
-    // The item is not consumed in Gauntlet, but it is still mandatory.
-    if (!mon.item || !window.Forme || mon.item !== itemId ||
+    // Custom forme tools are free; real held forme items must be equipped.
+    if (!window.Forme || !(window.Forme.CUSTOM && window.Forme.CUSTOM[itemId]) && (!mon.item || mon.item !== itemId) ||
         !window.Forme.targetsFor(mon, itemId).some(function (t) { return t.id === formeId; })) {
-      toast('Hold the proper item to switch to that forme.');
+      toast('This forme cannot be used by this Pokemon.');
       return;
     }
     // Apply the forme change without consuming an item
@@ -4127,10 +4097,8 @@
     (idx.byBase[baseId] || []).forEach(function (e) {
       FM.targetsFor(mon, e.item).forEach(function (t) { formeTargets.push({ item: e.item, target: t }); });
     });
-    // Forme changes are only legal while the required held item is equipped.
-    // This is deliberately checked in the view as well as in the click handler
-    // so the Gauntlet cannot offer a free, itemless forme switch.
-    formeTargets = formeTargets.filter(function (ft) { return mon.item === ft.item; });
+    // Custom key-item formes are free; real held-item formes require the item.
+    formeTargets = formeTargets.filter(function (ft) { return (window.Forme.CUSTOM && window.Forme.CUSTOM[ft.item]) || mon.item === ft.item; });
     if (!formeTargets.length) return '';
     var rows = formeTargets.map(function (ft) {
       return '<button class="evo-btn forme-btn ready" data-gb-run-forme-item="' + ft.item + '" data-gb-run-forme="' + ft.target.id + '">' +
@@ -4143,94 +4111,43 @@
 
     // Gauntlet run: held item picker showing every legal held item
   function openGbRunHeldPicker(mon) {
-    var overlay = $('xTeamDetail');
-    if (!overlay) return;
-    var host = overlay.querySelector('.overlay-card');
+    var overlay = $('xTeamDetail'), host = overlay && overlay.querySelector('.overlay-card');
     if (!host) return;
-
-    var tiers = [
-      { key: 'common', label: 'Common' },
-      { key: 'core', label: 'Core' },
-      { key: 'rare', label: 'Rare' },
-      { key: 'typed', label: 'Type-Boosting' }
-    ];
-    var html = '<div style="margin-bottom:12px"><button class="btn-secondary wide pd-gb-back">\u2190 Back to ' + escapeHtml(mon.name) + '</button></div>';
-    html += '<div class="pd-label" style="margin-bottom:8px">Pick a held item for ' + escapeHtml(mon.name) + '</div>';
-    tiers.forEach(function (tier) {
-      var items = C.ITEM_TIERS[tier.key].filter(function (id) { return Dex.items.get(id).exists; });
-      if (!items.length) return;
-      html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">' + tier.label + '</div>';
-      html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
-      items.forEach(function (id) {
-        var info = (window.Forme && window.Forme.isFormeItem(id))
-        ? { name: window.Forme.itemName(id) } : C.heldItemInfo(id);
-        var on = mon.item === id;
-        html += '<button class="btn-mini' + (on ? ' on' : '') + '" data-gb-run-give="' + id + '" style="font-size:.7rem;padding:4px 8px"' +
-          ' data-tip="item:' + id + '">' + escapeHtml(info.name) + '</button>';
-      });
-      html += '</div>';
+    var items = (C.allHeldItems ? C.allHeldItems() : C.HELD_ITEMS).filter(function (id) {
+      return !(window.Forme && window.Forme.CUSTOM && window.Forme.CUSTOM[id]);
     });
-    // Gauntlet is unrestricted: include every legal held item.
-    var allHeld = C.allHeldItems ? C.allHeldItems() : C.HELD_ITEMS;
-    if (window.Forme) Object.keys(window.Forme.CUSTOM).forEach(function (id) {
-      if (allHeld.indexOf(id) < 0) allHeld.push(id);
-    });
-    html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">All Held Items</div>';
-    html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
-    allHeld.forEach(function (id) {
-      var on = mon.item === id;
-      var info = (window.Forme && window.Forme.isFormeItem(id))
-        ? { name: window.Forme.itemName(id) } : C.heldItemInfo(id);
-      html += '<button class="btn-mini' + (on ? ' on' : '') + '" data-gb-run-give="' + id + '" style="font-size:.7rem;padding:4px 8px" data-tip="item:' + id + '">' +
-        (window.ItemArt ? window.ItemArt.itemImg(id, 18) : '') + escapeHtml(info.name) + '</button>';
-    });
-    html += '</div>';
-    // Mega stones
-    if (window.Mega) {
-      var MG = window.Mega;
-      var gauntRun = { party: [mon], bag: {} };
-      var stones = MG.relevantStones ? MG.relevantStones(gauntRun) : [];
-      if (stones.length) {
-        html += '<div style="margin:8px 0 4px;font-size:.75rem;opacity:.6;text-transform:uppercase">Mega Stones</div>';
-        html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
-        stones.forEach(function (st) {
-          var on = mon.item === st.id;
-          html += '<button class="btn-mini mega-item' + (on ? ' on' : '') + '" data-gb-run-give="' + st.id + '" style="font-size:.7rem;padding:4px 8px"' +
-            ' data-tip="item:' + st.id + '">' + escapeHtml(st.name) + '</button>';
-        });
-        html += '</div>';
-      }
+    function render() {
+      var q = (host.querySelector('.gb-item-search').value || '').toLowerCase().trim();
+      var shown = items.filter(function (id) { return itemName(id).toLowerCase().indexOf(q) >= 0; });
+      host.querySelector('.gb-item-results').innerHTML = shown.map(function (id) {
+        return '<button class="btn-mini' + (mon.item === id ? ' on' : '') + '" data-gb-run-give="' + id + '" data-tip="item:' + id + '">' +
+          (window.ItemArt ? window.ItemArt.itemImg(id, 20) : '') + escapeHtml(itemName(id)) + '</button>';
+      }).join('') || '<div class="tb-empty">No held items match.</div>';
+      host.querySelectorAll('[data-gb-run-give]').forEach(function (b) { b.addEventListener('click', async function () {
+        var id = b.dataset.gbRunGive;
+        await (window.Forme && window.Forme.setHeldItemAndEnforce ? window.Forme.setHeldItemAndEnforce(run, mon, id) : (mon.item = id));
+        toast(mon.name + ' is now holding ' + itemName(id) + '.'); saveGame(); drawPartyDetail();
+      }); });
     }
-    if (mon.item) {
-      html += '<div style="margin-top:12px"><button class="btn-secondary wide" data-gb-run-give="">Remove held item</button></div>';
-    }
-    host.innerHTML = html;
-
-    // Back button -> redraw party detail
-    host.querySelector('.pd-gb-back').addEventListener('click', function () {
-      drawPartyDetail();
+    host.innerHTML = '<button class="btn-secondary wide pd-gb-back">← Back to ' + escapeHtml(mon.name) + '</button>' +
+      '<div class="pd-label" style="margin:12px 0 8px">Search held items</div>' +
+      '<input class="tb-search gb-item-search" type="search" placeholder="Type to filter items…" autocomplete="off">' +
+      '<div class="gb-item-results" style="display:flex;flex-wrap:wrap;gap:6px"></div>' +
+      (mon.item ? '<button class="btn-secondary wide" style="margin-top:12px" data-gb-clear="1">Remove held item</button>' : '');
+    host.querySelector('.pd-gb-back').addEventListener('click', drawPartyDetail);
+    host.querySelector('.gb-item-search').addEventListener('input', render);
+    var clear = host.querySelector('[data-gb-clear]');
+    if (clear) clear.addEventListener('click', async function () {
+      await window.Forme.setHeldItemAndEnforce(run, mon, ''); toast('Removed held item.'); saveGame(); drawPartyDetail();
     });
-    // Give item buttons
-    host.querySelectorAll('[data-gb-run-give]').forEach(function (b) {
-      b.addEventListener('click', async function () {
-        var itemId = b.dataset.gbRunGive;
-        if (window.Forme && window.Forme.setHeldItemAndEnforce) {
-          await window.Forme.setHeldItemAndEnforce(run, mon, itemId);
-        } else {
-          mon.item = itemId;
-        }
-        toast(itemId ? mon.name + ' is now holding ' + itemName(itemId) + '.' : 'Removed held item.');
-        saveGame();
-        drawPartyDetail();
-      });
-    });
+    render();
   }
 
   // Gauntlet run: apply forme change without consuming items
   async function gbRunFormeChange(mon, itemId, formeId) {
-    if (!mon.item || mon.item !== itemId || !window.Forme ||
+    if (!window.Forme || !(window.Forme.CUSTOM && window.Forme.CUSTOM[itemId]) && (!mon.item || mon.item !== itemId) ||
         !window.Forme.targetsFor(mon, itemId).some(function (t) { return t.id === formeId; })) {
-      toast('Hold the proper item to switch to that forme.');
+      toast('This forme cannot be used by this Pokemon.');
       return;
     }
     var sp = Dex.species.get(formeId);
@@ -4436,6 +4353,13 @@
 
   function loadProfile() { profile = ST.loadProfile(); return profile; }
   function saveProfile() { return ST.saveProfile(profile); }
+
+  // Shiny ownership is a profile unlock. It is never rolled automatically in
+  // the Gauntlet; the player explicitly opts a selected Pokemon in or out.
+  function hasCollectedShiny(id) {
+    loadProfile();
+    return (profile.shinies || []).some(function (sh) { return sh.id === id; });
+  }
 
   // A shiny is registered the moment it is OBTAINED (caught or chosen as a
   // starter) -- not when the run ends. Losing the run must not lose the shiny.
@@ -4875,6 +4799,8 @@
     $('btnTbBack').addEventListener('click', function () { gbConfigIdx = -1; gbTraining = false; show('Title'); setContinueState(); });
     $('btnTbStart').addEventListener('click', confirmGauntlet);
     $('tbSearch').addEventListener('input', drawBuilder);
+    $('tbSortStat').addEventListener('change', drawBuilder);
+    $('tbSortDir').addEventListener('change', drawBuilder);
 
     // ---- AUTO-RESUME: if a run was mid-battle when the app was closed,
     // go directly back to that battle instead of showing the title.

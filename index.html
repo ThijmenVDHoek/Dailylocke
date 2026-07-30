@@ -188,6 +188,15 @@
     <input type="search" id="tbSearch" class="tb-search"
            placeholder="Search any Pokemon&hellip;" autocomplete="off"
            aria-label="Search Pokemon">
+    <div class="tb-sort" aria-label="Sort Pokemon">
+      <label>Sort by <select id="tbSortStat">
+        <option value="bst">BST</option><option value="hp">HP</option>
+        <option value="atk">Attack</option><option value="def">Defense</option>
+        <option value="spa">Sp. Atk</option><option value="spd">Sp. Def</option>
+        <option value="spe">Speed</option><option value="name">Name</option>
+      </select></label>
+      <select id="tbSortDir" aria-label="Sort direction"><option value="desc">Highest to lowest</option><option value="asc">Lowest to highest</option></select>
+    </div>
     <div id="tbList" class="tb-list"></div>
 
     <div class="x-battle-dock">

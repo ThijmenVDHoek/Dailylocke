@@ -1844,3 +1844,11 @@ body.modal-open { overflow:hidden; }
 .st-plus .st-fin { color:var(--red); }
 .st-minus .st-name { color:var(--blue); }
 .st-minus .st-fin { color:var(--blue); }
+
+/* Team builder controls and compact item marker. */
+.tb-sort { display:flex; gap:8px; align-items:center; margin:0 0 12px; color:var(--ink-3); font-size:.8rem; }
+.tb-sort select { background:var(--surface-hi); color:var(--ink); border:1px solid rgba(255,255,255,.15); border-radius:8px; padding:7px 8px; font:inherit; }
+.ts-item { position:absolute; left:50%; bottom:4px; transform:translateX(-50%); width:24px; height:24px; display:flex; align-items:center; justify-content:center; z-index:2; filter:drop-shadow(0 1px 2px #000); }
+.ts-item img { display:block; }
+.tslot.filled { position:relative; }
+.gb-item-results .btn-mini { display:inline-flex; align-items:center; gap:3px; }
