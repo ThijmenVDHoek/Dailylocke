@@ -107,7 +107,7 @@
         // different sprite. Keep them when their battle data differs from
         // the canonical form (Basculegion-F, Indeedee-F, Oinkologne-F, ...).
         var isDistinctGender = false;
-        if (s.gender === 'M' || s.gender === 'F') {
+        if ((s.forme === 'M' || s.forme === 'F') && (s.gender === 'M' || s.gender === 'F')) {
           var base = Dex.species.get(s.baseSpecies);
           var same = base.exists && JSON.stringify(s.baseStats) === JSON.stringify(base.baseStats) &&
             JSON.stringify(s.types) === JSON.stringify(base.types) &&
