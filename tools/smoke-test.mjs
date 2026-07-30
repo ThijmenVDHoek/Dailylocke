@@ -964,6 +964,194 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     window.Game.run.mode === 'daily' && window.Game.run.over === true);
 }
 
+// ------------------------------------------------------- team gauntlet ----
+// The third mode: draft any six Pokemon at no cost, then fight trainer after
+// trainer. Two contracts are pinned here:
+//   1. DIFFICULTY PARITY -- the scaling plumbing is the same code the Daily
+//      and Free Play run through (tier/trainerFor/makeTrainerTeam, keyed on
+//      run.section), so trainer N of a Gauntlet is identical to the Nth
+//      trainer battle of the other modes.
+//   2. THE SHAPE -- a free six-mon draft, no wilds, no cash, no mart, no bag,
+//      no running; survivors heal after every won battle.
+{
+  const N = window.Nuz;
+  const S = window.Storage;
+  const doc = window.document;
+  const mk = (mode, section) => {
+    const r = N.newRun(99);
+    r.mode = mode;
+    r.section = section;
+    return r;
+  };
+
+  // ---- the slot ----
+  check('the gauntlet has its own save slot',
+    !!S.SLOTS.gauntlet && S.SLOTS.gauntlet !== S.SLOTS.free && S.SLOTS.gauntlet !== S.SLOTS.daily,
+    `${S.SLOTS.gauntlet}`);
+  check('keyFor routes the gauntlet to its slot',
+    S.keyFor('gauntlet') === S.SLOTS.gauntlet && S.keyFor(undefined) === S.SLOTS.free);
+  check('gauntlet runs are identified independently of Free Play',
+    N.isGauntlet(mk('gauntlet', 1)) === true && N.isGauntlet(mk('free', 1)) === false &&
+    N.isGauntlet(null) === false);
+
+  // ---- the shape ----
+  check('every gauntlet battle is a trainer battle',
+    N.nextIsTrainer(mk('gauntlet', 1)) === true && N.nextIsTrainer(mk('gauntlet', 3)) === true);
+  check('the gauntlet advances difficulty after EVERY battle', (() => {
+    const g = mk('gauntlet', 1);
+    const moved = N.advanceBattle(g);
+    return moved === true && g.section === 2 && g.battleInSection === 0;
+  })());
+  check('other modes still take four battles to advance a section', (() => {
+    const f = mk('free', 1);
+    for (let i = 0; i < 3; i++) {
+      if (N.advanceBattle(f)) return false;   // moved early
+    }
+    return f.section === 1 && N.advanceBattle(f) === true && f.section === 2;
+  })());
+
+  // ---- difficulty parity: same seed + same section = same opponent ----
+  check('trainer difficulty bands match Free Play at battles 2 and 10',
+    JSON.stringify(N.tier(mk('gauntlet', 2), true)) === JSON.stringify(N.tier(mk('free', 2), true)) &&
+    JSON.stringify(N.tier(mk('gauntlet', 10), true)) === JSON.stringify(N.tier(mk('free', 10), true)));
+  const g2 = mk('gauntlet', 2), f2 = mk('free', 2);
+  const g10 = mk('gauntlet', 10), f10 = mk('free', 10);
+  check('trainer 2 is the same opponent in every mode', (() => {
+    const a = N.trainerFor(g2), b = N.trainerFor(f2);
+    return a.name === b.name && a.sprite === b.sprite && a.boss === b.boss;
+  })());
+  check('trainer 10 is the same opponent in every mode', (() => {
+    const a = N.trainerFor(g10), b = N.trainerFor(f10);
+    return a.name === b.name && a.sprite === b.sprite && a.boss === b.boss;
+  })());
+  check('trainer 2 fields the exact same team in every mode',
+    (await N.makeTrainerTeam(g2, N.trainerFor(g2))).map((m) => m.id).join() ===
+    (await N.makeTrainerTeam(f2, N.trainerFor(f2))).map((m) => m.id).join());
+  check('trainer 10 fields the exact same team in every mode',
+    (await N.makeTrainerTeam(g10, N.trainerFor(g10))).map((m) => m.id).join() ===
+    (await N.makeTrainerTeam(f10, N.trainerFor(f10))).map((m) => m.id).join());
+  check('boss clauses and strategies line up too',
+    JSON.stringify(N.bossClauseFor(mk('gauntlet', 20))) ===
+    JSON.stringify(N.bossClauseFor(mk('free', 20))));
+  check('ascension scaling applies to the gauntlet like any other run',
+    N.ascension(mk('gauntlet', 16)) === N.ascension(mk('free', 16)) &&
+    N.ascensionEffects(mk('gauntlet', 31)).healPct === N.ascensionEffects(mk('free', 31)).healPct);
+
+  // ---- the DOM flow: draft -> route -> resume ----
+  const mem = new Map();
+  const originalLocalStorage = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+      setItem: (k, v) => mem.set(k, String(v)),
+      removeItem: (k) => mem.delete(k),
+      clear: () => mem.clear(),
+    },
+  });
+  const waitFor = async (fn, ms = 12000) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      const value = fn();
+      if (value) return value;
+      await new Promise((res) => setTimeout(res, 25));
+    }
+    return null;
+  };
+
+  window.Game.show('Title');
+  const gBtn = doc.getElementById('btnGauntlet');
+  check('the title offers the Team Gauntlet', !!gBtn && /team gauntlet/i.test(gBtn.textContent));
+  gBtn.click();
+  check('the gauntlet CTA opens the team draft',
+    doc.getElementById('screenTeamBuilder').hidden === false);
+  check('the draft cannot start empty', doc.getElementById('btnTbStart').disabled === true);
+  check('the catalogue lists real species with sprites and stats',
+    doc.querySelectorAll('#tbList .tb-row').length > 0 &&
+    !!doc.querySelector('#tbList .tb-row .tb-art img') &&
+    /BST \d+/.test(doc.querySelector('#tbList .tb-row .tb-bst').textContent));
+
+  const searchFor = (q) => {
+    const box = doc.getElementById('tbSearch');
+    box.value = q;
+    box.dispatchEvent(new window.Event('input'));
+  };
+  searchFor('kommoo');
+  const hyphenHit = [...doc.querySelectorAll('#tbList .tb-row')].some((r) => r.dataset.id === 'kommoo');
+  searchFor('ho oh');
+  const spaceHit = [...doc.querySelectorAll('#tbList .tb-row')].some((r) => r.dataset.id === 'hooh');
+  searchFor('oricorio pau');
+  const quoteHit = [...doc.querySelectorAll('#tbList .tb-row')].some((r) => r.dataset.id === 'oricoriopau');
+  check('the search is punctuation-insensitive', hyphenHit && spaceHit && quoteHit,
+    `kommoo=${hyphenHit} 'ho oh'=${spaceHit} 'oricorio pau'=${quoteHit}`);
+
+  const picks = ['gengar', 'snorlax', 'garchomp', 'scizor', 'blissey', 'rotomwash'];
+  for (const id of picks) {
+    searchFor(id);
+    const row = doc.querySelector(`#tbList .tb-row[data-id="${id}"]`);
+    check(`the draft offers ${id}`, !!row && !row.disabled);
+    if (row) row.click();
+  }
+  check('six picks complete the draft',
+    doc.getElementById('tbCount').textContent.startsWith('6 / 6'));
+  check('the start action unlocks at six picks',
+    doc.getElementById('btnTbStart').disabled === false);
+  searchFor('pikachu');
+  check('a full draft refuses a seventh pick',
+    doc.querySelector('#tbList .tb-row[data-id="pikachu"]') &&
+    doc.querySelector('#tbList .tb-row[data-id="pikachu"]').disabled === true);
+  doc.querySelector('#tbTeam .tslot[data-i="0"]').click();
+  check('tapping a draft slot removes that Pokemon',
+    doc.getElementById('tbCount').textContent.startsWith('5 / 6'));
+  searchFor('gengar');
+  doc.querySelector('#tbList .tb-row[data-id="gengar"]').click();
+  check('a removed Pokemon can be re-added',
+    doc.getElementById('btnTbStart').disabled === false);
+
+  doc.getElementById('btnTbStart').click();
+  const drafted = await waitFor(() =>
+    window.Game.run && window.Game.run.mode === 'gauntlet' && window.Game.run.party.length === 6);
+  check('confirming the draft creates the gauntlet run', !!drafted);
+  check('the drafted team costs nothing and owns nothing', (() => {
+    const r = window.Game.run;
+    return r.money === 0 && Object.keys(r.bag).length === 0;
+  })());
+  check('drafted Pokemon are competitively raised like starters', (() => {
+    const m = window.Game.run.party[0];
+    const sp = m.sp;
+    const total = sp.hp + sp.atk + sp.def + sp.spa + sp.spd + sp.spe;
+    return total > 0 && (sp.atk > 0 || sp.spa > 0) && sp.spe > 0 &&
+      ['Adamant', 'Modest'].includes(m.nature);
+  })());
+
+  // The route screen is pure battle: trainer up next, no economy anywhere.
+  check('the route offers a trainer battle',
+    doc.getElementById('screenCrossroads').hidden === false &&
+    doc.getElementById('xNextLabel').textContent === 'Trainer Battle');
+  check('the route shows the trainer counter',
+    /Gauntlet \u00b7 Trainer 1/.test(doc.getElementById('xEyebrow').textContent),
+    doc.getElementById('xEyebrow').textContent);
+  check('the gauntlet hides the cash readout, the bag and the mart',
+    doc.getElementById('xCashPill').hidden === true &&
+    doc.getElementById('xBagBlock').hidden === true &&
+    doc.getElementById('xShopBlock').hidden === true);
+
+  // The run autosaves to its own slot, and the title CTA becomes a resume.
+  check('the gauntlet autosaves to its own slot', (() => {
+    const raw = mem.get(S.SLOTS.gauntlet);
+    return !!raw && JSON.parse(raw).mode === 'gauntlet' && JSON.parse(raw).party.length === 6;
+  })());
+  window.Game.setContinueState();
+  check('the title CTA becomes Resume Gauntlet once parked',
+    doc.getElementById('gauntletMain').textContent === 'Resume Gauntlet' &&
+    doc.getElementById('btnAbandonGauntlet').hidden === false);
+
+  S.clearRun('gauntlet');
+  window.Game.show('Title');
+  mem.clear();
+  Object.defineProperty(window, 'localStorage', originalLocalStorage);
+}
+
 // ------------------------------------------------------------- roles ------
 // Generated sets used to be four damaging moves on everything, so every
 // Pokemon played identically. Roles reserve slots for the utility that
@@ -1118,6 +1306,21 @@ const host = window.document.getElementById('battleHost');
 const ui = new window.BattleUI();
 ui.mount(host);
 check('BattleUI mounts', ui.s.mounted === true);
+
+// The Gauntlet strips the battle controls down to just "Party": no items to
+// use, no escape from a trainer. Other modes must keep every button.
+ui.setActions({ canSwitch: true, canRun: true, itemCount: 3 });
+const wildBtns = [...host.querySelectorAll('.ab')]
+  .map((b) => `${b.dataset.a}:${b.disabled}`).sort().join(',');
+check('a regular battle keeps bag, party and a working run button',
+  wildBtns === 'bag:false,run:false,switch:false', wildBtns);
+ui.setActions({ canSwitch: true, noBag: true, noRun: true });
+const gBtns = [...host.querySelectorAll('.ab')].map((b) => b.dataset.a).join(',');
+check('a gauntlet battle offers only the party button', gBtns === 'switch', gBtns);
+check('the gauntlet actbar collapses to a single column',
+  !!host.querySelector('.actbar.one'));
+ui.setActions(null);
+ui.render();
 
 // The regression this refactor targets: setupBattle() before mount() finishes.
 const ui2 = new window.BattleUI();

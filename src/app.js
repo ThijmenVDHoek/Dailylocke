@@ -179,7 +179,7 @@
   }
 
   // ------------------------------------------------------------ SCREENS ---
-  var SCREENS = ['Title', 'Starter', 'Crossroads', 'Battle',
+  var SCREENS = ['Title', 'Starter', 'TeamBuilder', 'Crossroads', 'Battle',
                  'Reward', 'Catch', 'Tutor', 'Evolve', 'Summary', 'GameOver',
                  'DailyResult', 'Profile', 'Shinies', 'History', 'Rules'];
   function show(name) {
@@ -328,13 +328,20 @@
   function initTitle() {
     $('btnNewRun').addEventListener('click', startFreeRun);
     $('btnDaily').addEventListener('click', onDailyClick);
+    $('btnGauntlet').addEventListener('click', onGauntletClick);
+    var agb = $('btnAbandonGauntlet');
+    if (agb) agb.addEventListener('click', function () {
+      if (confirm('Abandon the Gauntlet run? Your hand-built team is lost.')) {
+        clearSave('gauntlet'); if (run && run.mode === 'gauntlet') run = null; setContinueState();
+      }
+    });
     var tl = $('btnTitleLoad');
     if (tl) tl.addEventListener('click', function () { openSaveImport(); });
     $('btnTitleMenu').addEventListener('click', openMenu);
     var ab = $('btnAbandonTitle');
     if (ab) ab.addEventListener('click', function () {
       if (confirm('Abandon the Free Play run? Your team is lost.')) {
-        clearSave('free'); if (run && run.mode !== 'daily') run = null; setContinueState();
+        clearSave('free'); if (run && run.mode === 'free') run = null; setContinueState();
       }
     });
     var cont = $('btnContinue');
@@ -365,6 +372,16 @@
         '.\n\nStarting today\u2019s Daily replaces it. Use "Move to Free Play" on the ' +
         'title screen first if you want to keep it.')) return;
     startDailyRun();
+  }
+
+  // The Gauntlet CTA mirrors the Daily's: resume the parked run when one
+  // exists, otherwise open the draft. One click, two meanings, no fork.
+  function onGauntletClick() {
+    var saved = loadGame('gauntlet');
+    if (saved) {
+      run = reviveRun(saved); renderCrossroads(); show('Crossroads'); return;
+    }
+    startGauntlet();
   }
 
   // ---- RUN STARTERS --------------------------------------------------------
@@ -503,6 +520,29 @@
       if (freeSep) freeSep.hidden = dailyComplete;
     }
 
+    // ---- Gauntlet row ----
+    // The third slot is independent too: a parked Gauntlet turns the CTA into
+    // a resume button, exactly like the Free Play row above.
+    var gauntlet = loadGame('gauntlet');
+    var gMain = $('gauntletMain'), gSub = $('gauntletSub'), gBtn = $('btnGauntlet');
+    var gAb = $('btnAbandonGauntlet');
+    if (gMain && gSub && gBtn) {
+      if (gauntlet) {
+        gBtn.classList.remove('btn-glass');
+        gBtn.classList.add('btn-white', 'btn-daily');
+        gMain.textContent = 'Resume Gauntlet';
+        gSub.textContent = 'Trainer ' + (gauntlet.section || 1) + ' \u00b7 ' +
+          (gauntlet.trainersBeaten || 0) + ' beaten \u00b7 ' +
+          ((gauntlet.party && gauntlet.party.length) || 0) + ' Pokemon left';
+      } else {
+        gBtn.classList.add('btn-glass');
+        gBtn.classList.remove('btn-white', 'btn-daily');
+        gMain.textContent = 'Team Gauntlet';
+        gSub.textContent = 'Build 6 free Pokemon \u00b7 trainers only';
+      }
+    }
+    if (gAb) gAb.hidden = !gauntlet;
+
     // ---- archived Daily offer ----
     var ar = $('btnArchiveDaily');
     if (ar) {
@@ -585,29 +625,194 @@
     });
   }
 
+  // ----------------------------------------------------- TEAM GAUNTLET ----
+  // The third mode: draft any six Pokemon at no cost, then fight trainer
+  // after trainer. There is deliberately no starter RNG here -- the whole
+  // point is that the player chooses the exact team they want to climb with.
+  // Picks go through makeMon() + trainPlayerMon(), so a built mon is raised
+  // exactly like a starter (role-based moveset, competitive SP/nature).
+  var GB_MAX = 6;
+  var GB_PAGE = 60;              // rendered search results cap (perf guard)
+  var gbTeam = [];               // [{id,name,types,bst}] in draft order
+
+  var _gbPool = null;
+  function gbPool() {
+    if (_gbPool) return _gbPool;
+    _gbPool = C.speciesPool().map(function (id) {
+      var sp = Dex.species.get(id);
+      return { id: id, name: sp.name, types: sp.types, bst: C.bst(id) };
+    }).sort(function (a, b) { return b.bst - a.bst || (a.name < b.name ? -1 : 1); });
+    return _gbPool;
+  }
+
+  function gbChosen(id) {
+    return gbTeam.some(function (p) { return p.id === id; });
+  }
+
+  function gbMatches(query) {
+    var q = String(query || '').trim().toLowerCase();
+    // Punctuation-insensitive both ways: "farfetchd" finds Farfetch'd,
+    // "mr mime" finds Mr. Mime and "rotomwash" finds Rotom-Wash.
+    var words = q
+      ? q.split(/\s+/).map(function (w) { return w.replace(/[^a-z0-9]/g, ''); })
+          .filter(function (w) { return w.length > 0; })
+      : [];
+    var hits = [];
+    var pool = gbPool();
+    for (var i = 0; i < pool.length; i++) {
+      var p = pool[i];
+      if (words.length) {
+        var hay = (p.name + ' ' + p.id + ' ' + p.types.join(' '))
+          .toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (!words.every(function (w) { return hay.indexOf(w) >= 0; })) continue;
+      }
+      hits.push(p);
+      if (hits.length >= GB_PAGE) break;
+    }
+    return { hits: hits, capped: hits.length >= GB_PAGE, query: q };
+  }
+
+  function startGauntlet() {
+    gbTeam = [];
+    $('tbSearch').value = '';
+    drawBuilder();
+    show('TeamBuilder');
+  }
+
+  function drawBuilder() {
+    // ---- the six draft slots ----
+    var teamHost = $('tbTeam');
+    var slots = '';
+    for (var i = 0; i < GB_MAX; i++) {
+      var p = gbTeam[i];
+      if (p) {
+        slots += '<button class="tslot filled" data-i="' + i + '" title="Tap to remove">' +
+          (i === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
+          '<span class="ts-art">' + animSprite(p.id, 46, 52, '', 1.4, false) + '</span>' +
+          '<span class="ts-name">' + escapeHtml(p.name) + '</span></button>';
+      } else {
+        slots += '<div class="tslot empty">?</div>';
+      }
+    }
+    teamHost.innerHTML = slots;
+    teamHost.querySelectorAll('.tslot[data-i]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        gbTeam.splice(+b.dataset.i, 1);
+        drawBuilder();
+      });
+    });
+
+    $('tbCount').textContent = gbTeam.length + ' / ' + GB_MAX +
+      (gbTeam.length === GB_MAX ? ' \u00b7 team complete!' : '');
+    var startBtn = $('btnTbStart');
+    startBtn.disabled = gbTeam.length !== GB_MAX;
+    $('tbStartLabel').textContent = gbTeam.length === GB_MAX
+      ? 'Start Gauntlet'
+      : 'Pick ' + (GB_MAX - gbTeam.length) + ' more';
+
+    // ---- the catalogue ----
+    var m = gbMatches($('tbSearch').value);
+    var full = gbTeam.length >= GB_MAX;
+    var listHost = $('tbList');
+    if (!m.hits.length) {
+      listHost.innerHTML = '<div class="tb-empty">No Pokemon matches that name.</div>';
+      return;
+    }
+    listHost.innerHTML = m.hits.map(function (p) {
+      var taken = gbChosen(p.id);
+      var dis = taken || full ? ' disabled' : '';
+      return '<button class="tb-row' + (taken ? ' seen' : '') + '" data-id="' + p.id + '"' + dis + '>' +
+        '<span class="tb-art">' + animSprite(p.id, 48, 56, '', 1.45, false) + '</span>' +
+        '<span class="tb-who"><span class="tb-name">' + escapeHtml(p.name) + '</span>' +
+        '<span class="tb-meta"><span class="types">' + typeChips(p.types) + '</span>' +
+        '<span class="tb-bst">BST ' + p.bst + (C.isLegendary(p.id) ? ' \u00b7 Legendary' : '') + '</span></span></span>' +
+        '<span class="tb-add">' + (taken ? 'Picked' : '+ Add') + '</span></button>';
+    }).join('') + (m.capped
+      ? '<div class="tb-empty">More matches \u2014 keep typing to narrow it down.</div>'
+      : '');
+    listHost.querySelectorAll('.tb-row[data-id]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var id = b.dataset.id;
+        if (gbChosen(id) || gbTeam.length >= GB_MAX) return;
+        var p = gbMatches($('tbSearch').value).hits.filter(function (x) { return x.id === id; })[0];
+        if (!p) return;
+        gbTeam.push(p);
+        try { playCry(id); } catch (e) {}
+        drawBuilder();
+        if (gbTeam.length >= GB_MAX) {
+          toast('Team complete \u2014 tap Start Gauntlet!');
+        }
+      });
+    });
+  }
+
+  // Draft done -> create the run. All six mons are made fresh (the player
+  // pays nothing, hence "no cost": no catches, no cash, no shop).
+  var gbStarting = false;
+  async function confirmGauntlet() {
+    if (gbStarting || gbTeam.length !== GB_MAX) return;
+    gbStarting = true;
+    var startBtn = $('btnTbStart');
+    startBtn.disabled = true;
+    $('tbStartLabel').textContent = 'Preparing your team\u2026';
+    try {
+      run = N.newRun(Math.floor(Math.random() * 1e9));
+      run.mode = 'gauntlet';
+      run.dailyDate = null;
+      run.dailyNumber = 0;
+      run.maxSections = 0;          // endless trainer rush
+      run.sectionMarks = [];
+      run.trainingPaidThisRound = false;
+      run.money = 0;                // no cash in the Gauntlet -- ever
+      for (var i = 0; i < gbTeam.length; i++) {
+        var mon = N.trainPlayerMon(await C.makeMon(gbTeam[i].id));
+        mon.species = C.cleanName(mon.id);
+        run.party.push(mon);
+        N.trackMon(run, mon);
+        run.seenSpecies[mon.id] = 1;
+      }
+      N.logMsg(run, 'You set out with a hand-picked team of six.');
+      saveGame();
+      gbTeam = [];
+      renderCrossroads();
+      show('Crossroads');
+      toast('Gauntlet started \u2014 Trainer 1 awaits!');
+    } catch (e) {
+      console.error('[gauntlet] draft failed', e);
+      toast('Something went wrong building the team. Try again.');
+      drawBuilder();
+    } finally {
+      gbStarting = false;
+    }
+  }
+
   // --------------------------------------------------------- CROSSROADS ---
   function renderCrossroads() {
     // If the app was closed mid-battle, the synced HP/status is preserved in
     // run.party but the battle is lost. Clear the flag so the user can continue.
     if (run._inBattle) { run._inBattle = false; saveGame(); }
     renderHud();
-    var trainerNext = N.nextIsTrainer(run);
+    var isG = N.isGauntlet(run);
+    var trainerNext = N.nextIsTrainer(run);   // always true in a Gauntlet
+    var gTrainer = isG ? N.trainerFor(run) : null;
     var n = run.battleInSection;
     var routeNames = ['Verdant Trail', 'Sunlit Pass', 'Amber Hollow', 'Moonlit Ridge',
                       'Windward Steps', 'Quiet Glade', 'Ashen Flats', 'Silver Causeway'];
-    $('xSection').textContent =
-      routeNames[C.hashString(run.seed + '|route|' + run.section) % routeNames.length];
+    $('xSection').textContent = isG
+      ? gTrainer.name
+      : routeNames[C.hashString(run.seed + '|route|' + run.section) % routeNames.length];
     var eyebrow = $('xEyebrow');
     if (eyebrow) {
       // A finite Daily says how much is left; Free Play just counts up.
       eyebrow.textContent = run.maxSections
         ? 'Daily \u00b7 Section ' + run.section + ' of ' + run.maxSections
-        : 'Section ' + run.section;
+        : (isG ? 'Gauntlet \u00b7 Trainer ' + run.section : 'Section ' + run.section);
     }
     // One quiet line of progress instead of a stepper graphic.
     var stageNames = ['Capture', 'Wild', 'Wild', 'Trainer'];
-    $('xProgress').textContent =
-      'Stop ' + Math.min(n + 1, 4) + ' of 4  \u00b7  ' + stageNames[Math.min(n, 3)];
+    $('xProgress').textContent = isG
+      ? run.trainersBeaten + ' beaten \u00b7 survivors heal after every win'
+      : 'Stop ' + Math.min(n + 1, 4) + ' of 4  \u00b7  ' + stageNames[Math.min(n, 3)];
     renderAscension(trainerNext);
 
     var isCapture = !trainerNext && n === 0;
@@ -621,7 +826,7 @@
       var art;
       if (isCapture) art = window.ItemArt ? window.ItemArt.itemImg('pokeball', 32, 'route-ball') : '';
       else if (trainerNext) {
-        var trainerArt = N.trainerFor(run);
+        var trainerArt = gTrainer || N.trainerFor(run);
         art = '<img src="https://play.pokemonshowdown.com/sprites/trainers/' + trainerArt.sprite + '.png" alt="' + trainerArt.cls + '" onerror="this.style.display=\'none\'">';
         bi.className = 'x-ic x-art trainer-art';
       } else {
@@ -639,6 +844,8 @@
     if (catchOpen) {
       desc.textContent = 'Your only catch of Section ' + run.section + ' \u2014 weaken it, then throw a ball.';
       desc.classList.add('ok');
+    } else if (trainerNext && isG) {
+      desc.textContent = 'No items, no running \u2014 win and your survivors are fully restored.';
     } else if (trainerNext) {
       desc.textContent = 'A trainer with a full team and smarter tactics.';
     } else if (run.catchMissed) {
@@ -652,10 +859,18 @@
 
     drawTeamStrip();
     drawPartyDetail();
-    drawOwned();
 
-    // the shop lives on this screen now
-    openMart();
+    // The Gauntlet has no economy at all: no cash, no bag, no Mart. The team
+    // strip and the trainer preview are the whole route screen.
+    var cashPill = $('xCashPill'), bagBlock = $('xBagBlock'), shopBlock = $('xShopBlock');
+    if (cashPill) cashPill.hidden = isG;
+    if (bagBlock) bagBlock.hidden = isG;
+    if (shopBlock) shopBlock.hidden = isG;
+    if (!isG) {
+      drawOwned();
+      // the shop lives on this screen now
+      openMart();
+    }
   }
 
   // ---- ASCENSION BANNER ----------------------------------------------------
@@ -1244,7 +1459,9 @@
       }
     }
 
-    // Train button text
+    // Train button text. The Gauntlet has no money and no shop services, so
+    // its detail sheet never offers training, held items or evolutions.
+    var isG = N.isGauntlet(run);
     var trainLabel = run.trainingPaidThisRound
       ? 'Train more \u00b7 already paid this round'
       : 'Train Pokemon \u00b7 $' + SERVICE_PRICE.toLocaleString();
@@ -1275,9 +1492,10 @@
           '<div class="pd-fact"><span class="k">KOs</span><span class="v">' + kos + '</span></div>' +
         '</div>' +
 
+        (isG ? '' :
         '<div class="pd-actions">' +
           '<button class="btn-primary pd-train"><img class="ic-train-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/power-bracer.png" alt="">' + trainLabel + '</button>' +
-        '</div>' +
+        '</div>') +
 
         '<div class="pd-sec"><div class="pd-label">Moves</div>' +
           '<div class="pd-moves">' + mon.moves.map(function (m) {
@@ -1299,6 +1517,7 @@
         '</div>' +
         etherHtml +
 
+        (isG ? '' :
         '<div class="pd-sec"><div class="pd-label">Held item</div>' +
           (mon.item
             ? '<button class="pd-held" data-take="1" data-tip="item:' + mon.item + '">' +
@@ -1308,7 +1527,7 @@
         '</div>' +
 
         evoRowHtml(mon, partySel) +
-        formeRowHtml(mon) +
+        formeRowHtml(mon)) +
 
       '</div>' +
       '<button type="button" class="btn-secondary wide pd-close">Close</button>';
@@ -2175,8 +2394,11 @@
     u.setRunInfo({
       left: cfg.isWild
         ? ('Section ' + run.section + ' \u00b7 ' + (cfg.catchable ? 'Capture Encounter' : 'Wild Battle ' + run.battleInSection))
-        : ('Section ' + run.section + ' \u00b7 Trainer Battle \u00b7 ' + cfg.trainer.name),
-      money: run.money
+        : (N.isGauntlet(run)
+            ? ('Gauntlet \u00b7 Trainer ' + run.section + ' \u00b7 ' + cfg.trainer.name)
+            : ('Section ' + run.section + ' \u00b7 Trainer Battle \u00b7 ' + cfg.trainer.name)),
+      // No cash exists in a Gauntlet, so the money readout goes away entirely.
+      money: N.isGauntlet(run) ? null : run.money
     });
 
     var p = run.party[0], e = cfg.enemies[0];
@@ -2764,6 +2986,10 @@
       // Fleeing always works, but only from a WILD battle -- a trainer will
       // not let you walk away. It costs you the battle's prize money.
       canRun: bctx.cfg.isWild,
+      // The Gauntlet is pure battle: no bag items to spend, ever, and no
+      // running from a trainer -- so those buttons are not offered at all.
+      noBag: N.isGauntlet(run),
+      noRun: N.isGauntlet(run),
       onBag: showBagPanel,
       onSwitch: function () { showPartyPanel(false); },
       onRun: fleeBattle
@@ -3252,12 +3478,16 @@
       }
       if (res.result === 'win') {
         run.battlesWon++;
-        var money = bctx.cfg.isWild ? N.wildReward(run) : N.trainerReward(run);
+        // The Gauntlet pays nothing: no cash exists in the mode at all.
+        var money = N.isGauntlet(run) ? 0
+          : (bctx.cfg.isWild ? N.wildReward(run) : N.trainerReward(run));
         var healed = false;
         if (!bctx.cfg.isWild) {
           run.trainersBeaten++;
           // Beating a trainer closes the section: the survivors are patched
           // up for free. (The fallen stay fallen -- healAll skips them.)
+          // Every Gauntlet battle is a trainer battle, so this is also the
+          // Gauntlet's "full restore after every won battle".
           healed = N.alive(run).some(function (m) { return m.hpPct < 1 || m.status; });
           N.healAll(run);
           if (healed) N.logMsg(run, 'Your team rested and recovered fully.');
@@ -3306,6 +3536,13 @@
     var newSection = N.advanceBattle(run);
     martStock = null;             // fresh stock each stop
     run._shopSeq = (run._shopSeq || 0) + 1;
+    // The Gauntlet keeps its momentum: win -> heal -> next trainer. No share
+    // marks, no section summary, no shop -- the route screen IS the breather.
+    if (N.isGauntlet(run)) {
+      saveGame();
+      renderCrossroads(); show('Crossroads');
+      return;
+    }
     if (newSection) {
       recordSectionMark(finishedSection);
       // A finite run ENDS here rather than rolling into another section.
@@ -3396,8 +3633,11 @@
     var m = N.mvp(run);
     show('GameOver');
     $('goScore').innerHTML =
-      '<div class="score-big">' + run.battlesWon + '</div><div class="score-lbl">battles won</div>' +
-      '<p>Reached <b>Section ' + run.section + '</b> \u00b7 Trainers beaten <b>' + run.trainersBeaten + '</b> \u00b7 Caught <b>' + run.caught + '</b></p>';
+      '<div class="score-big">' + run.battlesWon + '</div><div class="score-lbl">' +
+        (N.isGauntlet(run) ? 'trainers beaten' : 'battles won') + '</div>' +
+      (N.isGauntlet(run)
+        ? '<p>Reached <b>Trainer ' + run.section + '</b> \u00b7 Team wiped after <b>' + run.trainersBeaten + '</b> wins</p>'
+        : '<p>Reached <b>Section ' + run.section + '</b> \u00b7 Trainers beaten <b>' + run.trainersBeaten + '</b> \u00b7 Caught <b>' + run.caught + '</b></p>');
     $('goMvp').innerHTML = m
       ? '<div class="mvp"><div class="mvp-tag">MVP</div>' +
         bigSprite(m.id, '', 104, 104, 1, m.shiny) +
@@ -3958,8 +4198,8 @@
   var saveShareUrl = '';       // share link backing the current export modal
 
   // The state a transfer should carry: the live run when one exists, otherwise
-  // every run parked in storage. Daily and Free Play have separate slots, so
-  // the title menu must look in BOTH; the old Free-Play-only fallback made an
+  // every run parked in storage. Each mode has its own slot, so the title
+  // menu must look in ALL of them; the old Free-Play-only fallback made an
   // unfinished Daily incorrectly report "No run in progress to save".
   function exportSourceStates() {
     if (run && !run.over) {
@@ -3968,7 +4208,8 @@
     }
     var daily = loadGame('daily');
     var free = loadGame('free');
-    return [daily, free].filter(function (s) { return !!s; });
+    var gauntlet = loadGame('gauntlet');
+    return [daily, free, gauntlet].filter(function (s) { return !!s; });
   }
 
   function exportSourceLabel(snap) {
@@ -3977,6 +4218,7 @@
       return 'Daily' + (snap.dailyDate ? ' \u00b7 ' + snap.dailyDate : '') +
         ' \u00b7 Section ' + section;
     }
+    if (snap.mode === 'gauntlet') return 'Gauntlet \u00b7 Trainer ' + section;
     return 'Free Play \u00b7 Section ' + section;
   }
 
@@ -4173,18 +4415,20 @@
 
     $('btnGoBattle').addEventListener('click', startNextBattle);
     $('btnStarterBack').addEventListener('click', function () { show('Title'); setContinueState(); });
+    // Team Gauntlet draft screen.
+    $('btnTbBack').addEventListener('click', function () { show('Title'); setContinueState(); });
+    $('btnTbStart').addEventListener('click', confirmGauntlet);
+    $('tbSearch').addEventListener('input', drawBuilder);
 
     // ---- AUTO-RESUME: if a run was mid-battle when the app was closed,
     // go directly back to that battle instead of showing the title.
     try {
       var resumeRun = null;
-      var resumeMode = null;
-      var saved = loadGame('free');
-      if (saved && saved._inBattle && saved._battleCfg) { resumeRun = saved; resumeMode = 'free'; }
-      if (!resumeRun) {
-        saved = loadGame('daily');
-        if (saved && saved._inBattle && saved._battleCfg) { resumeRun = saved; resumeMode = 'daily'; }
-      }
+      ['free', 'daily', 'gauntlet'].forEach(function (mode) {
+        if (resumeRun) return;
+        var saved = loadGame(mode);
+        if (saved && saved._inBattle && saved._battleCfg) resumeRun = saved;
+      });
       if (resumeRun) {
         run = reviveRun(resumeRun);
         var cfg = run._battleCfg;
@@ -4327,6 +4571,7 @@
   else boot();
 
   window.Game = { get run() { return run; }, show: show, startNextBattle: startNextBattle,
+                  startGauntlet: startGauntlet,
                   redrawRoute: renderCrossroads, toast: toast,
                   // the live 3D battle UI, for debugging field effects
                   get ui() { return ui; },

@@ -92,10 +92,16 @@ async function playBattle(page, { maxTurns = 40 } = {}) {
         return { done: true, turns: i };
       }
       // The 3D HUD renders move buttons as `.mb[data-i]` (vendor/battle-ui.js).
+      // A faint replaces the move grid with the forced-switch party sheet,
+      // whose legal targets are the enabled `.pitem` rows -- answer that too,
+      // otherwise a long-enough fight (or a crit) wedges the auto-player.
       const btn = await until(() => {
         const moves = [...document.querySelectorAll('#battleHost .mb[data-i]')]
           .filter((b) => !b.disabled);
-        return moves[0] || null;
+        if (moves[0]) return moves[0];
+        const party = [...document.querySelectorAll('#battleHost .pitem')]
+          .filter((b) => !b.disabled);
+        return party[0] || null;
       }, 5000);
       if (!btn) { await new Promise((r) => setTimeout(r, 250)); continue; }
       btn.click();
@@ -253,6 +259,118 @@ try {
     const realErrors = page.__errors.filter(
       (e) => !/favicon|sprite|cry|audio|Failed to load resource/i.test(e));
     check('no unexpected page errors during a Daily', realErrors.length === 0,
+      realErrors.slice(0, 2).join(' | '));
+
+    await context.close();
+  }
+
+  // =================================================== TEAM GAUNTLET =======
+  section('Team Gauntlet: draft, trainer rush, heal, no economy');
+  {
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      locale: 'en-GB', timezoneId: 'Europe/Amsterdam',
+      hasTouch: true, isMobile: true, deviceScaleFactor: 3,
+    });
+    await stubRemotes(context);
+    const page = await bootPage(context, srv.origin);
+
+    // ---- the draft ----
+    await page.click('#btnGauntlet');
+    await page.waitForSelector('#screenTeamBuilder:not([hidden])', { timeout: 15000 });
+    check('the Team Gauntlet opens the draft', true);
+    check('the draft cannot start empty',
+      await page.evaluate(() => document.getElementById('btnTbStart').disabled));
+
+    const roster = ['gengar', 'snorlax', 'garchomp', 'scizor', 'blissey', 'rotomwash'];
+    for (const id of roster) {
+      await page.fill('#tbSearch', id);
+      await page.waitForSelector(`#tbList .tb-row[data-id="${id}"]`, { timeout: 15000 });
+      await page.click(`#tbList .tb-row[data-id="${id}"]`);
+    }
+    check('six picks unlock the start button',
+      await page.evaluate(() => !document.getElementById('btnTbStart').disabled &&
+        document.getElementById('tbCount').textContent.startsWith('6 / 6')));
+
+    await page.click('#btnTbStart');
+    await page.waitForSelector('#screenCrossroads:not([hidden])', { timeout: 30000 });
+    const meta = await page.evaluate(() => ({
+      mode: window.Game.run.mode,
+      party: window.Game.run.party.length,
+      money: window.Game.run.money,
+      bag: Object.keys(window.Game.run.bag).length,
+      shopHidden: document.getElementById('xShopBlock').hidden,
+      bagHidden: document.getElementById('xBagBlock').hidden,
+      cashHidden: document.getElementById('xCashPill').hidden,
+      label: document.getElementById('xNextLabel').textContent,
+    }));
+    check('the run is tagged as a gauntlet with six Pokemon',
+      meta.mode === 'gauntlet' && meta.party === 6, JSON.stringify(meta));
+    check('the gauntlet has no cash and no bag', meta.money === 0 && meta.bag === 0);
+    check('the route hides the mart, the bag and the cash readout',
+      meta.shopHidden && meta.bagHidden && meta.cashHidden);
+    check('the route offers a trainer battle', meta.label === 'Trainer Battle', meta.label);
+
+    // ---- battle 1: trainer rules (no bag items, no running) ----
+    await page.click('#btnGoBattle');
+    await page.waitForSelector('#battleHost canvas', { timeout: 30000 });
+    await page.waitForSelector('#battleHost .actbar', { timeout: 30000 });
+    const actbar = await page.evaluate(() => ({
+      bagButtons: document.querySelectorAll('#battleHost .ab[data-a="bag"]').length,
+      runButtons: document.querySelectorAll('#battleHost .ab[data-a="run"]').length,
+      ballRail: document.querySelectorAll('#battleHost .ballrail').length,
+      rightCell: ((document.querySelector('#battleHost .topbar .sc') || {}).textContent || '').trim(),
+    }));
+    check('no bag button in a gauntlet battle', actbar.bagButtons === 0);
+    check('no ball rail in a gauntlet battle', actbar.ballRail === 0);
+    check('no run button in a gauntlet battle', actbar.runButtons === 0,
+      JSON.stringify(actbar));
+    check('the battle HUD keeps the cash cell empty', actbar.rightCell === '',
+      actbar.rightCell);
+
+    const result = await playBattle(page);
+    check('the first trainer battle plays out to a result', result.done,
+      `${result.turns} interactions`);
+    const rewardText = await page.evaluate(() =>
+      document.getElementById('rewardBody').textContent);
+    check('the victory pays no prize money', !/\+\$/.test(rewardText), rewardText.slice(0, 60));
+
+    await page.click('#btnRewardDone');
+    await page.waitForSelector('#screenCrossroads:not([hidden])', { timeout: 15000 });
+    const after = await page.evaluate(() => ({
+      section: window.Game.run.section,
+      beaten: window.Game.run.trainersBeaten,
+      money: window.Game.run.money,
+      allHealthy: window.Game.run.party.every((m) => m.hpPct === 1 && !m.status),
+      fullPP: window.Game.run.party.every((m) =>
+        m.moves.every((id) =>
+          m.pp[id] === Math.floor(window.PS.Dex.moves.get(id).pp * 1.6))),
+      label: document.getElementById('xNextLabel').textContent,
+    }));
+    check('winning moves the gauntlet to the next trainer',
+      after.section === 2 && after.beaten === 1 && after.label === 'Trainer Battle',
+      JSON.stringify(after));
+    check('survivors are fully restored after the win',
+      after.allHealthy && after.fullPP);
+    check('the wallet stays at zero', after.money === 0);
+
+    // ---- persistence: its own slot, resumeable from the title ----
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !!window.Game, null, { timeout: 30000 });
+    const saved = await page.evaluate(() => ({
+      gauntlet: !!localStorage.getItem('dailylocke-run-gauntlet'),
+      daily: !!localStorage.getItem('dailylocke-run-daily'),
+      free: !!localStorage.getItem('nuzlocke-run'),
+      label: document.getElementById('gauntletMain').textContent,
+    }));
+    check('the gauntlet writes ONLY to its own slot',
+      saved.gauntlet && !saved.daily && !saved.free, JSON.stringify(saved));
+    check('the title offers to RESUME the gauntlet', /resume gauntlet/i.test(saved.label),
+      saved.label);
+
+    const realErrors = page.__errors.filter(
+      (e) => !/favicon|sprite|cry|audio|Failed to load resource/i.test(e));
+    check('no unexpected page errors during a gauntlet', realErrors.length === 0,
       realErrors.slice(0, 2).join(' | '));
 
     await context.close();

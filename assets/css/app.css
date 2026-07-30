@@ -518,6 +518,63 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .mv-chip b { color:rgba(255,255,255,.72); font-size:.58rem; }
 .pick-btn { margin-top:12px; }
 
+/* ------------------------------------------------------- team builder ---*/
+/* Team Gauntlet's draft screen: a search box over the full species pool, a
+   strip of the six picks, and tappable rows. Matched to the crossroads/shop
+   cards so the mode feels like part of the same game, not a bolt-on. */
+#screenTeamBuilder .sub-head { margin-bottom:4px; }
+.tb-count {
+  text-align:center; margin:14px 0 8px;
+  font-size:1.05rem; color:var(--ink-2); letter-spacing:1px;
+}
+.tb-team { margin:0 0 14px; }
+.tb-team .tslot.filled { cursor:pointer; }
+.tb-team .tslot.empty { font-size:1.3rem; }
+.tb-search {
+  width:100%; margin:0 0 10px;
+  padding:12px 14px; border-radius:var(--r-md);
+  background:var(--surface-hi); color:var(--ink);
+  border:none; box-shadow:inset 0 0 0 1px rgba(255,255,255,.12), var(--e1);
+  font-family:inherit; font-size:1.1rem; text-align:left;
+}
+.tb-search:focus { outline:none; box-shadow:inset 0 0 0 2px var(--blue), var(--e1); }
+.tb-list {
+  display:flex; flex-direction:column; gap:8px;
+  margin-bottom:24px;
+}
+.tb-row {
+  display:flex; align-items:center; gap:12px;
+  width:100%; text-align:left; cursor:pointer;
+  padding:8px 12px 8px 8px; border:none; border-radius:var(--r-md);
+  background:
+    radial-gradient(140% 90% at 50% 0%, rgba(255,255,255,.06), transparent 70%),
+    var(--surface);
+  box-shadow:var(--e1); color:var(--ink);
+  font-family:inherit;
+  transition:transform .12s cubic-bezier(.2,.8,.3,1), box-shadow .12s;
+}
+.tb-row:active { transform:scale(.99); }
+.tb-row:hover:not(:disabled) { box-shadow:var(--e2); background:var(--surface-hi); }
+.tb-row:disabled { opacity:.38; cursor:not-allowed; }
+.tb-row.seen { opacity:.55; }
+.tb-art {
+  flex:0 0 56px; height:48px;
+  display:flex; align-items:flex-end; justify-content:center;
+}
+.tb-who { flex:1; min-width:0; }
+.tb-name { font-size:1.12rem; color:#fff; line-height:1.1;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tb-meta { display:flex; align-items:center; gap:6px; margin-top:3px; }
+.tb-bst { font-size:.72rem; color:var(--ink-3); margin-left:auto; white-space:nowrap; }
+.tb-add {
+  flex:0 0 auto; padding:7px 12px; border:none; border-radius:999px;
+  background:rgba(127,201,255,.18); color:#9fd6ff;
+  font-family:inherit; font-size:.86rem; letter-spacing:.6px;
+  box-shadow:0 2px 10px rgba(0,0,0,.25);
+}
+.tb-row:disabled .tb-add { background:rgba(255,255,255,.1); color:var(--ink-3); }
+.tb-empty { text-align:center; color:var(--ink-3); padding:18px 0; font-size:.95rem; }
+
 /* -------------------------------------------------------------------- HUD */
 .hud {
   position:sticky; top:0; z-index:40;

@@ -6,6 +6,15 @@
 //   A section = 3 wild battles + 1 trainer battle.
 //   Between every battle the player picks: Next Battle | Poke Mart.
 //
+// TEAM GAUNTLET
+//   A run with mode 'gauntlet' skips the wilds entirely: EVERY battle is the
+//   section's trainer battle, so the whole difficulty engine (BST bands, EV
+//   investment, team sizes, boss clauses, strategies, ascension) resolves
+//   identically to the other modes at the same section number. Trainer N of
+//   a Gauntlet is therefore exactly as hard as the Nth trainer battle of a
+//   Daily or Free Play run, because both funnel through trainerFor(),
+//   makeTrainerTeam() and tier() with the same run.section.
+//
 // RULES
 //   * HP / PP / status persist across every battle.
 //   * A fainted Pokemon is permanently removed from the party (no revives).
@@ -92,7 +101,13 @@
     return dead;
   }
 
-  function nextIsTrainer(run) { return run.battleInSection === BATTLES_PER_SECTION - 1; }
+  // Team Gauntlet runs fight ONLY trainers: the section number IS the trainer
+  // counter, so every stop on the route is a trainer battle.
+  function isGauntlet(run) { return !!run && run.mode === 'gauntlet'; }
+
+  function nextIsTrainer(run) {
+    return isGauntlet(run) || run.battleInSection === BATTLES_PER_SECTION - 1;
+  }
 
   function resetSectionStats(run) {
     run.sectionStats = { money: 0, won: 0, caught: null, lost: [], damage: 0, kos: 0,
@@ -100,7 +115,10 @@
   }
   function advanceBattle(run) {
     run.battleInSection++;
-    if (run.battleInSection >= BATTLES_PER_SECTION) {
+    // Gauntlet: one trainer per section means every battle IS the section
+    // finale, so the section counter (and with it the difficulty) moves up
+    // after every single fight.
+    if (run.battleInSection >= BATTLES_PER_SECTION || isGauntlet(run)) {
       run.battleInSection = 0;
       run.section++;
       run.catchUsedThisSection = false;
@@ -783,6 +801,7 @@
     newRun: newRun, addItem: addItem, useItem: useItem,
     alive: alive, logMsg: logMsg, trackMon: trackMon, buryFainted: buryFainted,
     ownsItem: ownsItem,
+    isGauntlet: isGauntlet,
     nextIsTrainer: nextIsTrainer, advanceBattle: advanceBattle,
     resetSectionStats: resetSectionStats,
     tier: tier, pickWild: pickWild, makeWild: makeWild,

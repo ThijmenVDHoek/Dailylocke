@@ -12,6 +12,8 @@
     // Action bar + panels, matched to the vendor HUD's frosted-glass language.
     '.battle-hud .actbar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 0;width:100%;}',
     '.battle-hud .actbar.three{grid-template-columns:repeat(3,1fr);}',
+    '.battle-hud .actbar.two{grid-template-columns:repeat(2,1fr);}',
+    '.battle-hud .actbar.one{grid-template-columns:repeat(1,1fr);}',
     '.battle-hud .ab{padding:11px 0;border-radius:.85rem;border:none;background:rgba(255,255,255,.16);color:#fff;',
       'cursor:pointer;font-family:inherit;font-size:1rem;letter-spacing:.6px;text-transform:uppercase;',
       'backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3);',
@@ -176,7 +178,7 @@
   // setupBattle in app.js, avoiding conflicts with _whenMounted.
 
   BU.prototype.setActions = function (cfg) {
-    // cfg: {onFight,onBag,onBall,onSwitch,onRun, canRun, ballCount, itemCount, mode}
+    // cfg: {onFight,onBag,onBall,onSwitch,onRun, canRun, noBag, noRun, ballCount, itemCount, mode}
     this.s.act = cfg || null;
     this.render();
   };
@@ -272,8 +274,14 @@
       var sc = this.hud.querySelector('.topbar .sc');
       var ri = this.s.runinfo;
       if (tc) tc.innerHTML = '<div class="runinfo"><span>' + (ri.left || '') + '</span></div>';
-      if (sc) sc.innerHTML = '<div class="runinfo"><span>$<b>' + (ri.money || 0) + '</b></span>' +
-        (ri.row != null ? '<span>Route <b>' + ri.row + '/' + (ri.rows || 14) + '</b></span>' : '') + '</div>';
+      // money == null means the mode has no cash at all (Team Gauntlet) --
+      // leave the whole right cell empty instead of showing a fake "$0".
+      if (sc) {
+        if (ri.money == null && ri.row == null) sc.innerHTML = '';
+        else sc.innerHTML = '<div class="runinfo">' +
+          (ri.money != null ? '<span>$<b>' + ri.money + '</b></span>' : '') +
+          (ri.row != null ? '<span>Route <b>' + ri.row + '/' + (ri.rows || 14) + '</b></span>' : '') + '</div>';
+      }
     }
 
     // ---- sub-panel (party switch list) replaces the move grid ----
@@ -379,12 +387,17 @@
     if (this.s.act) {
       var a = this.s.act;
       var bar = document.createElement('div');
-      bar.className = 'actbar three';
       var dis = this.s.locked ? ' disabled' : '';
-      bar.innerHTML =
-        '<button class="ab" data-a="bag"' + dis + '>Bag<span class="sub">' + (a.itemCount || 0) + ' items</span></button>' +
-        '<button class="ab" data-a="switch"' + dis + (a.canSwitch ? '' : ' disabled') + '>Party<span class="sub">switch</span></button>' +
-        '<button class="ab" data-a="run"' + dis + (a.canRun ? '' : ' disabled') + '>Run<span class="sub">' + (a.canRun ? 'flee' : 'no') + '</span></button>';
+      // The Gauntlet has no items and no escape, so the Bag and Run buttons
+      // themselves are dropped there rather than shown as dead controls.
+      var btns = '', cols = 3;
+      if (!a.noBag) btns += '<button class="ab" data-a="bag"' + dis + '>Bag<span class="sub">' + (a.itemCount || 0) + ' items</span></button>';
+      else cols--;
+      btns += '<button class="ab" data-a="switch"' + dis + (a.canSwitch ? '' : ' disabled') + '>Party<span class="sub">switch</span></button>';
+      if (!a.noRun) btns += '<button class="ab" data-a="run"' + dis + (a.canRun ? '' : ' disabled') + '>Run<span class="sub">' + (a.canRun ? 'flee' : 'no') + '</span></button>';
+      else cols--;
+      bar.className = 'actbar ' + ['one', 'one', 'two', 'three'][Math.max(cols, 1)];
+      bar.innerHTML = btns;
       // BELOW the move grid: attacks are the primary action, utilities secondary.
       bb.appendChild(bar);
       bar.querySelectorAll('.ab').forEach(function (b) {
