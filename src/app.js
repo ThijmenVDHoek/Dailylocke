@@ -335,7 +335,23 @@
         clearSave('gauntlet'); if (run && run.mode === 'gauntlet') run = null; setContinueState();
       }
     });
+    var ad = $('btnAbandonDaily');
+    if (ad) ad.addEventListener('click', function () {
+      if (confirm('Abandon today\'s Daily run? This will count as a loss.')) {
+        var D = window.Daily;
+        var today = D.dayKey();
+        var save = loadDailyToday();
+        if (save) {
+          save.fainted = true;
+          D.recordResult(today, save);
+          clearSave('daily');
+          if (run && run.mode === 'daily') run = null;
+          setContinueState();
+        }
+      }
+    });
     $('btnTitleMenu').addEventListener('click', openMenu);
+
     var ab = $('btnAbandonTitle');
     if (ab) ab.addEventListener('click', function () {
       if (confirm('Abandon the Free Play run? Your team is lost.')) {
@@ -484,45 +500,49 @@
     // there is deliberately no duplicate "See today's result" button here.
 
     // ---- Free Play row ----
-    var freeRow = $('titleFreeRun'), contSub = $('continueSub');
-    var freeSep = $('titleFreeSep');
-    if (freeRow) freeRow.hidden = !free;
-    if (free && contSub) {
-      var sec = free.section || 1, won = free.battlesWon || 0;
-      var n = (free.party && free.party.length) || 0;
-      contSub.textContent = 'Section ' + sec + ' \u00b7 ' + won +
-        (won === 1 ? ' battle won' : ' battles won') + ' \u00b7 ' + n +
-        (n === 1 ? ' Pokemon' : ' Pokemon');
-    }
-    var btnNewRun = $('btnNewRun');
-    // A parked Free Play run gets its own Continue action; do not offer a
-    // second random run that would overwrite it. Keep the Free Play heading
-    // visible because the gauntlet is the other option in that group.
+    var btnNewRun = $('btnNewRun'), btnContinue = $('btnContinue');
+    var abFree = $('btnAbandonTitle');
     if (btnNewRun) btnNewRun.hidden = !!free;
-    if (freeSep) freeSep.hidden = false;
+    if (btnContinue) {
+      btnContinue.hidden = !free;
+      if (free) {
+        var sec = free.section || 1, won = free.battlesWon || 0;
+        var n = (free.party && free.party.length) || 0;
+        var sub = btnContinue.querySelector('.bd-sub');
+        if (sub) sub.textContent = 'Section ' + sec + ' \u00b7 ' + won + ' won \u00b7 ' + n + ' mons';
+      }
+    }
+    if (abFree) abFree.hidden = !free;
 
     // ---- Full team gauntlet ----
-    // The gauntlet is presented as a Free Play option, while retaining its
-    // separate parked run so either kind of run can be resumed safely.
     var gauntlet = loadGame('gauntlet');
     var gMain = $('gauntletMain'), gBtn = $('btnGauntlet');
-    var gAb = $('btnAbandonGauntlet'), gControls = $('titleGauntlet');
+    var gAb = $('btnAbandonGauntlet');
     if (gMain && gBtn) {
       if (gauntlet) {
         gBtn.classList.remove('btn-glass');
-        gBtn.classList.add('btn-white', 'btn-daily');
+        gBtn.classList.add('btn-white'); // Removed btn-daily
         gMain.textContent = 'Resume gauntlet';
-        gBtn.title = 'Trainer ' + (gauntlet.section || 1) + ' · ' +
-          (gauntlet.trainersBeaten || 0) + ' beaten';
+        gBtn.title = 'Trainer ' + (gauntlet.section || 1) + ' \u00b7 ' + (gauntlet.trainersBeaten || 0) + ' beaten';
+        var sub = gBtn.querySelector('.bd-sub') || document.createElement('span');
+        sub.className = 'bd-sub';
+        sub.textContent = 'Trainer ' + (gauntlet.section || 1) + ' \u00b7 ' + (gauntlet.trainersBeaten || 0) + ' beaten';
+        if (!gBtn.querySelector('.bd-sub')) gBtn.appendChild(sub);
       } else {
         gBtn.classList.add('btn-glass');
-        gBtn.classList.remove('btn-white', 'btn-daily');
+        gBtn.classList.remove('btn-white');
         gMain.textContent = 'Full team gauntlet';
         gBtn.removeAttribute('title');
+        var sub = gBtn.querySelector('.bd-sub');
+        if (sub) sub.remove();
       }
     }
     if (gAb) gAb.hidden = !gauntlet;
-    if (gControls) gControls.hidden = !gauntlet;
+
+    // ---- Daily abandon ----
+    var abDaily = $('btnAbandonDaily');
+    if (abDaily) abDaily.hidden = !dailySave;
+
 
     // ---- archived Daily offer ----
     var ar = $('btnArchiveDaily');
@@ -774,9 +794,28 @@
     if (!overlay) return;
     var host = overlay.querySelector('.overlay-card');
     if (!host) return;
+
+    // Quick-switch party grid for Gauntlet
+    var gridHtml = '<div class="team-strip" style="margin:0 0 14px">';
+    for (var gi = 0; gi < GB_MAX; gi++) {
+      var entry = gbTeam[gi];
+      if (entry && entry.mon) {
+        var gm = entry.mon;
+        gridHtml += '<button class="tslot' + (gi === gbConfigIdx ? ' sel' : '') + '" data-gb-gi="' + gi + '">' +
+          (gi === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
+          '<span class="ts-art">' + animSprite(gm.id, 46, 52, '', 1.4, gm.shiny) + '</span>' +
+          '<span class="ts-name">' + escapeHtml(gm.name) + '</span>' +
+          '</button>';
+      } else {
+        gridHtml += '<div class="tslot empty">?</div>';
+      }
+    }
+    gridHtml += '</div>';
+
     var entry = gbTeam[gbConfigIdx];
     if (!entry || !entry.mon) { window.Modal.close('xTeamDetail'); host.innerHTML = ''; return; }
     var mon = entry.mon;
+
 
     var formeTargets = [];
     if (window.Forme) {
@@ -818,6 +857,7 @@
     }
 
     host.innerHTML =
+      gridHtml +
       '<div class="party-detail">' +
         '<div class="pd-hero">' +
           '<div class="pd-art">' + bigSprite(mon.id, '', 104, 104, 1, mon.shiny) + '</div>' +
@@ -852,7 +892,17 @@
       '<button type="button" class="btn-secondary wide pd-close">Close</button>';
 
     // Wire up event handlers
+    host.querySelectorAll('.tslot[data-gb-gi]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var gi = +b.dataset.gbGi;
+        if (gbTeam[gi] && gbTeam[gi].mon) {
+          gbConfigIdx = gi;
+          drawGbDetail();
+        }
+      });
+    });
     var close = host.querySelector('.pd-close');
+
     if (close) close.addEventListener('click', function () { window.Modal.close('xTeamDetail'); });
 
     // Train button
@@ -1611,7 +1661,8 @@
       if (m) {
         var pct = pctHP(m.hpPct);
         var col = m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444';
-        html += '<button class="tslot' + (i === partySel ? ' sel' : '') + '" data-i="' + i + '">' +
+        var fainted = mon.hpPct <= 0;
+        html += '<button class="tslot' + (i === partySel ? ' sel' : '') + (fainted ? ' fainted' : '') + '" data-i="' + i + '">' +
           (i === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
           '<span class="ts-art">' + animSprite(m.id, 46, 52, '', 1.4, m.shiny) + '</span>' +
           '<span class="ts-name">' + m.name + '</span>' +
@@ -1667,7 +1718,8 @@
       if (gm) {
         var gPct = pctHP(gm.hpPct);
         var gCol = gm.hpPct > 0.5 ? '#4ade80' : gm.hpPct > 0.2 ? '#facc15' : '#ef4444';
-        gridHtml += '<button class="tslot' + (gi === partySel ? ' sel' : '') + '" data-gi="' + gi + '">' +
+        var fainted = gm.hpPct <= 0;
+        gridHtml += '<button class="tslot' + (gi === partySel ? ' sel' : '') + (fainted ? ' fainted' : '') + '" data-gi="' + gi + '">' +
           (gi === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
           '<span class="ts-art">' + animSprite(gm.id, 46, 52, '', 1.4, gm.shiny) + '</span>' +
           '<span class="ts-name">' + gm.name + '</span>' +
@@ -2070,7 +2122,9 @@
   function updateMenuAvatar() {
     var src = avatarUrl((profile && profile.avatar) || 'red');
     var e = $('menuAvatar'); if (e) e.innerHTML = '<img src="' + src + '" alt="">';
-    var button = $('menuButtonAvatar'); if (button) button.innerHTML = '<img src="' + src + '" alt="">';
+    var b1 = $('menuButtonAvatar'); if (b1) b1.innerHTML = '<img src="' + src + '" alt="">';
+    var b2 = $('menuButtonAvatarTitle'); if (b2) b2.innerHTML = '<img src="' + src + '" alt="">';
+    var b3 = $('menuButtonAvatarTB'); if (b3) b3.innerHTML = '<img src="' + src + '" alt="">';
     var hero = $('menuProfileAvatar'); if (hero) hero.innerHTML = '<img src="' + src + '" alt="">';
   }
   function showProfile() {
@@ -4945,6 +4999,7 @@
       });
     }
     $('btnMenu').addEventListener('click', openMenu);
+    var bmtb = $('btnMenuTB'); if (bmtb) bmtb.addEventListener('click', openMenu);
     $('btnMenuClose').addEventListener('click', closeMenu);
     $('btnMenuProfile').addEventListener('click', showProfile);
     $('btnMenuShinies').addEventListener('click', showShinies);
