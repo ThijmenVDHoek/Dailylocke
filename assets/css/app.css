@@ -323,9 +323,10 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
   max-width:400px; margin:0 auto;
 }
 .title-btns[hidden] { display:none; }
-/* Load save is its own group in the markup. Keep adjacent action groups from
-   touching by using the same gap as the buttons within each group. */
-.title-sheet > .title-btns:last-child { margin-top:var(--title-action-gap); }
+/* The two ways to begin Free Play are peers, not separate categories. */
+.title-free-actions { flex-direction:row; }
+.title-free-actions > button { flex:1 1 0; width:auto; padding-left:12px; padding-right:12px; }
+#titleGauntlet { margin-top:var(--title-action-gap); }
 
 /* PRIMARY: plain white with black text -- no border or outline around the
    title-screen CTAs. Elevation may change on hover, but their fill does not. */
@@ -393,7 +394,7 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .btn-glass:hover:not(:disabled) { background:rgba(255,255,255,.16); transform:translateY(-2px); }
 .btn-glass:disabled { opacity:.4; cursor:not-allowed; }
 
-/* When the daily run is done, New random run becomes the primary CTA */
+/* Optional promoted glass CTA treatment. */
 .btn-glass.is-primary {
   background:linear-gradient(180deg,var(--cta-hi),var(--cta));
   color:var(--cta-text);
