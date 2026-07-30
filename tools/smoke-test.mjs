@@ -1080,17 +1080,21 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   const hyphenHit = [...doc.querySelectorAll('#tbList .tb-row')].some((r) => r.dataset.id === 'kommoo');
   searchFor('ho oh');
   const spaceHit = [...doc.querySelectorAll('#tbList .tb-row')].some((r) => r.dataset.id === 'hooh');
-  searchFor('oricorio pau');
-  const quoteHit = [...doc.querySelectorAll('#tbList .tb-row')].some((r) => r.dataset.id === 'oricoriopau');
-  check('the search is punctuation-insensitive', hyphenHit && spaceHit && quoteHit,
-    `kommoo=${hyphenHit} 'ho oh'=${spaceHit} 'oricorio pau'=${quoteHit}`);
+  searchFor('mr mime');
+  const punctuationHit = [...doc.querySelectorAll('#tbList .tb-row')].some((r) => r.dataset.id === 'mrmime');
+  check('the search is punctuation-insensitive', hyphenHit && spaceHit && punctuationHit,
+    `kommoo=${hyphenHit} 'ho oh'=${spaceHit} 'mr mime'=${punctuationHit}`);
 
-  const picks = ['gengar', 'snorlax', 'garchomp', 'scizor', 'blissey', 'rotomwash'];
-  for (const id of picks) {
+  const picks = ['gengar', 'snorlax', 'garchomp', 'scizor', 'blissey', 'rotom'];
+  for (let i = 0; i < picks.length; i++) {
+    const id = picks[i];
     searchFor(id);
     const row = doc.querySelector(`#tbList .tb-row[data-id="${id}"]`);
     check(`the draft offers ${id}`, !!row && !row.disabled);
     if (row) row.click();
+    const added = await waitFor(() =>
+      doc.querySelectorAll('#tbTeam .tslot.filled').length === i + 1);
+    check(`the draft adds ${id}`, !!added);
   }
   check('six picks complete the draft',
     doc.getElementById('tbCount').textContent.startsWith('6 / 6'));
@@ -1100,13 +1104,31 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('a full draft refuses a seventh pick',
     doc.querySelector('#tbList .tb-row[data-id="pikachu"]') &&
     doc.querySelector('#tbList .tb-row[data-id="pikachu"]').disabled === true);
+
+  // This sheet is shared with Crossroads. It must not live inside that hidden
+  // screen, or opening it from TeamBuilder makes the draft inert while the
+  // sheet itself remains invisible, leaving no way to close it.
   doc.querySelector('#tbTeam .tslot[data-i="0"]').click();
-  check('tapping a draft slot removes that Pokemon',
+  const teamDetail = doc.getElementById('xTeamDetail');
+  check('a draft slot opens its Pokemon config sheet',
+    teamDetail.hidden === false && window.Modal.isOpen('xTeamDetail'));
+  check('the shared Pokemon config is outside every switchable screen',
+    teamDetail.parentElement === doc.querySelector('main') && !teamDetail.closest('section[hidden]'));
+  check('the draft config shows the Pokemon moves and a working close action',
+    doc.querySelectorAll('#xTeamDetail .pd-move').length > 0 &&
+    !!doc.querySelector('#xTeamDetail .pd-close'));
+  doc.querySelector('#xTeamDetail .pd-close').click();
+  check('closing Pokemon config releases the Gauntlet builder',
+    teamDetail.hidden === true && !window.Modal.isOpen('xTeamDetail') &&
+    doc.getElementById('screenTeamBuilder').inert !== true);
+
+  doc.querySelector('#tbTeam .ts-rm[data-rm="0"]').click();
+  check('the remove action drops a drafted Pokemon',
     doc.getElementById('tbCount').textContent.startsWith('5 / 6'));
   searchFor('gengar');
   doc.querySelector('#tbList .tb-row[data-id="gengar"]').click();
-  check('a removed Pokemon can be re-added',
-    doc.getElementById('btnTbStart').disabled === false);
+  const readded = await waitFor(() => doc.getElementById('btnTbStart').disabled === false);
+  check('a removed Pokemon can be re-added', !!readded);
 
   doc.getElementById('btnTbStart').click();
   const drafted = await waitFor(() =>
