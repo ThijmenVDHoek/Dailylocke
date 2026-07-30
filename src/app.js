@@ -676,7 +676,7 @@
       if (p) {
         slots += '<div class="tslot filled" data-i="' + i + '">' +
           (i === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
-          '<span class="ts-art">' + animSprite(p.id, 46, 52, '', 1.4, false) + '</span>' +
+          '<span class="ts-art">' + animSprite(p.id, 46, 52, '', 1.4, p.mon && p.mon.shiny) + '</span>' +
           '<span class="ts-name">' + escapeHtml(p.name) + '</span>' +
           (p.mon && p.mon.item ? '<span class="ts-item" title="' + escapeHtml(itemName(p.mon.item)) + '">' + (window.ItemArt ? window.ItemArt.itemImg(p.mon.item, 20) : '') + '</span>' : '') +
           '<button class="ts-rm" data-rm="' + i + '" title="Remove">\u00d7</button></div>';
@@ -834,6 +834,7 @@
         '</div>' +
         '<div class="pd-actions">' +
           '<button class="btn-primary pd-gb-train">Train \u00b7 free</button>' +
+          (hasCollectedShiny(mon.id) ? '<button class="btn-secondary wide pd-gb-shiny" data-gb-shiny="1">' + (mon.shiny ? 'Use normal colours' : 'Make shiny') + '</button>' : '') +
         '</div>' +
         '<div class="pd-sec"><div class="pd-label">Moves</div>' +
           '<div class="pd-moves">' + mon.moves.map(function (m) {
@@ -862,6 +863,12 @@
       window.Modal.close('xTeamDetail');
       gbConfigIdx = saveIdx;
       openTrainer(mon, true);
+    });
+    var shinyBtn = host.querySelector('[data-gb-shiny]');
+    if (shinyBtn) shinyBtn.addEventListener('click', function () {
+      mon.shiny = !mon.shiny;
+      toast(mon.shiny ? mon.name + ' is now shiny!' : mon.name + ' is back to normal colours.');
+      drawGbDetail(); drawBuilder();
     });
 
     // Take/change held item
@@ -4346,6 +4353,13 @@
 
   function loadProfile() { profile = ST.loadProfile(); return profile; }
   function saveProfile() { return ST.saveProfile(profile); }
+
+  // Shiny ownership is a profile unlock. It is never rolled automatically in
+  // the Gauntlet; the player explicitly opts a selected Pokemon in or out.
+  function hasCollectedShiny(id) {
+    loadProfile();
+    return (profile.shinies || []).some(function (sh) { return sh.id === id; });
+  }
 
   // A shiny is registered the moment it is OBTAINED (caught or chosen as a
   // starter) -- not when the run ends. Losing the run must not lose the shiny.

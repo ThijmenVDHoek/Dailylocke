@@ -103,7 +103,18 @@
       if (s.baseSpecies && s.baseSpecies !== s.name) {
         var f = (s.forme || '');
         var isRegional = /alola|galar|hisui|paldea|bloodmoon/i.test(f);
-        if (!isRegional && !s.isCosmeticForme) continue;
+        // A few gender formes are genuine alternate builds, not just a
+        // different sprite. Keep them when their battle data differs from
+        // the canonical form (Basculegion-F, Indeedee-F, Oinkologne-F, ...).
+        var isDistinctGender = false;
+        if (s.gender === 'M' || s.gender === 'F') {
+          var base = Dex.species.get(s.baseSpecies);
+          var same = base.exists && JSON.stringify(s.baseStats) === JSON.stringify(base.baseStats) &&
+            JSON.stringify(s.types) === JSON.stringify(base.types) &&
+            JSON.stringify(s.abilities) === JSON.stringify(base.abilities);
+          isDistinctGender = !same;
+        }
+        if (!isRegional && !s.isCosmeticForme && !isDistinctGender) continue;
       }
       pool.push(s.id);
     }
