@@ -73,7 +73,15 @@
       // the same table.  Keep exactly the canonical entry for every number
       // 1..1025 so every game mode draws from the same 1025-species pool.
       if (!s.exists || s.num < 1 || s.num > 1025 || s.id !== id) continue;
-      if (s.isNonstandard || s.battleOnly || s.isMega || s.isPrimal) continue;
+      // `isNonstandard` includes fully implemented National Dex Pokemon that
+      // are merely unavailable in current Scarlet/Violet cartridge formats
+      // (`Past`). Dailylocke runs `gen9customgame`, so those Pokemon are legal
+      // here and must stay in the pool; filtering this flag cuts the roster
+      // down to the in-SV subset and makes every start button throw before a
+      // run can begin. The forme/battle-only checks below remove actual
+      // alternates, Megas, Gmax, CAP/custom entries, etc. while preserving the
+      // one canonical entry for each National Dex number.
+      if (s.battleOnly || s.isMega || s.isPrimal) continue;
       if (s.forme || s.baseSpecies && s.baseSpecies !== s.name) continue;
       pool.push(s.id);
     }
