@@ -4300,7 +4300,12 @@
     setTimeout(function () { stage.classList.add('morphing'); }, 600);
     setTimeout(function () { $('evoText').textContent = '...'; }, 1200);
     setTimeout(async function () {
-      // consume the item only on success
+      // Forme items are held items, not one-shot evolution consumables. Equip
+      // the item as part of the change so Arceus, Dialga, Genesect, etc. can
+      // never remain in their default forme while holding a forme-forcing item.
+      var oldItem = mon.item;
+      if (oldItem && oldItem !== itemId) N.addItem(run, oldItem, 1);
+      mon.item = itemId;
       var res = await window.Forme.applyForme(run, mon, formeId);
       if (res.ok) {
         run.bag[itemId]--; if (run.bag[itemId] <= 0) delete run.bag[itemId];
