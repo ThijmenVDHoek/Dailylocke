@@ -757,8 +757,8 @@
     var entry = gbTeam[idx];
     if (!entry || !entry.mon) return;
     gbConfigIdx = idx;
-    drawGbDetail();
     window.Modal.open('xTeamDetail', { onClose: function () { gbConfigIdx = -1; } });
+    drawGbDetail();
   }
 
   function drawGbDetail() {
@@ -849,7 +849,9 @@
     var trainBtn = host.querySelector('.pd-gb-train');
     if (trainBtn) trainBtn.addEventListener('click', function () {
       gbTraining = true;
+      var saveIdx = gbConfigIdx;
       window.Modal.close('xTeamDetail');
+      gbConfigIdx = saveIdx;
       openTrainer(mon, true);
     });
 
@@ -4844,12 +4846,12 @@
       svc = null;
       if (gbTraining) {
         gbTraining = false;
+        show('TeamBuilder');
         if (gbConfigIdx >= 0) {
           drawBuilder();
           openGbConfig(gbConfigIdx);
         } else {
           drawBuilder();
-          show('TeamBuilder');
         }
       } else {
         renderCrossroads(); show('Crossroads');
