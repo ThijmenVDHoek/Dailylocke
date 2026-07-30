@@ -82,16 +82,28 @@
       // alternates, Megas, Gmax, CAP/custom entries, etc. while preserving the
       // one canonical entry for each National Dex number.
       if (s.battleOnly || s.isMega || s.isPrimal) continue;
-      // Exclude BATTLE-EXCLUSIVE formes only (Arceus type plates, Silvally
-      // memories, etc. -- these are formes whose BASE SPECIES has a `baseForme`
-      // property, meaning the base species is the "real" one and the forme is
-      // a temporary battle-time swap). Keep REGIONAL formes (Hisui, Alola,
-      // Galar, Paldea) and permanent alternate formes (Rotom appliances,
-      // Marowak-Alola, etc.) -- these have `baseSpecies` but the base species
-      // does NOT have `baseForme`, so they pass through and stay in the pool.
+      // Exclude ALL alternate formes from the encounter/choice pool.
+      // The base species is the one you encounter; other formes are obtained
+      // through the Forme-change item system (Plates, Memories, Rotom Catalog,
+      // DNA Splicers, etc.), Mega Stones, or in-battle transformations
+      // (Zacian-Crowned via Rusted Sword, Castform via weather, etc.).
+      //
+      // Two classes of forme ARE kept in the pool:
+      //   1. REGIONAL formes (Alola, Galar, Hisui, Paldea) — these are
+      //      treated as distinct Pokemon in this game.
+      //   2. COSMETIC formes — minor visual variants (Unown letters,
+      //      Vivillon patterns, Alcremie creams, etc.) that share the
+      //      same stats and typing.
+      //
+      // This catches formes that the old `baseForme` heuristic missed:
+      // Eternatus-Eternamax, Necrozma-Dusk-Mane/Dawn-Wings/Ultra,
+      // Calyrex-Ice/Shadow, Terapagos-Terastal/Stellar, Greninja-Bond/Ash,
+      // Rotom appliances, and any future formes whose base species happens
+      // not to have a `baseForme` property.
       if (s.baseSpecies && s.baseSpecies !== s.name) {
-        var baseSp = Dex.species.get(s.baseSpecies);
-        if (baseSp && baseSp.exists && baseSp.baseForme) continue;
+        var f = (s.forme || '');
+        var isRegional = /alola|galar|hisui|paldea/i.test(f);
+        if (!isRegional && !s.isCosmeticForme) continue;
       }
       pool.push(s.id);
     }
