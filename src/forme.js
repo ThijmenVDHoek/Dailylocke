@@ -240,11 +240,102 @@
     return { ok: true, from: fromName, to: sp.name, mon: mon };
   }
 
+  // ---- automatic held-item forme enforcement --------------------------------
+  // These species can ONLY be in the forme dictated by their held item.
+  // Plates, Adamant Crystal, Lustrous Globe, Griseous Core, etc. force the forme.
+  // If the held item changes or is removed, the forme must snap to match.
+  // This is enforced everywhere an item is given/taken and on load.
+
+  function getFormeForHeldItem(itemId) {
+    if (!itemId) return null;
+    var e = index().byItem[itemId];
+    if (e) return e.forme;
+    // also check forcedForme items that may not be in byItem yet (rare)
+    var it = Dex.items.get(itemId);
+    if (it && it.exists && it.forcedForme) {
+      var sp = Dex.species.get(it.forcedForme);
+      if (sp.exists) return sp.id;
+    }
+    return null;
+  }
+
+  function baseFormeForSpecies(speciesId) {
+    var sp = Dex.species.get(speciesId);
+    if (!sp.exists) return speciesId;
+    return toID(sp.baseSpecies || sp.name);
+  }
+
+  // Returns the target forme id the mon *must* be in because of its current held item,
+  // or null if the held item does not force a forme.
+  function requiredFormeFromItem(mon) {
+    if (!mon || !mon.item) return null;
+    return getFormeForHeldItem(mon.item);
+  }
+
+  // If the mon is holding a forme-forcing item, make sure its current species matches.
+  // If not, immediately change it to the correct forme (no cost, silent if already correct).
+  // Returns true if a change happened.
+  async function enforceHeldForme(run, mon) {
+    if (!mon) return false;
+    var target = requiredFormeFromItem(mon);
+    if (!target) return false;
+
+    var curSp = Dex.species.get(mon.id);
+    if (!curSp.exists) return false;
+
+    var curBase = toID(curSp.baseSpecies || curSp.name);
+    var tgtSp = Dex.species.get(target);
+    if (!tgtSp.exists) return false;
+    var tgtBase = toID(tgtSp.baseSpecies || tgtSp.name);
+
+    // only relevant if same base species
+    if (curBase !== tgtBase) return false;
+
+    if (mon.id === target) return false; // already correct
+
+    // perform the change (re-uses the existing apply logic)
+    var res = await applyForme(run, mon, target);
+    return !!res.ok;
+  }
+
+  // When giving an item that forces a forme, enforce immediately.
+  // When removing or changing the item, also enforce (will revert to base if needed).
+  async function setHeldItemAndEnforce(run, mon, newItemId) {
+    var oldItem = mon.item;
+    mon.item = newItemId || '';
+
+    // enforce the new state
+    var changed = await enforceHeldForme(run, mon);
+
+    // If the new item does NOT force a forme but we were previously forced,
+    // and the current forme is not the base, revert to base forme.
+    if (!newItemId || !getFormeForHeldItem(newItemId)) {
+      var req = requiredFormeFromItem({ item: oldItem }); // check what the old one wanted
+      if (req) {
+        var base = baseFormeForSpecies(mon.id);
+        if (mon.id !== base) {
+          var spBase = Dex.species.get(base);
+          if (spBase.exists) {
+            await applyForme(run, mon, base);
+            changed = true;
+          }
+        }
+      }
+    }
+
+    return changed;
+  }
+
   window.Forme = {
     CUSTOM: CUSTOM, index: index,
     isFormeItem: isFormeItem, itemName: itemName, itemPrice: itemPrice,
     itemDesc: itemDesc, itemExists: itemExists,
     targetsFor: targetsFor, relevantItems: relevantItems, usableBy: usableBy,
-    applyForme: applyForme
+    applyForme: applyForme,
+    // new enforcement helpers
+    requiredFormeFromItem: requiredFormeFromItem,
+    enforceHeldForme: enforceHeldForme,
+    setHeldItemAndEnforce: setHeldItemAndEnforce,
+    getFormeForHeldItem: getFormeForHeldItem
   };
 })();
