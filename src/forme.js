@@ -203,6 +203,17 @@
     });
   }
 
+  // Formes with a signature move use that move in place of the previous
+  // forme's signature move.  Showdown's learnsets can leave both moves legal,
+  // so this needs to happen explicitly rather than relying on legalMoves().
+  var SIGNATURE_MOVES = {
+    rotomheat: 'overheat',
+    rotomwash: 'hydropump',
+    rotomfrost: 'blizzard',
+    rotomfan: 'airslash',
+    rotommow: 'leafstorm'
+  };
+
   // ---- apply ------------------------------------------------------------
   // Swap the forme in place: keep uid, nickname, HP %, status, damage totals.
   async function applyForme(run, mon, formeId) {
@@ -210,7 +221,10 @@
     if (!sp.exists) return { ok: false, msg: 'Unknown forme.' };
 
     var fromName = mon.species || C.cleanName(mon.id);
+    var fromId = toID(mon.id);
     var hpPct = mon.hpPct;
+    var oldSignature = SIGNATURE_MOVES[fromId];
+    var newSignature = SIGNATURE_MOVES[sp.id];
 
     mon.id = sp.id;
     mon.species = sp.name;
@@ -220,6 +234,19 @@
     var legalAb = [];
     for (var k in sp.abilities) if (sp.abilities[k]) legalAb.push(sp.abilities[k]);
     if (legalAb.indexOf(mon.ability) < 0) mon.ability = legalAb[0] || mon.ability;
+
+    // Swap a forme-exclusive move in the same slot.  Keep the PP slot's
+    // remaining value when possible; the new move will still be normalized by
+    // the normal move/PP rebuild below.
+    if (oldSignature && newSignature && oldSignature !== newSignature) {
+      var signatureSlot = mon.moves.indexOf(oldSignature);
+      if (signatureSlot >= 0 && mon.moves.indexOf(newSignature) < 0) {
+        var oldPP = mon.pp[oldSignature];
+        mon.moves[signatureSlot] = newSignature;
+        delete mon.pp[oldSignature];
+        mon.pp[newSignature] = oldPP != null ? oldPP : Math.floor(Dex.moves.get(newSignature).pp * 1.6);
+      }
+    }
 
     // keep every move the new forme can still legally use
     var legal = await C.legalMoves(sp.id, { all: true });
