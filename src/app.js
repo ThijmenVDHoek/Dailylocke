@@ -95,9 +95,12 @@
     var sp = Dex.species.get(id);
     // Alternate formes share the national dex number with the base species,
     // so the PokeAPI URL always returns the default forme's sprite.
-    // Prefer Showdown's gen5 static sprite which is keyed by spriteid.
+    // Prefer Showdown's gen5 static sprite which is keyed by spriteid
+    // (e.g. "sneasel-hisui"), never the bare toID ("sneaselhisui").
     if (isForme(sp) || !sp.num) {
-      return 'https://play.pokemonshowdown.com/sprites/gen5/' + id + '.png';
+      var sid = String((sp.exists && sp.spriteid) || id || 'unknown')
+        .toLowerCase().replace(/[^a-z0-9-]+/g, '');
+      return 'https://play.pokemonshowdown.com/sprites/gen5/' + sid + '.png';
     }
     return 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + sp.num + '.png';
   }
@@ -128,8 +131,15 @@
   }
 
   // The real species behind a (possibly nicknamed) Pokemon.
+  // Always prefer the Dex entry for mon.id: mon.species used to be collapsed
+  // to the base forme by an old cleanName() bug ("Sneasel" for Sneasel-Hisui),
+  // which made battle captions and type chips lie about regional variants.
   function speciesOf(mon) {
     if (!mon) return '';
+    if (mon.id) {
+      var sp = Dex.species.get(mon.id);
+      if (sp && sp.exists) return sp.name;
+    }
     return mon.species || C.cleanName(mon.id);
   }
 
@@ -2693,17 +2703,37 @@
     });
 
     var p = run.party[0], e = cfg.enemies[0];
+    // Resolve types/sprite from Dex(mon.id) so a stale mon.types/species on an
+    // older save (regional collapsed to base) never paints the wrong forme.
+    function battleFace(mon) {
+      var sp = Dex.species.get(mon.id);
+      var types = (sp.exists && sp.types && sp.types.length)
+        ? sp.types.slice()
+        : (mon.types ? mon.types.slice() : ['Normal']);
+      // Keep mon.types in sync so the rest of the fight (AI, catch, switch)
+      // sees the same typing the HUD just drew.
+      mon.types = types;
+      if (sp.exists) mon.species = sp.name;
+      return {
+        name: mon.name,
+        types: types,
+        sid: (sp.exists && sp.spriteid) || mon.id,
+        num: sp.exists ? sp.num : 0,
+        h: worldH(mon.id)
+      };
+    }
+    var pf = battleFace(p), ef = battleFace(e);
     u.setSpeciesLabels(speciesOf(p), cfg.isWild ? 'Wild ' + speciesOf(e) : speciesOf(e));
     u._catchEntrance = !!cfg.catchable;
     u.setupBattle({
-      player: { name: p.name, lv: 100, types: p.types.slice(), hp: p.hpPct, max: 100, st: p.status || null,
-                h: worldH(p.id), sid: Dex.species.get(p.id).spriteid || p.id, num: Dex.species.get(p.id).num,
+      player: { name: pf.name, lv: 100, types: pf.types, hp: p.hpPct, max: 100, st: p.status || null,
+                h: pf.h, sid: pf.sid, num: pf.num,
                 u: spriteUrls(p.id, true, p.shiny) },
-      enemy: { name: e.name, lv: 100, types: e.types.slice(), hp: (e.hpPct != null && e.hpPct < 1) ? e.hpPct : 1, max: 100, st: e.status || null,
-               h: worldH(e.id), sid: Dex.species.get(e.id).spriteid || e.id, num: Dex.species.get(e.id).num,
+      enemy: { name: ef.name, lv: 100, types: ef.types, hp: (e.hpPct != null && e.hpPct < 1) ? e.hpPct : 1, max: 100, st: e.status || null,
+               h: ef.h, sid: ef.sid, num: ef.num,
                u: spriteUrls(e.id, false, e.shiny) },
       biomeSeed: run.seed + '|' + run.section + '|' + run.battleInSection,
-      biomeTypes: e.types
+      biomeTypes: ef.types
     });
     // "Match theme" overrides the random biome after setupBattle picks one.
     try {
@@ -2932,16 +2962,25 @@
       syncBattleToRun(); saveGame();
     } else if (cmd === 'switch' || cmd === 'drag' || cmd === 'replace') {
       var isP = sideOf(p[1]) === 'p';
+      // Prefer the run object's mon.id over the protocol species string. The
+      // engine details are usually right, but a stale mon.species (old saves)
+      // or a temporary display quirk must never collapse a regional variant
+      // (Sneasel-Hisui) to its default forme sprite/types.
+      var swMon = isP ? battle.activeMon() : (bctx && bctx.enemies && bctx.enemies[0]);
       var sp = Dex.species.get((p[2] || '').split(',')[0].trim());
+      if (swMon && swMon.id) {
+        var monSp = Dex.species.get(swMon.id);
+        if (monSp.exists) sp = monSp;
+      }
       if (sp.exists) {
         // Use the nickname the engine reports (which is our mon's .name),
-        // falling back to the clean species name.
-        var shown = nameFromIdent(p[1]) || C.cleanName(sp.id);
-        // Shininess belongs to the individual, not the species: look up the
-        // actual run object being sent out.
-        var swMon = isP ? battle.activeMon() : (bctx && bctx.enemies && bctx.enemies[0]);
+        // falling back to the forme's full species name.
+        var shown = nameFromIdent(p[1]) || sp.name;
         var swShiny = !!(swMon && swMon.shiny);
-        var pay = { name: shown, types: sp.types.slice(), h: worldH(sp.id),
+        // Prefer mon.types when present (already resolved for the individual).
+        var swTypes = (swMon && Array.isArray(swMon.types) && swMon.types.length)
+          ? swMon.types.slice() : sp.types.slice();
+        var pay = { name: shown, types: swTypes, h: worldH(sp.id),
                     sid: sp.spriteid || sp.id, num: sp.num, u: spriteUrls(sp.id, isP, swShiny),
                     silent: opening };
         if (isP) ui.setPlayer(pay); else ui.setEnemy(pay);
@@ -2949,7 +2988,7 @@
       ui.setHp(isP ? 'p' : 'e', RB.parseHp(p[3]));
       // keep the species caption pointing at whoever is actually out
       if (sp.exists && ui.setSpeciesLabels) {
-        var capt = C.cleanName(sp.id);
+        var capt = sp.name;
         if (isP) ui.setSpeciesLabels(capt, null);
         else ui.setSpeciesLabels(null, (bctx && bctx.cfg && bctx.cfg.isWild ? 'Wild ' : '') + capt);
       }
@@ -2973,6 +3012,10 @@
         // skip their re-render, so the header would keep the old forme's name
         // and typing. Force the HUD to redraw.
         if (ui.render) ui.render();
+        if (ui.setSpeciesLabels) {
+          if (dIsP) ui.setSpeciesLabels(dsp.name, null);
+          else ui.setSpeciesLabels(null, (bctx && bctx.cfg && bctx.cfg.isWild ? 'Wild ' : '') + dsp.name);
+        }
         var mon2 = dIsP ? battle.activeMon() : null;
         if (mon2) { mon2.megaForme = dsp.id; mon2.types = dsp.types.slice(); }
       }
@@ -4469,8 +4512,17 @@
       r.rand = C.mulberry32((s.seed ^ 0x9e3779b9) + (s.battlesWon || 0) * 7919);
     }
     // Belt and braces: normalise anything a migration could not infer.
+    // Always re-resolve species/types from mon.id so a save written under the
+    // old cleanName bug (regional variants collapsed to their base forme name)
+    // still fights and draws as the correct forme after load.
     r.party.forEach(function (m) {
-      if (!m.species) m.species = C.cleanName(m.id);
+      var sp = m.id ? Dex.species.get(m.id) : null;
+      if (sp && sp.exists) {
+        m.species = sp.name;
+        if (Array.isArray(sp.types) && sp.types.length) m.types = sp.types.slice();
+      } else if (!m.species) {
+        m.species = C.cleanName(m.id);
+      }
       if (!m.name) m.name = m.species;
       if (!m.pp) m.pp = {};
       N.trackMon(r, m);
@@ -4549,37 +4601,62 @@
     saveProfile();
   }
 
+  // Apply profile extras that ride along with a transfer (shinies, avatar,
+  // theme, history, career totals, Daily streak). Safe to call for both full
+  // run imports and profile-only backups.
+  function applyImportedProfile(saveData) {
+    if (!saveData) return;
+    if (saveData._shiny || saveData._sh || saveData.shinies) {
+      mergeShinies(saveData._shiny || saveData._sh || saveData.shinies);
+    }
+    if (saveData._avatar || saveData._theme || saveData._career) {
+      loadProfile();
+      if (saveData._avatar) profile.avatar = saveData._avatar;
+      if (saveData._theme) profile.theme = saveData._theme;
+      if (saveData._career && typeof saveData._career === 'object') {
+        var c = saveData._career;
+        if (typeof c.totalRuns === 'number') profile.totalRuns = Math.max(profile.totalRuns || 0, c.totalRuns);
+        if (typeof c.bestBattles === 'number') profile.bestBattles = Math.max(profile.bestBattles || 0, c.bestBattles);
+        if (typeof c.bestSection === 'number') profile.bestSection = Math.max(profile.bestSection || 0, c.bestSection);
+        if (typeof c.totalCaught === 'number') profile.totalCaught = Math.max(profile.totalCaught || 0, c.totalCaught);
+        if (typeof c.totalKOs === 'number') profile.totalKOs = Math.max(profile.totalKOs || 0, c.totalKOs);
+        if (c.battlefield) profile.battlefield = c.battlefield;
+      }
+      saveProfile();
+      applyTheme();
+      updateMenuAvatar();
+    }
+    if (saveData._history) mergeHistory(saveData._history);
+    // Overwrite daily results if present — prevents stale local daily state
+    // from letting the user resume a daily that was already finished elsewhere.
+    if (saveData._daily && window.Daily) {
+      window.Daily.save(saveData._daily);
+    }
+  }
+
   // Apply a decoded save object: validate -> migrate -> revive -> persist.
   // Never throws; returns { ok: true } or { ok: false, error } for the UI.
+  // Profile-only backups (mode === 'profile', no party) skip the run path and
+  // only merge profile / Daily data — so a transfer works with no active run.
   function loadGameState(saveData) {
-    var err = validateImportedSave(saveData);
-    if (err) return { ok: false, error: err };
+    if (!saveData || typeof saveData !== 'object') {
+      return { ok: false, error: 'That does not look like a save from this game.' };
+    }
     try {
+      var isProfileOnly = saveData.mode === 'profile' ||
+        (!saveData.party && (saveData._shiny || saveData._history || saveData._daily || saveData._avatar));
+      if (isProfileOnly && (!Array.isArray(saveData.party) || !saveData.party.length)) {
+        applyImportedProfile(saveData);
+        setContinueState();
+        return { ok: true, profileOnly: true };
+      }
+
+      var err = validateImportedSave(saveData);
+      if (err) return { ok: false, error: err };
       var migrated = migrateSave(saveData);
       if (!migrated) return { ok: false, error: 'That run has no Pokemon left to continue with.' };
       run = reviveRun(migrated);
-      // Merge shiny collection if present in save code
-      if (saveData._shiny || saveData._sh || saveData.shinies) {
-        mergeShinies(saveData._shiny || saveData._sh || saveData.shinies);
-      }
-      // Restore avatar and theme if present in save code
-      if (saveData._avatar || saveData._theme) {
-        loadProfile();
-        if (saveData._avatar) profile.avatar = saveData._avatar;
-        if (saveData._theme) profile.theme = saveData._theme;
-        saveProfile();
-        applyTheme();
-        updateMenuAvatar();
-      }
-      // Merge history if present in save code
-      if (saveData._history) {
-        mergeHistory(saveData._history);
-      }
-      // Overwrite daily results if present — prevents stale local daily state
-      // from letting the user resume a daily that was already finished elsewhere.
-      if (saveData._daily && window.Daily) {
-        window.Daily.save(saveData._daily);
-      }
+      applyImportedProfile(saveData);
       // Clear stale in-battle flag on import
       if (run) run._inBattle = false;
       saveGame();                          // persist to THIS device's storage
@@ -4593,11 +4670,57 @@
 
   // ---- EXPORT MODAL -------------------------------------------------------
   var saveShareUrl = '';       // share link backing the current export modal
+  var saveExportSnap = null;   // payload currently shown (for file download)
+  var saveExportStates = [];   // picker candidates for the open export modal
+
+  // Profile extras every transfer carries: shinies, avatar, theme, history and
+  // the dated Daily results. Kept in one place so file + code stay identical.
+  function attachProfileExtras(slim) {
+    try {
+      loadProfile();
+      if (profile) {
+        if (profile.shinies && profile.shinies.length) slim._shiny = profile.shinies;
+        if (profile.avatar) slim._avatar = profile.avatar;
+        if (profile.theme) slim._theme = profile.theme;
+        if (profile.history && profile.history.length) slim._history = profile.history;
+        // Career totals so a profile backup restores more than cosmetics.
+        slim._career = {
+          totalRuns: profile.totalRuns || 0,
+          bestBattles: profile.bestBattles || 0,
+          bestSection: profile.bestSection || 0,
+          totalCaught: profile.totalCaught || 0,
+          totalKOs: profile.totalKOs || 0,
+          battlefield: profile.battlefield || 'dynamic'
+        };
+      }
+    } catch (e) {}
+    try {
+      if (window.Daily) slim._daily = window.Daily.load();
+    } catch (e) {}
+    return slim;
+  }
+
+  // A profile-only payload for when no run is parked. Transfer still works from
+  // the title menu so shinies / history / Daily streak can hop devices alone.
+  function profileOnlyExport() {
+    var slim = { mode: 'profile', __v: ST.SAVE_VERSION };
+    attachProfileExtras(slim);
+    // Nothing to move if the profile is still blank.
+    var has =
+      (slim._shiny && slim._shiny.length) ||
+      (slim._history && slim._history.length) ||
+      (slim._daily && slim._daily.results && Object.keys(slim._daily.results).length) ||
+      (slim._avatar && slim._avatar !== 'red') ||
+      (slim._theme && slim._theme !== 'default');
+    return has ? slim : null;
+  }
 
   // The state a transfer should carry: the live run when one exists, otherwise
   // every run parked in storage. Each mode has its own slot, so the title
   // menu must look in ALL of them; the old Free-Play-only fallback made an
   // unfinished Daily incorrectly report "No run in progress to save".
+  // When NOTHING is parked, fall back to a profile backup so transfer is never
+  // locked behind an active run.
   function exportSourceStates() {
     if (run && !run.over) {
       var live = saveGameState();
@@ -4606,10 +4729,14 @@
     var daily = loadGame('daily');
     var free = loadGame('free');
     var gauntlet = loadGame('gauntlet');
-    return [daily, free, gauntlet].filter(function (s) { return !!s; });
+    var runs = [daily, free, gauntlet].filter(function (s) { return !!s; });
+    if (runs.length) return runs;
+    var prof = profileOnlyExport();
+    return prof ? [prof] : [];
   }
 
   function exportSourceLabel(snap) {
+    if (snap && snap.mode === 'profile') return 'Profile backup (shinies, history, streak)';
     var section = snap.section || 1;
     if (snap.mode === 'daily' || snap.dailyDate) {
       return 'Daily' + (snap.dailyDate ? ' \u00b7 ' + snap.dailyDate : '') +
@@ -4619,46 +4746,132 @@
     return 'Free Play \u00b7 Section ' + section;
   }
 
+  // Build the transferable payload (run + profile extras, log stripped).
+  function buildExportPayload(snap) {
+    var slim = {};
+    Object.keys(snap || {}).forEach(function (k) {
+      if (k === 'log') return;
+      slim[k] = snap[k];
+    });
+    // Profile-only snaps already carry extras; run snaps still need them.
+    if (snap && snap.mode !== 'profile') attachProfileExtras(slim);
+    else if (snap && snap.mode === 'profile') {
+      // Ensure extras are fresh even if the picker re-renders later.
+      attachProfileExtras(slim);
+    }
+    return slim;
+  }
+
   function renderSaveExport(snap) {
     var SC = window.SaveCode;
-    // The rolling battle log is never displayed, only bloats the QR payload.
-    var slim = {};
-    Object.keys(snap).forEach(function (k) { if (k !== 'log') slim[k] = snap[k]; });
-    // Include shiny collection, avatar, and theme in the save code/link/QR.
-    try {
-      loadProfile();
-      if (profile) {
-        if (profile.shinies && profile.shinies.length) slim._shiny = profile.shinies;
-        if (profile.avatar) slim._avatar = profile.avatar;
-        if (profile.theme) slim._theme = profile.theme;
-        if (profile.history && profile.history.length) slim._history = profile.history;
-      }
-    } catch (e) {}
-    // Include daily results so importing overwrites the local daily state
-    try {
-      if (window.Daily) slim._daily = window.Daily.load();
-    } catch (e) {}
-    var code = SC.encode(slim);
-    if (!code) { toast('Could not create a save code.'); return false; }
-    saveShareUrl = SC.buildShareUrl(code);
-    $('saveCodeOut').value = code;
+    if (!SC) return false;
+    var slim = buildExportPayload(snap);
+    saveExportSnap = slim;
+
     $('saveExportMsg').textContent = '';
-    // The QR encodes the exact share URL so a phone camera opens it directly.
+
+    // File download is the primary path and needs no compression library.
+    var dlBtn = $('btnDownloadSave');
+    if (dlBtn) {
+      dlBtn.disabled = false;
+      dlBtn.textContent = slim.mode === 'profile'
+        ? 'Download profile file'
+        : 'Download save file';
+    }
+
+    // Code / link / QR are optional extras. Long saves often exceed QR capacity;
+    // the details panel still offers the code and link, and the note points at
+    // the file download when a QR will not fit.
+    var alt = $('saveAltDetails');
+    var codeOut = $('saveCodeOut');
     var qrBox = $('saveQrBox'), qrNote = $('saveQrNote');
-    var qr = SC.renderQR(qrBox, saveShareUrl);
-    qrBox.hidden = !qr.ok;
-    qrNote.hidden = qr.ok;
-    if (!qr.ok) qrNote.textContent = qr.reason || 'QR code unavailable.';
     var qrBtn = $('btnSaveQR');
+    var copyCode = $('btnCopyCode'), copyLink = $('btnCopyLink');
+
+    if (!SC.enabled()) {
+      if (codeOut) codeOut.value = '';
+      saveShareUrl = '';
+      if (qrBox) { qrBox.hidden = true; qrBox.innerHTML = ''; }
+      if (qrNote) {
+        qrNote.hidden = false;
+        qrNote.textContent = 'Code / link / QR need the compression library. Use the save file instead.';
+      }
+      if (qrBtn) qrBtn.hidden = true;
+      if (copyCode) copyCode.disabled = true;
+      if (copyLink) copyLink.disabled = true;
+      return true;
+    }
+
+    var code = SC.encode(slim);
+    if (!code) {
+      // File path still works; just disable the compressed extras.
+      if (codeOut) codeOut.value = '';
+      saveShareUrl = '';
+      if (qrBox) { qrBox.hidden = true; qrBox.innerHTML = ''; }
+      if (qrNote) {
+        qrNote.hidden = false;
+        qrNote.textContent = 'Could not build a save code \u2014 download the save file instead.';
+      }
+      if (qrBtn) qrBtn.hidden = true;
+      if (copyCode) copyCode.disabled = true;
+      if (copyLink) copyLink.disabled = true;
+      return true;
+    }
+
+    saveShareUrl = SC.buildShareUrl(code);
+    if (codeOut) codeOut.value = code;
+    if (copyCode) copyCode.disabled = false;
+    if (copyLink) copyLink.disabled = false;
+
+    // Skip drawing a QR we already know cannot fit — points the player at the
+    // file download immediately instead of a failed canvas.
+    var qr;
+    if (SC.qrFits && !SC.qrFits(saveShareUrl)) {
+      if (qrBox) { qrBox.hidden = true; qrBox.innerHTML = ''; }
+      qr = { ok: false, reason: 'This save is too long for a QR code \u2014 download the save file instead.' };
+    } else {
+      qr = SC.renderQR(qrBox, saveShareUrl);
+    }
+    if (qrBox) qrBox.hidden = !qr.ok;
+    if (qrNote) {
+      qrNote.hidden = qr.ok;
+      if (!qr.ok) qrNote.textContent = qr.reason || 'QR code unavailable.';
+    }
     if (qrBtn) qrBtn.hidden = !qr.ok;
+
+    // Auto-expand the alt panel when a QR is available so short saves still
+    // feel scan-friendly; keep it collapsed for oversized payloads.
+    if (alt) alt.open = !!qr.ok;
     return true;
+  }
+
+  function downloadCurrentSave() {
+    var SC = window.SaveCode;
+    if (!SC || !saveExportSnap) { toast('Nothing to download.'); return; }
+    var body = SC.packFile(saveExportSnap);
+    if (!body) { toast('Could not build the save file.'); return; }
+    var name = SC.fileNameFor(saveExportSnap);
+    var ok = SC.downloadText(name, body);
+    var msg = $('saveExportMsg');
+    if (ok) {
+      if (msg) msg.textContent = 'Downloading ' + name + '\u2026';
+      toast('Save file ready \u2014 check your downloads.');
+    } else {
+      if (msg) msg.textContent = 'Download failed \u2014 try Copy Code instead.';
+      toast('Could not start the download.');
+    }
   }
 
   function openSaveExport() {
     var SC = window.SaveCode;
-    if (!SC || !SC.enabled()) { toast('Save transfer is unavailable right now.'); return; }
+    // File transfer works without LZString; only the code path needs it.
+    if (!SC) { toast('Save transfer is unavailable right now.'); return; }
     var states = exportSourceStates();
-    if (!states.length) { toast('No run in progress to save.'); return; }
+    if (!states.length) {
+      toast('Nothing to transfer yet \u2014 start a run or catch a shiny first.');
+      return;
+    }
+    saveExportStates = states;
 
     // A live run is always the only candidate. From the title there can be an
     // ongoing Daily AND Free Play run, so let the player choose rather than
@@ -4672,13 +4885,19 @@
       picker.appendChild(opt);
     });
     pickerWrap.hidden = states.length < 2;
-    picker.onchange = function () { renderSaveExport(states[Number(picker.value)] || states[0]); };
+    picker.onchange = function () {
+      renderSaveExport(saveExportStates[Number(picker.value)] || saveExportStates[0]);
+    };
 
     if (!renderSaveExport(states[0])) return;
     window.Modal.open('screenSaveExport');
   }
 
-  function closeSaveExport() { window.Modal.close('screenSaveExport'); }
+  function closeSaveExport() {
+    window.Modal.close('screenSaveExport');
+    saveExportSnap = null;
+    saveExportStates = [];
+  }
 
   function copyFeedback(btn, ok, okToast) {
     var old = btn.textContent;
@@ -4693,32 +4912,103 @@
   }
 
   // ---- IMPORT MODAL -------------------------------------------------------
+  var pendingImportFile = null;   // File chosen via the upload control
+
   function openSaveImport() {
     $('saveCodeIn').value = '';
     $('saveImportMsg').textContent = '';
+    pendingImportFile = null;
+    var nameEl = $('saveFileName');
+    if (nameEl) { nameEl.hidden = true; nameEl.textContent = ''; }
+    var fileIn = $('saveFileIn');
+    if (fileIn) fileIn.value = '';
     window.Modal.open('screenSaveImport', { initialFocus: $('saveCodeIn') });
   }
-  function closeSaveImport() { window.Modal.close('screenSaveImport'); }
+  function closeSaveImport() {
+    window.Modal.close('screenSaveImport');
+    pendingImportFile = null;
+  }
 
   // Shared by the manual import box and the ?save= URL handler.
+  // Accepts a compressed code, a full share link, OR a JSON save-file body.
   function importFromText(text) {
     var SC = window.SaveCode;
-    if (!SC || !SC.enabled()) return { ok: false, error: 'Save transfer is unavailable right now.' };
-    var code = SC.extractCode(text);
+    if (!SC) return { ok: false, error: 'Save transfer is unavailable right now.' };
+    var t = String(text == null ? '' : text).trim();
+    if (!t) return { ok: false, error: 'Paste a save code, link, or choose a save file.' };
+
+    // JSON save file (download / upload path) — no LZString required.
+    if (t.charAt(0) === '{' || t.charAt(0) === '[') {
+      var fileData = SC.parseFileText ? SC.parseFileText(t) : null;
+      if (!fileData) return { ok: false, error: 'That file does not look like a Dailylocke save.' };
+      return loadGameState(fileData);
+    }
+
+    if (!SC.enabled()) return { ok: false, error: 'Save codes need the compression library. Try uploading a save file instead.' };
+    var code = SC.extractCode(t);
     if (!code) return { ok: false, error: 'That does not look like a save code or link.' };
     var data = SC.decode(code);
     if (!data) return { ok: false, error: 'Save code invalid or corrupted!' };
     return loadGameState(data);
   }
 
-  function performManualImport() {
-    var res = importFromText($('saveCodeIn').value);
-    if (!res.ok) { $('saveImportMsg').textContent = res.error; return; }
+  function finishImport(res) {
+    if (!res.ok) {
+      var msg = $('saveImportMsg');
+      if (msg) msg.textContent = res.error;
+      return;
+    }
     closeSaveImport();
     closeMenu();
-    toast('Save loaded! Section ' + run.section + ', ' + run.party.length + ' Pokemon.');
-    // Jump straight into the imported run.
-    renderCrossroads(); show('Crossroads');
+    // Always land on the title after an import. The player can resume any
+    // parked run from there (or start something else) instead of being forced
+    // straight into the imported battle flow.
+    if (res.profileOnly) {
+      toast('Profile imported \u2014 shinies, history and streak are on this device.');
+    } else if (run && !run.over) {
+      toast('Save loaded! Section ' + run.section + ' \u00b7 ' + run.party.length +
+        ' Pokemon \u2014 resume it from the title.');
+      // Park the imported run in its slot and clear the live pointer so the
+      // title CTAs ("Resume Daily" / "Continue run") own the next step.
+      try { saveGame(); } catch (e) {}
+      run = null;
+    } else {
+      toast('Save loaded.');
+    }
+    show('Title');
+    setContinueState();
+  }
+
+  function performManualImport() {
+    // Prefer a chosen file over whatever is in the paste box.
+    if (pendingImportFile && window.SaveCode && window.SaveCode.readFile) {
+      window.SaveCode.readFile(pendingImportFile).then(function (text) {
+        finishImport(importFromText(text));
+      }).catch(function (e) {
+        $('saveImportMsg').textContent = (e && e.message) || 'Could not read that file.';
+      });
+      return;
+    }
+    finishImport(importFromText($('saveCodeIn').value));
+  }
+
+  function onSaveFileChosen(ev) {
+    var input = ev && ev.target;
+    var file = input && input.files && input.files[0];
+    pendingImportFile = file || null;
+    var nameEl = $('saveFileName');
+    if (nameEl) {
+      if (file) {
+        nameEl.hidden = false;
+        nameEl.textContent = 'Selected: ' + file.name;
+        // Clear the paste box so the file is unambiguously the source.
+        $('saveCodeIn').value = '';
+      } else {
+        nameEl.hidden = true;
+        nameEl.textContent = '';
+      }
+    }
+    $('saveImportMsg').textContent = '';
   }
 
   // ---- URL AUTO-IMPORT -----------------------------------------------------
@@ -4734,10 +5024,22 @@
     SC.stripCodeFromUrl();
     var data = SC.decode(code);
     if (!data) { toast('Save link invalid or corrupted.'); return; }
+
+    var isProfileOnly = data.mode === 'profile' ||
+      (!data.party && (data._shiny || data._history || data._daily || data._avatar));
+    if (isProfileOnly && (!Array.isArray(data.party) || !data.party.length)) {
+      var pref = loadGameState(data);
+      toast(pref.ok
+        ? 'Profile imported \u2014 shinies, history and streak are on this device.'
+        : pref.error);
+      return;
+    }
+
     var err = validateImportedSave(data);
     if (err) { toast(err); return; }
     // Never silently destroy a run already in progress on this device.
-    var existing = loadGame();
+    // Check every slot — Daily / Free Play / Gauntlet are independent.
+    var existing = loadGame('daily') || loadGame('free') || loadGame('gauntlet');
     if (existing) {
       var same = existing.seed === data.seed && existing.battlesWon === data.battlesWon;
       if (!same && !confirm('This link will replace your current run (Section ' +
@@ -4747,9 +5049,19 @@
       }
     }
     var res = loadGameState(data);
-    toast(res.ok
-      ? 'Save imported! Section ' + run.section + ' \u00b7 tap Continue to play.'
-      : res.error);
+    if (!res.ok) { toast(res.error); return; }
+    if (res.profileOnly) {
+      toast('Profile imported \u2014 shinies, history and streak are on this device.');
+    } else if (run && !run.over) {
+      toast('Save imported! Section ' + run.section +
+        ' \u00b7 resume it from the title when you are ready.');
+      // Park it and return control to the title — same UX as a manual import.
+      try { saveGame(); } catch (e) {}
+      run = null;
+    } else {
+      toast('Save imported.');
+    }
+    try { setContinueState(); } catch (e) {}
   }
 
   // The sub-screens are reachable mid-run AND from the title, so "Back" has
@@ -4881,13 +5193,17 @@
     $('btnRewardSave').addEventListener('click', openSaveExport);
     $('btnCatchSave').addEventListener('click', openSaveExport);
     $('btnSumSave').addEventListener('click', openSaveExport);
-    // Export + import modals (Save Codes / links / QR).
+    // Export + import modals (save file / codes / links / QR).
     $('btnSaveExportClose').addEventListener('click', closeSaveExport);
+    var dlBtn = $('btnDownloadSave');
+    if (dlBtn) dlBtn.addEventListener('click', downloadCurrentSave);
     $('btnCopyCode').addEventListener('click', function () {
+      if (!window.SaveCode) return;
       window.SaveCode.copyText($('saveCodeOut').value)
         .then(function (ok) { copyFeedback($('btnCopyCode'), ok); });
     });
     $('btnCopyLink').addEventListener('click', function () {
+      if (!window.SaveCode) return;
       window.SaveCode.copyText(saveShareUrl)
         .then(function (ok) { copyFeedback($('btnCopyLink'), ok); });
     });
@@ -4921,6 +5237,17 @@
     });
     $('btnSaveImportClose').addEventListener('click', closeSaveImport);
     $('btnImportLoad').addEventListener('click', performManualImport);
+    var fileIn = $('saveFileIn');
+    if (fileIn) fileIn.addEventListener('change', onSaveFileChosen);
+    $('saveCodeIn').addEventListener('input', function () {
+      // Typing a code clears a previously chosen file so the paste wins.
+      if (pendingImportFile) {
+        pendingImportFile = null;
+        var nameEl = $('saveFileName');
+        if (nameEl) { nameEl.hidden = true; nameEl.textContent = ''; }
+        if (fileIn) fileIn.value = '';
+      }
+    });
     $('saveCodeIn').addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); performManualImport(); }
     });

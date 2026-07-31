@@ -299,11 +299,11 @@
         </button>
         <button type="button" id="btnMenuTransfer" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/pal-pad.png" alt="">
-          <span class="mi-t"><b>Transfer save</b><em id="miTransferSub">Code, link or QR for another device</em></span>
+          <span class="mi-t"><b>Transfer save</b><em id="miTransferSub">Download a file, or use a code / link / QR</em></span>
         </button>
         <button type="button" id="btnMenuImport" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/town-map.png" alt="">
-          <span class="mi-t"><b>Import save</b><em>Load a code from another device</em></span>
+          <span class="mi-t"><b>Import save</b><em>Upload a file or paste a code / link</em></span>
         </button>
         <button type="button" id="btnMenuRules" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/tm-normal.png" alt="">
@@ -386,30 +386,36 @@
   </div>
 
   <!-- ===================== SAVE / EXPORT (overlay) ===================== -->
-  <!-- Transfer the current run to another device: compressed code, share link
-       and a QR code that encodes the exact share link. -->
+  <!-- Transfer a run (or profile backup) to another device. Preferred path is a
+       downloadable JSON save file — no QR size limit. Code / link / QR remain
+       as secondary options for short transfers. -->
   <div id="screenSaveExport" class="overlay" hidden>
     <div class="overlay-card save-card" role="dialog" aria-modal="true" aria-labelledby="saveExportTitle">
-      <h3 id="saveExportTitle" class="picker-title"><span>Save progress</span></h3>
-      <p class="hint center">Take this run anywhere &mdash; scan the QR with another
-        device, or send the code / link and import it there.</p>
+      <h3 id="saveExportTitle" class="picker-title"><span>Transfer save</span></h3>
+      <p class="hint center">Move a run to another device. Download the save file
+        (best for long runs), or use a code / link / QR when it fits.</p>
       <div id="saveRunPickerWrap" hidden>
-        <label class="save-label" for="saveRunPicker">Run to transfer</label>
+        <label class="save-label" for="saveRunPicker">What to transfer</label>
         <select id="saveRunPicker" class="search save-run-picker"></select>
       </div>
-      <div id="saveQrBox" class="save-qr" hidden></div>
-      <p id="saveQrNote" class="hint center save-qr-note" hidden></p>
-      <label class="save-label" for="saveCodeOut">Save code</label>
-      <textarea id="saveCodeOut" class="search save-code" readonly rows="3"
-                autocomplete="off" spellcheck="false"
-                aria-label="Compressed save code"></textarea>
-      <div class="save-actions">
-        <button type="button" id="btnCopyCode" class="btn-secondary">Copy Code</button>
-        <button type="button" id="btnCopyLink" class="btn-secondary">Copy Link</button>
-      </div>
-      <div class="save-actions" style="margin-top:8px">
-        <button type="button" id="btnSaveQR" class="btn-secondary">Save QR Image</button>
-      </div>
+      <button type="button" id="btnDownloadSave" class="btn-primary wide">Download save file</button>
+      <p class="hint center save-file-hint">A small <code>.json</code> file &mdash; share it any way you like, then upload it on the other device.</p>
+      <details id="saveAltDetails" class="save-alt">
+        <summary>Code, link or QR</summary>
+        <div id="saveQrBox" class="save-qr" hidden></div>
+        <p id="saveQrNote" class="hint center save-qr-note" hidden></p>
+        <label class="save-label" for="saveCodeOut">Save code</label>
+        <textarea id="saveCodeOut" class="search save-code" readonly rows="3"
+                  autocomplete="off" spellcheck="false"
+                  aria-label="Compressed save code"></textarea>
+        <div class="save-actions">
+          <button type="button" id="btnCopyCode" class="btn-secondary">Copy Code</button>
+          <button type="button" id="btnCopyLink" class="btn-secondary">Copy Link</button>
+        </div>
+        <div class="save-actions" style="margin-top:8px">
+          <button type="button" id="btnSaveQR" class="btn-secondary">Save QR Image</button>
+        </div>
+      </details>
       <p id="saveExportMsg" class="hint center save-msg" aria-live="polite"></p>
       <button type="button" id="btnSaveExportClose" class="btn-secondary wide">Close</button>
     </div>
@@ -419,7 +425,14 @@
   <div id="screenSaveImport" class="overlay" hidden>
     <div class="overlay-card save-card" role="dialog" aria-modal="true" aria-labelledby="saveImportTitle">
       <h3 id="saveImportTitle" class="picker-title"><span>Import save</span></h3>
-      <p class="hint center">Paste a save code or share link from another device.</p>
+      <p class="hint center">Upload a save file, or paste a save code / share link.</p>
+      <label class="save-file-btn btn-secondary wide" for="saveFileIn">
+        Choose save file&#8230;
+        <input type="file" id="saveFileIn" accept=".json,application/json,text/plain,.txt"
+               hidden aria-label="Choose a Dailylocke save file">
+      </label>
+      <p id="saveFileName" class="hint center save-file-name" hidden></p>
+      <label class="save-label" for="saveCodeIn">Or paste a code / link</label>
       <textarea id="saveCodeIn" class="search save-code" rows="4"
                 placeholder="Paste save code or link&#8230;"
                 autocomplete="off" autocapitalize="off" spellcheck="false"

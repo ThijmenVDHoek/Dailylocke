@@ -53,7 +53,7 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `tooltip.js` | — | move/ability/item tooltips |
 | `ui-patch.js` | — | extends `BattleUI` with the run action bar + ball rail |
 | `battle.js` | `RogueBattle` | wraps `@pkmn/sim`: HP/status/PP persistence, situational AI |
-| `savecode.js` | `SaveCode` | save-code codec, share links, QR + clipboard helpers |
+| `savecode.js` | `SaveCode` | save-file download/upload, save-code codec, share links, QR + clipboard |
 | `safari-compat.js` | — | iOS viewport quirks |
 | `pwa.js` | `PWA` | service worker registration + the install button |
 | `app.js` | `Game` | screens, section flow, battle glue — boots the game |
@@ -105,30 +105,51 @@ The worker also precaches with `cache.add()` per file rather than `addAll()`,
 because `addAll()` is atomic — one 404 would reject `install()` and leave the
 app permanently offline-less.
 
-## Save transfer (Save Codes)
+## Save transfer (files + Save Codes)
 
 Runs persist to `localStorage` automatically, and can hop between devices
 with **no server and no accounts**: every battle/section finish screen has a
 **Save progress** button, and the Menu offers *Transfer save* / *Import save*.
-An unfinished Daily, Free Play or Team Gauntlet run can also be transferred
-directly from the title Menu; if several slots are in progress, the export
-dialog lets you choose which run to send.
+Transfer works **without an active run** — parked Daily / Free Play / Gauntlet
+slots are discovered from storage, and if none exist you can still export a
+**profile backup** (shinies, history, streak, avatar, theme).
 
-* The run state is serialised by `saveGameState()` (one central function,
-  same snapshot autosave writes), compressed with
-  `LZString.compressToEncodedURIComponent()`, and offered three ways:
-  * **Save Code** — copy/paste text for the *Import save* box.
-  * **Share link** — `https://<origin>/<path>?save=<code>`.
-  * **QR code** — encodes the exact share link, so a phone camera opens it
-    directly.
-* Opening a `?save=…` link auto-imports on page load (decompress → schema
-  validate → `loadGameState()` → migrate → `localStorage`), then strips the
-  param with `history.replaceState()` so refreshes don't re-import. A
-  pre-existing run is never replaced without a confirm.
-* Import never crashes on junk: garbage codes, truncated links, foreign JSON,
-  saves newer than the game and empty parties are all rejected with a friendly
-  message, and the battle log is dropped from exports so long runs still fit
-  in one QR (error-correction level steps down H→M→Q→L as needed).
+### Preferred: save file
+
+Long runs routinely exceed QR capacity (a few KB of compressed code is fine;
+a full party + shinies + history is not). The reliable path is a plain JSON
+**save file**:
+
+* **Download save file** on the source device → a small
+  `dailylocke-….json` lands in Downloads.
+* Move it however you like (AirDrop, Messages, Drive, USB, email).
+* **Import save → Choose save file…** on the destination (or paste the file
+  contents). Same schema validation / migration path as everything else.
+
+This is the standard pattern for client-only web games: browser storage is
+device-bound, so give players a real file they control
+([HTML5 Game Devs / StackExchange](https://gamedev.stackexchange.com/questions/154773/whats-the-easiest-way-to-get-a-javascript-game-to-save),
+common Construct / Phaser export advice).
+
+### Also available: code / link / QR
+
+The same snapshot is still compressed with
+`LZString.compressToEncodedURIComponent()` for short transfers:
+
+* **Save Code** — copy/paste text for the *Import save* box.
+* **Share link** — `https://<origin>/<path>?save=<code>`.
+* **QR code** — encodes the exact share link. When the payload is too long
+  for any error-correction level, the UI says so and points at the file
+  download instead of failing silently.
+
+Opening a `?save=…` link auto-imports on page load (decompress → schema
+validate → `loadGameState()` → migrate → `localStorage`), then strips the
+param with `history.replaceState()` so refreshes don't re-import. A
+pre-existing run is never replaced without a confirm.
+
+Import never crashes on junk: garbage codes, truncated links, foreign JSON,
+saves newer than the game and empty parties are all rejected with a friendly
+message. The battle log is dropped from exports so they stay small.
 
 ## The Daily
 

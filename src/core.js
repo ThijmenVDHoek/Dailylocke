@@ -140,15 +140,37 @@
     var s = Dex.species.get(id); if (!s.exists) return 400;
     var t = 0, b = s.baseStats; for (var k in b) t += b[k]; return t;
   }
+  // Display / identity name for a species id.
+  //
+  // IMPORTANT: regional variants (Hisui, Alola, Galar, Paldea, …) and other
+  // permanent alternate formes MUST keep their full name. `mon.species` is fed
+  // straight into the battle engine via toSet(), and into sprite/type lookups
+  // — stripping "Sneasel-Hisui" down to "Sneasel" made the engine spawn the
+  // default forme, so the wrong sprite AND typing showed up in battle.
+  //
+  // Only temporary in-battle transformations (Mega, Primal, Gmax, and anything
+  // flagged battleOnly) collapse to their root species for captions.
   function cleanName(id) {
     try {
-      var sp = Dex.species.get(id); if (!sp.exists) return String(id).split('-')[0];
-      var cur = sp, seen = {};
-      while (cur && cur.baseSpecies && cur.baseSpecies !== cur.name && !seen[cur.baseSpecies]) {
-        seen[cur.baseSpecies] = 1;
-        var nx = Dex.species.get(cur.baseSpecies); if (!nx.exists) break; cur = nx;
+      var sp = Dex.species.get(id);
+      if (!sp.exists) return String(id);
+      // Temporary battle-only transformations → show the root species.
+      if (sp.battleOnly || sp.isMega || sp.isPrimal || sp.forme === 'Gmax') {
+        var cur = sp, seen = {}, guard = 0;
+        while (cur && cur.baseSpecies && cur.baseSpecies !== cur.name &&
+               !seen[cur.baseSpecies] && guard++ < 6) {
+          seen[cur.baseSpecies] = 1;
+          var nx = Dex.species.get(cur.baseSpecies);
+          if (!nx.exists) break;
+          cur = nx;
+          // Stop once we hit a permanent forme (including a regional base).
+          if (!(cur.battleOnly || cur.isMega || cur.isPrimal || cur.forme === 'Gmax')) break;
+        }
+        return cur.name;
       }
-      return cur.name;
+      // Permanent formes — regionals, origin formes, therians, etc. — keep
+      // the full Showdown name so battles, sprites and typing stay correct.
+      return sp.name;
     } catch (e) { return String(id); }
   }
 
@@ -490,8 +512,14 @@
 
   function toSet(mon) {
     ensureSP(mon);
+    // Prefer the live Dex entry for mon.id over mon.species. Older saves (and
+    // a previous cleanName bug) stored the BASE forme name on mon.species
+    // ("Sneasel" for a Hisuian Sneasel), which made the engine spawn the
+    // default forme — wrong sprite, wrong typing. mon.id is the durable key.
+    var sp = Dex.species.get(mon.id);
+    var speciesName = (sp.exists ? sp.name : null) || mon.species || mon.name;
     return {
-      name: mon.name, species: mon.species, item: mon.item, ability: mon.ability,
+      name: mon.name, species: speciesName, item: mon.item, ability: mon.ability,
       moves: mon.moves.slice(), nature: mon.nature, evs: mon.evs, ivs: mon.ivs, level: mon.level,
       shiny: mon.shiny, happiness: 255
     };

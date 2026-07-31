@@ -833,8 +833,41 @@ textarea.search.save-code {
 .save-msg { min-height:1.2em; margin:10px 4px 2px; font-size:.86rem; }
 .save-msg:empty::before { content:'\00a0'; } /* keep the modal from jumping */
 .save-msg.bad { color:#ff8b95; }
+/* File download is the primary transfer path (no QR size ceiling). */
+#btnDownloadSave { margin-top:14px; }
+.save-file-hint { margin:8px 6px 4px; font-size:.82rem; }
+.save-file-hint code {
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:.78rem; color:var(--gold);
+}
+.save-alt {
+  margin:16px 0 4px; padding:0; border-radius:var(--r-md);
+  background:rgba(255,255,255,.05); text-align:left;
+}
+.save-alt > summary {
+  list-style:none; cursor:pointer; padding:12px 14px;
+  color:var(--ink-2); font-size:.92rem; user-select:none;
+}
+.save-alt > summary::-webkit-details-marker { display:none; }
+.save-alt > summary::after {
+  content:'+'; float:right; color:var(--ink-3); font-size:1.1rem; line-height:1;
+}
+.save-alt[open] > summary::after { content:'−'; }
+.save-alt[open] > summary { color:#fff; border-bottom:1px solid rgba(255,255,255,.08); }
+.save-alt > :not(summary) { margin-left:12px; margin-right:12px; }
+.save-alt > .save-actions,
+.save-alt > .save-label,
+.save-alt > textarea,
+.save-alt > .save-qr,
+.save-alt > .save-qr-note { margin-left:12px; margin-right:12px; }
+.save-alt > .save-actions:last-of-type { margin-bottom:14px; }
+.save-file-btn {
+  display:block; margin-top:10px; cursor:pointer; text-align:center;
+}
+.save-file-name { margin:8px 4px 0; color:var(--gold); }
 #btnImportLoad { margin-top:6px; }
 #screenSaveImport .btn-secondary.wide { margin-top:10px; }
+#screenSaveExport .btn-secondary.wide { margin-top:10px; }
 
 .opt-list { display:flex; flex-direction:column; gap:8px; max-height:52vh; overflow-y:auto; }
 .opt-row {
