@@ -90,8 +90,6 @@
         <button type="button" id="btnGauntlet" class="btn-glass title-action-btn">
           <span class="bd-main" id="gauntletMain">Full team gauntlet</span>
         </button>
-        <button type="button" id="btnAbandonTitle" class="btn-glass title-abandon-btn" hidden>Abandon Free Play run</button>
-        <button type="button" id="btnAbandonGauntlet" class="btn-glass title-abandon-btn" hidden>Abandon Gauntlet run</button>
       </div>
     </div>
   </section>
@@ -285,7 +283,7 @@
 
   <!-- ===================== MENU (overlay) ===================== -->
   <div id="screenMenu" class="overlay" hidden>
-    <div class="overlay-card menu-card">
+    <div class="overlay-card menu-card" role="dialog" aria-modal="true" aria-label="Menu">
       <div class="menu-list">
         <button type="button" id="btnMenuProfile" class="menu-item">
           <span id="menuAvatar" class="mi-ic avatar-ic"></span>
@@ -310,6 +308,10 @@
         <button type="button" id="btnMenuRules" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/tm-normal.png" alt="">
           <span class="mi-t"><b>How it works</b><em>The full rule set</em></span>
+        </button>
+        <button type="button" id="btnMenuAbandon" class="menu-item danger" hidden>
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/smoke-ball.png" alt="">
+          <span class="mi-t"><b>Abandon this run</b><em>Your team is lost — start over</em></span>
         </button>
         <button type="button" id="btnMenuQuit" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/escape-rope.png" alt="">
