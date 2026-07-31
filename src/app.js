@@ -4545,7 +4545,7 @@
   }
 
   // -------------------------------------------------- ENCRYPTED BACKUPS ----
-  // Security boundary: an AES-GCM encrypted backup is private and tamper-evident.
+  // Full-account backup files are plain JSON.
   // Competitive/server-verified scores would additionally require a server-side
   // authority; no browser-only game can keep a secret from its owner.
   var pendingImportFile = null;
@@ -4560,24 +4560,23 @@
     };
   }
   function openSaveExport() {
-    $('savePasswordOut').value = '';
-    $('saveExportMsg').textContent = window.SaveCode && window.SaveCode.supported() ? '' : 'Secure backups are not supported by this browser.';
-    window.Modal.open('screenSaveExport', { initialFocus: $('savePasswordOut') });
+    $('saveExportMsg').textContent = '';
+    window.Modal.open('screenSaveExport');
   }
   function closeSaveExport() { window.Modal.close('screenSaveExport'); }
   function downloadCurrentSave() {
-    var password = $('savePasswordOut').value, msg = $('saveExportMsg');
-    window.SaveCode.encrypt(fullBackupState(), password).then(function (text) {
-      var d = new Date().toISOString().slice(0, 10);
-      window.SaveCode.download('dailylocke-backup-' + d + '.json', text);
-      msg.textContent = 'Encrypted backup downloaded.';
-      toast('Encrypted backup downloaded.');
-    }).catch(function (e) { msg.textContent = e.message; });
+    var msg = $('saveExportMsg');
+    var state = fullBackupState();
+    var text = JSON.stringify(state);
+    var d = new Date().toISOString().slice(0, 10);
+    window.SaveCode.download('dailylocke-backup-' + d + '.json', text);
+    msg.textContent = 'Backup downloaded.';
+    toast('Backup downloaded.');
   }
   function openSaveImport() {
-    pendingImportFile = null; $('saveFileIn').value = ''; $('savePasswordIn').value = ''; $('saveImportMsg').textContent = '';
+    pendingImportFile = null; $('saveFileIn').value = ''; $('saveImportMsg').textContent = '';
     $('saveFileName').hidden = true;
-    window.Modal.open('screenSaveImport', { initialFocus: $('savePasswordIn') });
+    window.Modal.open('screenSaveImport');
   }
   function closeSaveImport() { window.Modal.close('screenSaveImport'); pendingImportFile = null; }
   function onSaveFileChosen(ev) {
@@ -4594,8 +4593,11 @@
   }
   function performManualImport() {
     var msg = $('saveImportMsg');
-    if (!pendingImportFile) { msg.textContent = 'Choose an encrypted backup file first.'; return; }
-    window.SaveCode.readFile(pendingImportFile).then(function (text) { return window.SaveCode.decrypt(text, $('savePasswordIn').value); }).then(function (data) {
+    if (!pendingImportFile) { msg.textContent = 'Choose a backup file first.'; return; }
+    window.SaveCode.readFile(pendingImportFile).then(function (text) {
+      var data;
+      try { data = JSON.parse(String(text).replace(/^\uFEFF/, '').trim()); } catch (e) { throw new Error('This is not a valid Dailylocke save file.'); }
+      if (!data || data.format !== 'dailylocke-full-state') throw new Error('This is not a valid Dailylocke backup file.');
       restoreFullBackup(data); closeSaveImport(); closeMenu(); show('Title'); toast('Backup restored. Choose a run to continue.');
     }).catch(function (e) { msg.textContent = e.message || 'Could not restore this backup.'; });
   }
