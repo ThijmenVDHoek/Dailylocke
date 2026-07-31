@@ -4598,7 +4598,8 @@
       var data;
       try { data = JSON.parse(String(text).replace(/^\uFEFF/, '').trim()); } catch (e) { throw new Error('This is not a valid Dailylocke save file.'); }
       if (!data || data.format !== 'dailylocke-full-state') throw new Error('This is not a valid Dailylocke backup file.');
-      restoreFullBackup(data); closeSaveImport(); closeMenu(); show('Title'); toast('Backup restored. Choose a run to continue.');
+      restoreFullBackup(data); closeSaveImport(); closeMenu(); show('Title'); toast('Backup restored. Reloading...');
+      setTimeout(function () { window.location.reload(); }, 350);
     }).catch(function (e) { msg.textContent = e.message || 'Could not restore this backup.'; });
   }
 
