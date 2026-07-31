@@ -53,7 +53,7 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `tooltip.js` | — | move/ability/item tooltips |
 | `ui-patch.js` | — | extends `BattleUI` with the run action bar + ball rail |
 | `battle.js` | `RogueBattle` | wraps `@pkmn/sim`: HP/status/PP persistence, situational AI |
-| `savecode.js` | `SaveCode` | save-file download/upload, save-code codec, share links, QR + clipboard |
+| `savecode.js` | `SaveCode` | password-encrypted, authenticated full-backup files |
 | `safari-compat.js` | — | iOS viewport quirks |
 | `pwa.js` | `PWA` | service worker registration + the install button |
 | `app.js` | `Game` | screens, section flow, battle glue — boots the game |
@@ -65,8 +65,6 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `pkmn-sim.js` | **generated** — battle engine, gen 9 only, no learnsets |
 | `pkmn-learnsets.js` | **generated** — gen 9 learnsets, loaded on demand |
 | `three.min.js` | three.js r149 |
-| `lz-string.min.js` | lz-string 1.5.0 — save-code compression |
-| `qrcode.js` | qrcodejs 1.0.0 — QR rendering for share links |
 | `battle-ui.js` | hand-written 3D battle renderer — edit directly |
 
 ## Installing (PWA)
@@ -105,51 +103,33 @@ The worker also precaches with `cache.add()` per file rather than `addAll()`,
 because `addAll()` is atomic — one 404 would reject `install()` and leave the
 app permanently offline-less.
 
-## Save transfer (files + Save Codes)
+## Encrypted full-game backups
 
-Runs persist to `localStorage` automatically, and can hop between devices
-with **no server and no accounts**: every battle/section finish screen has a
-**Save progress** button, and the Menu offers *Transfer save* / *Import save*.
-Transfer works **without an active run** — parked Daily / Free Play / Gauntlet
-slots are discovered from storage, and if none exist you can still export a
-**profile backup** (shinies, history, streak, avatar, theme).
+The game autosaves active runs to browser storage. The Menu's **Transfer save**
+and **Import save** options provide a single, straightforward recovery and
+cross-device flow:
 
-### Preferred: save file
+1. Choose **Transfer save**, enter a backup password of at least 10 characters,
+   and download the encrypted backup.
+2. Keep both the file and its password safe; the password is never saved in the
+   file and cannot be recovered.
+3. On the other device choose **Import save**, select the file, enter that
+   password, and restore it.
 
-Long runs routinely exceed QR capacity (a few KB of compressed code is fine;
-a full party + shinies + history is not). The reliable path is a plain JSON
-**save file**:
+Each backup is a complete account state: Daily, Free Play and Gauntlet slots;
+avatar and theme; Shiny Collection; run history and career; and the Daily
+record/streak. Restoring deliberately replaces the saved state on the current
+device, avoiding ambiguous partial merges.
 
-* **Download save file** on the source device → a small
-  `dailylocke-….json` lands in Downloads.
-* Move it however you like (AirDrop, Messages, Drive, USB, email).
-* **Import save → Choose save file…** on the destination (or paste the file
-  contents). Same schema validation / migration path as everything else.
+Files use PBKDF2-SHA-256 (310,000 iterations) to derive an AES-256-GCM key.
+AES-GCM encrypts the data and authenticates it, so a modified, corrupt, or
+wrong-password file cannot be accepted as a valid save. Save codes, share URLs,
+and QR transfers are intentionally not supported.
 
-This is the standard pattern for client-only web games: browser storage is
-device-bound, so give players a real file they control
-([HTML5 Game Devs / StackExchange](https://gamedev.stackexchange.com/questions/154773/whats-the-easiest-way-to-get-a-javascript-game-to-save),
-common Construct / Phaser export advice).
-
-### Also available: code / link / QR
-
-The same snapshot is still compressed with
-`LZString.compressToEncodedURIComponent()` for short transfers:
-
-* **Save Code** — copy/paste text for the *Import save* box.
-* **Share link** — `https://<origin>/<path>?save=<code>`.
-* **QR code** — encodes the exact share link. When the payload is too long
-  for any error-correction level, the UI says so and points at the file
-  download instead of failing silently.
-
-Opening a `?save=…` link auto-imports on page load (decompress → schema
-validate → `loadGameState()` → migrate → `localStorage`), then strips the
-param with `history.replaceState()` so refreshes don't re-import. A
-pre-existing run is never replaced without a confirm.
-
-Import never crashes on junk: garbage codes, truncated links, foreign JSON,
-saves newer than the game and empty parties are all rejected with a friendly
-message. The battle log is dropped from exports so they stay small.
+This protects exported saves against casual inspection and forgery. As with any
+entirely client-side game, it cannot make local browser state or a user-known
+password server-authoritative: durable anti-cheat for competitive scores would
+require server-side validation and a secret held off the client.
 
 ## The Daily
 

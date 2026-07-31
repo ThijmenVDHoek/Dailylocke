@@ -4544,524 +4544,60 @@
     return r;
   }
 
-  // -------------------------------------------------- SAVE TRANSFER --------
-  // Cross-device saves: the same snapshot saveGameState() writes is compressed
-  // into a "Save Code" (src/savecode.js), shareable as text, link or QR.
-  // Importing goes through the exact localStorage load path -- validate,
-  // migrate, revive -- so a code can never smuggle in a state a normal save
-  // could not represent.
-
-  // Schema check for decoded save data lives in src/storage.js, so an
-  // imported code is held to exactly the same standard as a stored save.
-  function validateImportedSave(data) { return ST.validate(data); }
-
-  // Helper to merge imported shiny collection into profile
-  function mergeShinies(imported) {
-    if (!Array.isArray(imported) || !imported.length) return;
-    loadProfile();
-    var existing = profile.shinies || [];
-    var seen = {};
-    existing.forEach(function (s) { seen[s.id + '|' + s.at] = true; });
-    imported.forEach(function (s) {
-      if (!s || !s.id) return;
-      var key = s.id + '|' + s.at;
-      if (seen[key]) return;
-      // basic sanitization
-      existing.push({
-        id: s.id,
-        species: s.species || s.id,
-        name: s.name || s.species || s.id,
-        types: Array.isArray(s.types) ? s.types.slice() : [],
-        how: s.how || 'imported',
-        section: s.section || 0,
-        at: s.at || Date.now()
-      });
-      seen[key] = true;
-    });
-    // keep newest first? profile stores chronological, showShinies reverses, so push is fine
-    saveProfile();
-  }
-
-  // Merge imported history into the profile, deduplicating by timestamp.
-  function mergeHistory(imported) {
-    if (!Array.isArray(imported) || !imported.length) return;
-    loadProfile();
-    var existing = profile.history || [];
-    var seen = {};
-    existing.forEach(function (r) { seen[r.at] = true; });
-    imported.forEach(function (r) {
-      if (!r || !r.at) return;
-      if (seen[r.at]) return;
-      existing.push(r);
-      seen[r.at] = true;
-    });
-    existing.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
-    if (existing.length > 50) existing.length = 50;
-    profile.history = existing;
-    saveProfile();
-  }
-
-  // Apply profile extras that ride along with a transfer (shinies, avatar,
-  // theme, history, career totals, Daily streak). Safe to call for both full
-  // run imports and profile-only backups.
-  function applyImportedProfile(saveData) {
-    if (!saveData) return;
-    if (saveData._shiny || saveData._sh || saveData.shinies) {
-      mergeShinies(saveData._shiny || saveData._sh || saveData.shinies);
-    }
-    if (saveData._avatar || saveData._theme || saveData._career) {
-      loadProfile();
-      if (saveData._avatar) profile.avatar = saveData._avatar;
-      if (saveData._theme) profile.theme = saveData._theme;
-      if (saveData._career && typeof saveData._career === 'object') {
-        var c = saveData._career;
-        if (typeof c.totalRuns === 'number') profile.totalRuns = Math.max(profile.totalRuns || 0, c.totalRuns);
-        if (typeof c.bestBattles === 'number') profile.bestBattles = Math.max(profile.bestBattles || 0, c.bestBattles);
-        if (typeof c.bestSection === 'number') profile.bestSection = Math.max(profile.bestSection || 0, c.bestSection);
-        if (typeof c.totalCaught === 'number') profile.totalCaught = Math.max(profile.totalCaught || 0, c.totalCaught);
-        if (typeof c.totalKOs === 'number') profile.totalKOs = Math.max(profile.totalKOs || 0, c.totalKOs);
-        if (c.battlefield) profile.battlefield = c.battlefield;
-      }
-      saveProfile();
-      applyTheme();
-      updateMenuAvatar();
-    }
-    if (saveData._history) mergeHistory(saveData._history);
-    // Overwrite daily results if present — prevents stale local daily state
-    // from letting the user resume a daily that was already finished elsewhere.
-    if (saveData._daily && window.Daily) {
-      window.Daily.save(saveData._daily);
-    }
-  }
-
-  // Apply a decoded save object: validate -> migrate -> revive -> persist.
-  // Never throws; returns { ok: true } or { ok: false, error } for the UI.
-  // Profile-only backups (mode === 'profile', no party) skip the run path and
-  // only merge profile / Daily data — so a transfer works with no active run.
-  function loadGameState(saveData) {
-    if (!saveData || typeof saveData !== 'object') {
-      return { ok: false, error: 'That does not look like a save from this game.' };
-    }
-    try {
-      var isProfileOnly = saveData.mode === 'profile' ||
-        (!saveData.party && (saveData._shiny || saveData._history || saveData._daily || saveData._avatar));
-      if (isProfileOnly && (!Array.isArray(saveData.party) || !saveData.party.length)) {
-        applyImportedProfile(saveData);
-        setContinueState();
-        return { ok: true, profileOnly: true };
-      }
-
-      var err = validateImportedSave(saveData);
-      if (err) return { ok: false, error: err };
-      var migrated = migrateSave(saveData);
-      if (!migrated) return { ok: false, error: 'That run has no Pokemon left to continue with.' };
-      run = reviveRun(migrated);
-      applyImportedProfile(saveData);
-      // Clear stale in-battle flag on import
-      if (run) run._inBattle = false;
-      saveGame();                          // persist to THIS device's storage
-      setContinueState();                  // title button reflects the import
-      return { ok: true };
-    } catch (e) {
-      console.warn('import save', e);
-      return { ok: false, error: 'The save data could not be read.' };
-    }
-  }
-
-  // ---- EXPORT MODAL -------------------------------------------------------
-  var saveShareUrl = '';       // share link backing the current export modal
-  var saveExportSnap = null;   // payload currently shown (for file download)
-  var saveExportStates = [];   // picker candidates for the open export modal
-
-  // Profile extras every transfer carries: shinies, avatar, theme, history and
-  // the dated Daily results. Kept in one place so file + code stay identical.
-  function attachProfileExtras(slim) {
-    try {
-      loadProfile();
-      if (profile) {
-        if (profile.shinies && profile.shinies.length) slim._shiny = profile.shinies;
-        if (profile.avatar) slim._avatar = profile.avatar;
-        if (profile.theme) slim._theme = profile.theme;
-        if (profile.history && profile.history.length) slim._history = profile.history;
-        // Career totals so a profile backup restores more than cosmetics.
-        slim._career = {
-          totalRuns: profile.totalRuns || 0,
-          bestBattles: profile.bestBattles || 0,
-          bestSection: profile.bestSection || 0,
-          totalCaught: profile.totalCaught || 0,
-          totalKOs: profile.totalKOs || 0,
-          battlefield: profile.battlefield || 'dynamic'
-        };
-      }
-    } catch (e) {}
-    try {
-      if (window.Daily) slim._daily = window.Daily.load();
-    } catch (e) {}
-    return slim;
-  }
-
-  // A profile-only payload for when no run is parked. Transfer still works from
-  // the title menu so shinies / history / Daily streak can hop devices alone.
-  function profileOnlyExport() {
-    var slim = { mode: 'profile', __v: ST.SAVE_VERSION };
-    attachProfileExtras(slim);
-    // Nothing to move if the profile is still blank.
-    var has =
-      (slim._shiny && slim._shiny.length) ||
-      (slim._history && slim._history.length) ||
-      (slim._daily && slim._daily.results && Object.keys(slim._daily.results).length) ||
-      (slim._avatar && slim._avatar !== 'red') ||
-      (slim._theme && slim._theme !== 'default');
-    return has ? slim : null;
-  }
-
-  // The state a transfer should carry: the live run when one exists, otherwise
-  // every run parked in storage. Each mode has its own slot, so the title
-  // menu must look in ALL of them; the old Free-Play-only fallback made an
-  // unfinished Daily incorrectly report "No run in progress to save".
-  // When NOTHING is parked, fall back to a profile backup so transfer is never
-  // locked behind an active run.
-  function exportSourceStates() {
-    if (run && !run.over) {
-      var live = saveGameState();
-      return live ? [live] : [];
-    }
-    var daily = loadGame('daily');
-    var free = loadGame('free');
-    var gauntlet = loadGame('gauntlet');
-    var runs = [daily, free, gauntlet].filter(function (s) { return !!s; });
-    if (runs.length) return runs;
-    var prof = profileOnlyExport();
-    return prof ? [prof] : [];
-  }
-
-  function exportSourceLabel(snap) {
-    if (snap && snap.mode === 'profile') return 'Profile backup (shinies, history, streak)';
-    var section = snap.section || 1;
-    if (snap.mode === 'daily' || snap.dailyDate) {
-      return 'Daily' + (snap.dailyDate ? ' \u00b7 ' + snap.dailyDate : '') +
-        ' \u00b7 Section ' + section;
-    }
-    if (snap.mode === 'gauntlet') return 'Gauntlet \u00b7 Trainer ' + section;
-    return 'Free Play \u00b7 Section ' + section;
-  }
-
-  // Build the transferable payload (run + profile extras, log stripped).
-  function buildExportPayload(snap) {
-    var slim = {};
-    Object.keys(snap || {}).forEach(function (k) {
-      if (k === 'log') return;
-      slim[k] = snap[k];
-    });
-    // Profile-only snaps already carry extras; run snaps still need them.
-    if (snap && snap.mode !== 'profile') attachProfileExtras(slim);
-    else if (snap && snap.mode === 'profile') {
-      // Ensure extras are fresh even if the picker re-renders later.
-      attachProfileExtras(slim);
-    }
-    return slim;
-  }
-
-  function renderSaveExport(snap) {
-    var SC = window.SaveCode;
-    if (!SC) return false;
-    var slim = buildExportPayload(snap);
-    saveExportSnap = slim;
-
-    $('saveExportMsg').textContent = '';
-
-    // File download is the primary path and needs no compression library.
-    var dlBtn = $('btnDownloadSave');
-    if (dlBtn) {
-      dlBtn.disabled = false;
-      dlBtn.textContent = slim.mode === 'profile'
-        ? 'Download profile file'
-        : 'Download save file';
-    }
-
-    // Code / link / QR are optional extras. Long saves often exceed QR capacity;
-    // the details panel still offers the code and link, and the note points at
-    // the file download when a QR will not fit.
-    var alt = $('saveAltDetails');
-    var codeOut = $('saveCodeOut');
-    var qrBox = $('saveQrBox'), qrNote = $('saveQrNote');
-    var qrBtn = $('btnSaveQR');
-    var copyCode = $('btnCopyCode'), copyLink = $('btnCopyLink');
-
-    if (!SC.enabled()) {
-      if (codeOut) codeOut.value = '';
-      saveShareUrl = '';
-      if (qrBox) { qrBox.hidden = true; qrBox.innerHTML = ''; }
-      if (qrNote) {
-        qrNote.hidden = false;
-        qrNote.textContent = 'Code / link / QR need the compression library. Use the save file instead.';
-      }
-      if (qrBtn) qrBtn.hidden = true;
-      if (copyCode) copyCode.disabled = true;
-      if (copyLink) copyLink.disabled = true;
-      return true;
-    }
-
-    var code = SC.encode(slim);
-    if (!code) {
-      // File path still works; just disable the compressed extras.
-      if (codeOut) codeOut.value = '';
-      saveShareUrl = '';
-      if (qrBox) { qrBox.hidden = true; qrBox.innerHTML = ''; }
-      if (qrNote) {
-        qrNote.hidden = false;
-        qrNote.textContent = 'Could not build a save code \u2014 download the save file instead.';
-      }
-      if (qrBtn) qrBtn.hidden = true;
-      if (copyCode) copyCode.disabled = true;
-      if (copyLink) copyLink.disabled = true;
-      return true;
-    }
-
-    saveShareUrl = SC.buildShareUrl(code);
-    if (codeOut) codeOut.value = code;
-    if (copyCode) copyCode.disabled = false;
-    if (copyLink) copyLink.disabled = false;
-
-    // Skip drawing a QR we already know cannot fit — points the player at the
-    // file download immediately instead of a failed canvas.
-    var qr;
-    if (SC.qrFits && !SC.qrFits(saveShareUrl)) {
-      if (qrBox) { qrBox.hidden = true; qrBox.innerHTML = ''; }
-      qr = { ok: false, reason: 'This save is too long for a QR code \u2014 download the save file instead.' };
-    } else {
-      qr = SC.renderQR(qrBox, saveShareUrl);
-    }
-    if (qrBox) qrBox.hidden = !qr.ok;
-    if (qrNote) {
-      qrNote.hidden = qr.ok;
-      if (!qr.ok) qrNote.textContent = qr.reason || 'QR code unavailable.';
-    }
-    if (qrBtn) qrBtn.hidden = !qr.ok;
-
-    // Auto-expand the alt panel when a QR is available so short saves still
-    // feel scan-friendly; keep it collapsed for oversized payloads.
-    if (alt) alt.open = !!qr.ok;
-    return true;
-  }
-
-  function downloadCurrentSave() {
-    var SC = window.SaveCode;
-    if (!SC || !saveExportSnap) { toast('Nothing to download.'); return; }
-    var body = SC.packFile(saveExportSnap);
-    if (!body) { toast('Could not build the save file.'); return; }
-    var name = SC.fileNameFor(saveExportSnap);
-    var ok = SC.downloadText(name, body);
-    var msg = $('saveExportMsg');
-    if (ok) {
-      if (msg) msg.textContent = 'Downloading ' + name + '\u2026';
-      toast('Save file ready \u2014 check your downloads.');
-    } else {
-      if (msg) msg.textContent = 'Download failed \u2014 try Copy Code instead.';
-      toast('Could not start the download.');
-    }
-  }
-
-  function openSaveExport() {
-    var SC = window.SaveCode;
-    // File transfer works without LZString; only the code path needs it.
-    if (!SC) { toast('Save transfer is unavailable right now.'); return; }
-    var states = exportSourceStates();
-    if (!states.length) {
-      toast('Nothing to transfer yet \u2014 start a run or catch a shiny first.');
-      return;
-    }
-    saveExportStates = states;
-
-    // A live run is always the only candidate. From the title there can be an
-    // ongoing Daily AND Free Play run, so let the player choose rather than
-    // silently exporting whichever slot happened to be checked first.
-    var pickerWrap = $('saveRunPickerWrap'), picker = $('saveRunPicker');
-    picker.innerHTML = '';
-    states.forEach(function (snap, i) {
-      var opt = document.createElement('option');
-      opt.value = String(i);
-      opt.textContent = exportSourceLabel(snap);
-      picker.appendChild(opt);
-    });
-    pickerWrap.hidden = states.length < 2;
-    picker.onchange = function () {
-      renderSaveExport(saveExportStates[Number(picker.value)] || saveExportStates[0]);
+  // -------------------------------------------------- ENCRYPTED BACKUPS ----
+  // Security boundary: an AES-GCM encrypted backup is private and tamper-evident.
+  // Competitive/server-verified scores would additionally require a server-side
+  // authority; no browser-only game can keep a secret from its owner.
+  var pendingImportFile = null;
+  function fullBackupState() {
+    if (run && !run.over) saveGame();
+    return {
+      format: 'dailylocke-full-state', version: 1,
+      savedAt: Date.now(),
+      runs: { daily: loadGame('daily'), free: loadGame('free'), gauntlet: loadGame('gauntlet') },
+      profile: ST.loadProfile(),
+      daily: window.Daily ? window.Daily.load() : null
     };
-
-    if (!renderSaveExport(states[0])) return;
-    window.Modal.open('screenSaveExport');
   }
-
-  function closeSaveExport() {
-    window.Modal.close('screenSaveExport');
-    saveExportSnap = null;
-    saveExportStates = [];
+  function openSaveExport() {
+    $('savePasswordOut').value = '';
+    $('saveExportMsg').textContent = window.SaveCode && window.SaveCode.supported() ? '' : 'Secure backups are not supported by this browser.';
+    window.Modal.open('screenSaveExport', { initialFocus: $('savePasswordOut') });
   }
-
-  function copyFeedback(btn, ok, okToast) {
-    var old = btn.textContent;
-    btn.textContent = ok ? 'Copied!' : 'Copy failed';
-    setTimeout(function () { btn.textContent = old; }, 1600);
-    var msg = $('saveExportMsg');
-    if (msg) msg.textContent = ok ? 'Copied to clipboard!' : 'Copy failed \u2014 select the code above and copy it manually.';
-    if (ok) { toast(okToast || 'Copied to clipboard!'); return; }
-    // Selecting the text is the manual fallback; pick whichever box is open.
-    var ta = $('screenDailyResult') && !$('screenDailyResult').hidden ? $('drShareText') : $('saveCodeOut');
-    if (ta) { ta.focus(); ta.select(); }
+  function closeSaveExport() { window.Modal.close('screenSaveExport'); }
+  function downloadCurrentSave() {
+    var password = $('savePasswordOut').value, msg = $('saveExportMsg');
+    window.SaveCode.encrypt(fullBackupState(), password).then(function (text) {
+      var d = new Date().toISOString().slice(0, 10);
+      window.SaveCode.download('dailylocke-backup-' + d + '.json', text);
+      msg.textContent = 'Encrypted backup downloaded.';
+      toast('Encrypted backup downloaded.');
+    }).catch(function (e) { msg.textContent = e.message; });
   }
-
-  // ---- IMPORT MODAL -------------------------------------------------------
-  var pendingImportFile = null;   // File chosen via the upload control
-
   function openSaveImport() {
-    $('saveCodeIn').value = '';
-    $('saveImportMsg').textContent = '';
-    pendingImportFile = null;
-    var nameEl = $('saveFileName');
-    if (nameEl) { nameEl.hidden = true; nameEl.textContent = ''; }
-    var fileIn = $('saveFileIn');
-    if (fileIn) fileIn.value = '';
-    window.Modal.open('screenSaveImport', { initialFocus: $('saveCodeIn') });
+    pendingImportFile = null; $('saveFileIn').value = ''; $('savePasswordIn').value = ''; $('saveImportMsg').textContent = '';
+    $('saveFileName').hidden = true;
+    window.Modal.open('screenSaveImport', { initialFocus: $('savePasswordIn') });
   }
-  function closeSaveImport() {
-    window.Modal.close('screenSaveImport');
-    pendingImportFile = null;
-  }
-
-  // Shared by the manual import box and the ?save= URL handler.
-  // Accepts a compressed code, a full share link, OR a JSON save-file body.
-  function importFromText(text) {
-    var SC = window.SaveCode;
-    if (!SC) return { ok: false, error: 'Save transfer is unavailable right now.' };
-    var t = String(text == null ? '' : text).trim();
-    if (!t) return { ok: false, error: 'Paste a save code, link, or choose a save file.' };
-
-    // JSON save file (download / upload path) — no LZString required.
-    if (t.charAt(0) === '{' || t.charAt(0) === '[') {
-      var fileData = SC.parseFileText ? SC.parseFileText(t) : null;
-      if (!fileData) return { ok: false, error: 'That file does not look like a Dailylocke save.' };
-      return loadGameState(fileData);
-    }
-
-    if (!SC.enabled()) return { ok: false, error: 'Save codes need the compression library. Try uploading a save file instead.' };
-    var code = SC.extractCode(t);
-    if (!code) return { ok: false, error: 'That does not look like a save code or link.' };
-    var data = SC.decode(code);
-    if (!data) return { ok: false, error: 'Save code invalid or corrupted!' };
-    return loadGameState(data);
-  }
-
-  function finishImport(res) {
-    if (!res.ok) {
-      var msg = $('saveImportMsg');
-      if (msg) msg.textContent = res.error;
-      return;
-    }
-    closeSaveImport();
-    closeMenu();
-    // Always land on the title after an import. The player can resume any
-    // parked run from there (or start something else) instead of being forced
-    // straight into the imported battle flow.
-    if (res.profileOnly) {
-      toast('Profile imported \u2014 shinies, history and streak are on this device.');
-    } else if (run && !run.over) {
-      toast('Save loaded! Section ' + run.section + ' \u00b7 ' + run.party.length +
-        ' Pokemon \u2014 resume it from the title.');
-      // Park the imported run in its slot and clear the live pointer so the
-      // title CTAs ("Resume Daily" / "Continue run") own the next step.
-      try { saveGame(); } catch (e) {}
-      run = null;
-    } else {
-      toast('Save loaded.');
-    }
-    show('Title');
-    setContinueState();
-  }
-
-  function performManualImport() {
-    // Prefer a chosen file over whatever is in the paste box.
-    if (pendingImportFile && window.SaveCode && window.SaveCode.readFile) {
-      window.SaveCode.readFile(pendingImportFile).then(function (text) {
-        finishImport(importFromText(text));
-      }).catch(function (e) {
-        $('saveImportMsg').textContent = (e && e.message) || 'Could not read that file.';
-      });
-      return;
-    }
-    finishImport(importFromText($('saveCodeIn').value));
-  }
-
+  function closeSaveImport() { window.Modal.close('screenSaveImport'); pendingImportFile = null; }
   function onSaveFileChosen(ev) {
-    var input = ev && ev.target;
-    var file = input && input.files && input.files[0];
-    pendingImportFile = file || null;
-    var nameEl = $('saveFileName');
-    if (nameEl) {
-      if (file) {
-        nameEl.hidden = false;
-        nameEl.textContent = 'Selected: ' + file.name;
-        // Clear the paste box so the file is unambiguously the source.
-        $('saveCodeIn').value = '';
-      } else {
-        nameEl.hidden = true;
-        nameEl.textContent = '';
-      }
-    }
-    $('saveImportMsg').textContent = '';
+    pendingImportFile = ev.target.files && ev.target.files[0];
+    $('saveFileName').hidden = !pendingImportFile;
+    $('saveFileName').textContent = pendingImportFile ? 'Selected: ' + pendingImportFile.name : '';
   }
-
-  // ---- URL AUTO-IMPORT -----------------------------------------------------
-  // A share link (or scanned QR) opens the game with ?save=CODE. Called from
-  // boot() before the title renders so the Continue button reflects it.
-  function applySaveFromUrl() {
-    var SC = window.SaveCode;
-    if (!SC || !SC.enabled()) return;
-    var code = SC.readCodeFromUrl();
-    if (!code) return;
-    // Remove the param FIRST (even on failure) so refreshing the page never
-    // re-applies or re-prompts for the same code.
-    SC.stripCodeFromUrl();
-    var data = SC.decode(code);
-    if (!data) { toast('Save link invalid or corrupted.'); return; }
-
-    var isProfileOnly = data.mode === 'profile' ||
-      (!data.party && (data._shiny || data._history || data._daily || data._avatar));
-    if (isProfileOnly && (!Array.isArray(data.party) || !data.party.length)) {
-      var pref = loadGameState(data);
-      toast(pref.ok
-        ? 'Profile imported \u2014 shinies, history and streak are on this device.'
-        : pref.error);
-      return;
-    }
-
-    var err = validateImportedSave(data);
-    if (err) { toast(err); return; }
-    // Never silently destroy a run already in progress on this device.
-    // Check every slot — Daily / Free Play / Gauntlet are independent.
-    var existing = loadGame('daily') || loadGame('free') || loadGame('gauntlet');
-    if (existing) {
-      var same = existing.seed === data.seed && existing.battlesWon === data.battlesWon;
-      if (!same && !confirm('This link will replace your current run (Section ' +
-          (existing.section || 1) + ') with the shared run (Section ' + (data.section || 1) + '). Continue?')) {
-        toast('Import cancelled \u2014 your current run is safe.');
-        return;
-      }
-    }
-    var res = loadGameState(data);
-    if (!res.ok) { toast(res.error); return; }
-    if (res.profileOnly) {
-      toast('Profile imported \u2014 shinies, history and streak are on this device.');
-    } else if (run && !run.over) {
-      toast('Save imported! Section ' + run.section +
-        ' \u00b7 resume it from the title when you are ready.');
-      // Park it and return control to the title — same UX as a manual import.
-      try { saveGame(); } catch (e) {}
-      run = null;
-    } else {
-      toast('Save imported.');
-    }
-    try { setContinueState(); } catch (e) {}
+  function restoreFullBackup(data) {
+    if (!data || data.format !== 'dailylocke-full-state' || !data.runs || !data.profile) throw new Error('This backup is incomplete or invalid.');
+    ST.saveProfile(data.profile);
+    ['daily', 'free', 'gauntlet'].forEach(function (mode) { if (data.runs[mode]) ST.putRun(mode, data.runs[mode]); else ST.clearRun(mode); });
+    if (data.daily && window.Daily) window.Daily.save(data.daily);
+    run = null; loadProfile(); applyTheme(); updateMenuAvatar(); setContinueState();
+  }
+  function performManualImport() {
+    var msg = $('saveImportMsg');
+    if (!pendingImportFile) { msg.textContent = 'Choose an encrypted backup file first.'; return; }
+    window.SaveCode.readFile(pendingImportFile).then(function (text) { return window.SaveCode.decrypt(text, $('savePasswordIn').value); }).then(function (data) {
+      restoreFullBackup(data); closeSaveImport(); closeMenu(); show('Title'); toast('Backup restored. Choose a run to continue.');
+    }).catch(function (e) { msg.textContent = e.message || 'Could not restore this backup.'; });
   }
 
   // The sub-screens are reachable mid-run AND from the title, so "Back" has
@@ -5107,9 +4643,6 @@
       } catch (e) {}
     };
     loadProfile(); applyTheme(); updateMenuAvatar();
-    // A ?save=CODE link/QR applies the save before the title renders, so the
-    // Continue button it paints already describes the imported run.
-    applySaveFromUrl();
     initTitle();
 
     // Warm the learnsets chunk while the player is still on the title screen.
@@ -5193,64 +4726,13 @@
     $('btnRewardSave').addEventListener('click', openSaveExport);
     $('btnCatchSave').addEventListener('click', openSaveExport);
     $('btnSumSave').addEventListener('click', openSaveExport);
-    // Export + import modals (save file / codes / links / QR).
+    // Encrypted backup export and restore modals.
     $('btnSaveExportClose').addEventListener('click', closeSaveExport);
     var dlBtn = $('btnDownloadSave');
     if (dlBtn) dlBtn.addEventListener('click', downloadCurrentSave);
-    $('btnCopyCode').addEventListener('click', function () {
-      if (!window.SaveCode) return;
-      window.SaveCode.copyText($('saveCodeOut').value)
-        .then(function (ok) { copyFeedback($('btnCopyCode'), ok); });
-    });
-    $('btnCopyLink').addEventListener('click', function () {
-      if (!window.SaveCode) return;
-      window.SaveCode.copyText(saveShareUrl)
-        .then(function (ok) { copyFeedback($('btnCopyLink'), ok); });
-    });
-    var qrSaveBtn = $('btnSaveQR');
-    if (qrSaveBtn) qrSaveBtn.addEventListener('click', function () {
-      try {
-        var box = $('saveQrBox');
-        if (!box) { toast('No QR to save.'); return; }
-        var canvas = box.querySelector('canvas');
-        var dataUrl = '';
-        if (canvas && canvas.toDataURL) {
-          dataUrl = canvas.toDataURL('image/png');
-        } else {
-          // qrcodejs fallback renders a table: rasterize via temporary canvas
-          // Create a simple canvas from table is complex, so fallback to copying link
-          var img = box.querySelector('img');
-          if (img && img.src) dataUrl = img.src;
-        }
-        if (!dataUrl) { toast('QR image not ready.'); return; }
-        var a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = 'dailylocke-qr.png';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        toast('QR image saved!');
-      } catch (e) {
-        console.warn('save qr', e);
-        toast('Could not save QR image.');
-      }
-    });
     $('btnSaveImportClose').addEventListener('click', closeSaveImport);
     $('btnImportLoad').addEventListener('click', performManualImport);
-    var fileIn = $('saveFileIn');
-    if (fileIn) fileIn.addEventListener('change', onSaveFileChosen);
-    $('saveCodeIn').addEventListener('input', function () {
-      // Typing a code clears a previously chosen file so the paste wins.
-      if (pendingImportFile) {
-        pendingImportFile = null;
-        var nameEl = $('saveFileName');
-        if (nameEl) { nameEl.hidden = true; nameEl.textContent = ''; }
-        if (fileIn) fileIn.value = '';
-      }
-    });
-    $('saveCodeIn').addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); performManualImport(); }
-    });
+    $('saveFileIn').addEventListener('change', onSaveFileChosen);
     $('btnCatchDone').addEventListener('click', afterBattleAdvance);
     $('btnEvoDone').addEventListener('click', function () {
       renderCrossroads(); show('Crossroads');
@@ -5274,9 +4756,9 @@
     $('btnDrContinue').addEventListener('click', continueDailyInFreePlay);
     $('btnDrCopy').addEventListener('click', function () {
       var txt = $('drShareText').value;
-      window.SaveCode.copyText(txt).then(function (ok) {
-        copyFeedback($('btnDrCopy'), ok, 'Result copied!');
-      });
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(function () { toast('Result copied!'); }, function () { toast('Copy failed.'); });
+      } else { $('drShareText').focus(); $('drShareText').select(); toast('Select and copy the result text.'); }
     });
     // The Web Share sheet is the natural way to send this on a phone, but it
     // only exists on some browsers -- so the button only appears where it works.

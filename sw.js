@@ -27,7 +27,7 @@ const CACHE_PREFIX = 'dailylocke-';
 
 // ---- GENERATED: do not edit by hand -------------------------------------
 // `npm run build:sw --prefix tools` recomputes this from the shell contents.
-const SHELL_REV = '0a166872a596';
+const SHELL_REV = '6c44d12b6395';
 // -------------------------------------------------------------------------
 
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${SHELL_REV}`;
@@ -63,8 +63,6 @@ const APP_SHELL = [
   'vendor/pkmn-learnsets.js',
   'vendor/three.min.js',
   'vendor/battle-ui.js',
-  'vendor/lz-string.min.js',
-  'vendor/qrcode.js',
   'src/pokedata.js',
   'src/core.js',
   'src/storage.js',
