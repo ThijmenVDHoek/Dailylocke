@@ -15,9 +15,15 @@
 <!-- Warm up the third-party origins the game pulls sprites, cries and music
      from, so the first battle isn't waiting on DNS + TLS. The font is no
      longer among them: VT323 is self-hosted so an offline launch still looks
-     like Dailylocke instead of falling back to Courier. -->
-<link rel="preconnect" href="https://play.pokemonshowdown.com" crossorigin/>
-<link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin/>
+     like Dailylocke instead of falling back to Courier.
+     IMPORTANT: these preconnects must NOT set crossorigin. Showdown sprite
+     GIFs are loaded as ordinary <img> (no CORS mode). A CORS preconnect opens
+     the wrong connection type and the browser then opens a second plain one
+     on first image request — defeating the warm-up. -->
+<link rel="preconnect" href="https://play.pokemonshowdown.com"/>
+<link rel="dns-prefetch" href="https://play.pokemonshowdown.com"/>
+<link rel="preconnect" href="https://raw.githubusercontent.com"/>
+<link rel="dns-prefetch" href="https://raw.githubusercontent.com"/>
 
 <!-- Preload both local subsets. In standalone mode this lets the blocking
      @font-face declarations resolve from the app shell before first paint,

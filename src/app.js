@@ -15,9 +15,13 @@
   }
 
   // ------------------------------------------------------------ SPRITES ---
-  // Sprite fallback chain. `shiny` swaps in Showdown's parallel -shiny
-  // directories and PokeAPI's /shiny/ path; every tier of the chain has a
-  // shiny twin, so a shiny never silently falls back to normal colours.
+  // Sprite fallback chain. Preferred art is ALWAYS Pokemon Showdown's
+  // animated GIF (`/sprites/ani…`). Static gen5 PNGs and PokeAPI art are
+  // fallbacks only — never preloaded in parallel with the preferred GIF, or
+  // the smaller PNG wins the race and players mostly see gen5 sprites.
+  // `shiny` swaps in Showdown's parallel -shiny directories and PokeAPI's
+  // /shiny/ path; every tier of the chain has a shiny twin, so a shiny never
+  // silently falls back to normal colours.
   // True when a species is an alternate forme whose sprite differs from its
   // base species. PokeAPI sprites are keyed by national dex number, so they
   // always show the DEFAULT forme -- using them as a fallback for e.g.
@@ -25,6 +29,9 @@
   function isForme(sp) {
     return sp.exists && sp.baseSpecies && sp.baseSpecies !== sp.name;
   }
+
+  var SD_SPRITE = 'https://play.pokemonshowdown.com/sprites/';
+  var PA_SPRITE = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/';
 
   function spriteUrls(speciesId, isBack, shiny) {
     var urls = [];
@@ -36,21 +43,64 @@
     var sh = shiny ? '-shiny' : '';
     var pa = shiny ? 'shiny/' : '';
     function add(u) { if (u && urls.indexOf(u) < 0) urls.push(u); }
-    add('https://play.pokemonshowdown.com/sprites/ani' + bs + sh + '/' + sd + '.gif');
-    add('https://play.pokemonshowdown.com/sprites/gen5' + bs + sh + '/' + sd + '.png');
+    // 1. Showdown animated (the goal). Front + back, shiny variants included.
+    add(SD_SPRITE + 'ani' + bs + sh + '/' + sd + '.gif');
+    // 2. Another Showdown animated set (gen5ani) — still animated, still
+    //    keyed by spriteid. Used only when the modern ani GIF is missing.
+    add(SD_SPRITE + 'gen5ani' + bs + sh + '/' + sd + '.gif');
+    // 3. Static Showdown gen5 PNG — last Showdown tier before leaving the host.
+    add(SD_SPRITE + 'gen5' + bs + sh + '/' + sd + '.png');
     // PokeAPI sprites use the national dex number which is identical across all
     // formes of a species.  For alternate formes (Hisui, Alola, Galar, Paldea,
     // regional variants, Rotom-Wash, Deoxys-Attack, etc.) these URLs always
     // return the DEFAULT forme's sprite, so we skip them entirely.
     if (!forme) {
-      if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/' + (isBack ? 'back/' : '') + pa + num + '.gif');
-      if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + (isBack ? 'back/' : '') + pa + num + '.png');
+      if (num) add(PA_SPRITE + 'versions/generation-v/black-white/animated/' + (isBack ? 'back/' : '') + pa + num + '.gif');
+      if (num) add(PA_SPRITE + (isBack ? 'back/' : '') + pa + num + '.png');
       // Official artwork as last resort before the silhouette
-      if (num) add('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/' + pa + num + '.png');
+      if (num) add(PA_SPRITE + 'other/official-artwork/' + pa + num + '.png');
     }
     // last resort: the non-shiny art, so something always renders
     if (shiny) spriteUrls(speciesId, isBack, false).forEach(add);
     return urls;
+  }
+
+  // Warm a sprite URL without putting it on screen. Shared with BattleUI's
+  // Image cache when available so a party-strip load also primes the battle.
+  function warmSpriteUrl(url) {
+    if (!url) return;
+    if (window.BattleUI && window.BattleUI.preload) {
+      try { window.BattleUI.preload(url); return; } catch (e) {}
+    }
+    var img = new Image();
+    try { if ('fetchPriority' in img) img.fetchPriority = 'low'; } catch (e) {}
+    img.decoding = 'async';
+    img.src = url;
+  }
+
+  // Prefetch the preferred Showdown animated GIF for a species (and optionally
+  // its battle-back pose). Call this as soon as we know which mon will appear.
+  function prefetchSpecies(speciesId, opts) {
+    opts = opts || {};
+    if (!speciesId) return;
+    var shiny = !!opts.shiny;
+    // Front ani GIF first — used by party strip, pickers, and enemy battle.
+    var front = spriteUrls(speciesId, false, shiny);
+    if (front[0]) warmSpriteUrl(front[0]);
+    if (opts.back) {
+      var back = spriteUrls(speciesId, true, shiny);
+      if (back[0]) warmSpriteUrl(back[0]);
+    }
+  }
+
+  function prefetchParty(party) {
+    if (!party || !party.length) return;
+    for (var i = 0; i < party.length; i++) {
+      var m = party[i];
+      if (!m || !m.id) continue;
+      // Lead gets the back sprite warmed too — it is what the battle shows.
+      prefetchSpecies(m.id, { shiny: !!m.shiny, back: i === 0 });
+    }
   }
   // ---- SMALL ANIMATED SPRITES ---------------------------------------------
   // The game shows the animated BW gif EVERYWHERE -- party strip, battle,
@@ -77,6 +127,9 @@
     urls.push(iconUrl(id));
     urls.push(FALLBACK_SPRITE);
     var chain = urls.slice(1);
+    // onerror only advances on a REAL failure. Never time out a still-loading
+    // Showdown GIF into the gen5 PNG — that is exactly how gen5 became the
+    // default art players saw. The chain still covers missing formes / 404s.
     var onerr = "this.onerror=null;var q=" + JSON.stringify(chain) + ";" +
                 "if(!this._i)this._i=0;" +
                 "if(this._i<q.length){this.src=q[this._i++];this.onerror=arguments.callee;}";
@@ -84,7 +137,10 @@
     // the same bounds up front so a cached 200px fallback can never paint one
     // oversized frame before __snapSprite() fits it into the slot.
     var bounds = 'max-height:' + px + 'px;max-width:' + Math.round(pw * wt) + 'px';
+    // decoding=async keeps layout free while the GIF decodes; fetchpriority
+    // high marks party/route sprites as more important than background chrome.
     return '<img class="anim-mon ' + (cls || '') + (shiny ? ' is-shiny' : '') + '" src="' + urls[0] + '" alt="" ' +
+           'decoding="async" fetchpriority="high" ' +
            'style="' + bounds + '" data-box="' + px + '" data-boxw="' + pw + '" data-wt="' + wt + '" ' +
            'onload="window.__snapSprite&&window.__snapSprite(this)" ' +
            'onerror="' + onerr.replace(/"/g, '&quot;') + '">';
@@ -100,9 +156,9 @@
     if (isForme(sp) || !sp.num) {
       var sid = String((sp.exists && sp.spriteid) || id || 'unknown')
         .toLowerCase().replace(/[^a-z0-9-]+/g, '');
-      return 'https://play.pokemonshowdown.com/sprites/gen5/' + sid + '.png';
+      return SD_SPRITE + 'gen5/' + sid + '.png';
     }
-    return 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + sp.num + '.png';
+    return PA_SPRITE + sp.num + '.png';
   }
 
   // The END of every sprite fallback chain: a bundled, offline-safe silhouette.
@@ -183,6 +239,7 @@
     var bounds = isEvolutionArt ? ''
       : ' style="max-height:' + boxH + 'px;max-width:' + Math.round(boxW * widthTolerance) + 'px"';
     return '<img class="' + (cls || '') + (shiny ? ' is-shiny' : '') + '" src="' + urls[0] + '" alt=""' + bounds + ' ' +
+           'decoding="async" fetchpriority="high" ' +
            'data-box="' + boxH + '" data-boxw="' + boxW + '" data-wt="' + widthTolerance + '" ' +
            'onload="window.__snapSprite&&window.__snapSprite(this)" ' +
            'onerror="' + onerr.replace(/"/g, '&quot;') + '">';
@@ -242,6 +299,10 @@
       var pick2 = C.pickN(pool, 2, Math.random);
       var A = pick2[0] || 'gengar', B = pick2[1] || 'nidorino';
       var sa = Dex.species.get(A), sb = Dex.species.get(B);
+      try {
+        prefetchSpecies(A, { back: true });
+        prefetchSpecies(B);
+      } catch (e) {}
       var titleBiomeKey = null;
       if (profile && (profile.battlefield || 'dynamic') === 'match') {
         titleBiomeKey = THEME_BIOME[(profile && profile.theme) || 'default'] || 'meadow';
@@ -551,6 +612,7 @@
       // A starter rolls for shiny on the same 1/512 odds as a wild.
       if (rand() < N.SHINY_ODDS) sm.shiny = true;
       starterChoices.push(sm);
+      try { prefetchSpecies(sm.id, { shiny: !!sm.shiny }); } catch (e) {}
     }
     renderStarters();
   }
@@ -1047,6 +1109,9 @@
     // If the app was closed mid-battle, the synced HP/status is preserved in
     // run.party but the battle is lost. Clear the flag so the user can continue.
     if (run._inBattle) { run._inBattle = false; saveGame(); }
+    // Warm Showdown ani GIFs for the whole party (and the lead's back sprite)
+    // while the player is still on the route — battle then paints instantly.
+    try { prefetchParty(run.party); } catch (e) {}
     renderHud();
     var isG = N.isGauntlet(run);
     var trainerNext = N.nextIsTrainer(run);   // always true in a Gauntlet
@@ -1088,6 +1153,7 @@
       } else {
         var wildKey = run.section + ':' + run.battleInSection;
         if (!run._nextWild || run._nextWild.key !== wildKey) run._nextWild = { key:wildKey, id:N.pickWild(run, { dupesClause:n === 0 }) };
+        try { prefetchSpecies(run._nextWild.id); } catch (e) {}
         art = animSprite(run._nextWild.id, 48, 48, 'route-wild', 1, false);
         bi.className = 'x-ic x-art wild-art';
       }
@@ -2758,6 +2824,20 @@
       };
     }
     var pf = battleFace(p), ef = battleFace(e);
+    // High-priority warm of the exact battle poses right before the UI asks
+    // for them. The lead's back GIF + the foe's front GIF are what _setTex
+    // will request first.
+    try {
+      prefetchSpecies(p.id, { shiny: !!p.shiny, back: true });
+      prefetchSpecies(e.id, { shiny: !!e.shiny });
+      // Warm the rest of both benches at low urgency so switches don't stall.
+      if (run.party) for (var pi = 1; pi < run.party.length; pi++) {
+        if (run.party[pi]) prefetchSpecies(run.party[pi].id, { shiny: !!run.party[pi].shiny, back: true });
+      }
+      if (cfg.enemies) for (var ei = 1; ei < cfg.enemies.length; ei++) {
+        if (cfg.enemies[ei]) prefetchSpecies(cfg.enemies[ei].id, { shiny: !!cfg.enemies[ei].shiny });
+      }
+    } catch (ePre) {}
     u.setSpeciesLabels(speciesOf(p), cfg.isWild ? 'Wild ' + speciesOf(e) : speciesOf(e));
     u._catchEntrance = !!cfg.catchable;
     u.setupBattle({
@@ -4992,6 +5072,8 @@
 
   window.Game = { get run() { return run; }, show: show, startNextBattle: startNextBattle,
                   startGauntlet: startGauntlet,
+                  // Sprite helpers (tests + console debugging).
+                  spriteUrls: spriteUrls, prefetchSpecies: prefetchSpecies,
                   redrawRoute: renderCrossroads, toast: toast,
                   // The exact payload the Download backup button writes. Exposed
                   // so tests can assert on what an export contains.
