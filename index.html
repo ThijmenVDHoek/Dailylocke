@@ -299,11 +299,11 @@
         </button>
         <button type="button" id="btnMenuTransfer" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/pal-pad.png" alt="">
-          <span class="mi-t"><b>Transfer save</b><em id="miTransferSub">Download an encrypted full backup</em></span>
+          <span class="mi-t"><b>Transfer save</b><em id="miTransferSub">Download a full backup</em></span>
         </button>
         <button type="button" id="btnMenuImport" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/town-map.png" alt="">
-          <span class="mi-t"><b>Import save</b><em>Unlock an encrypted backup file</em></span>
+          <span class="mi-t"><b>Import save</b><em>Restore a backup file</em></span>
         </button>
         <button type="button" id="btnMenuRules" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/tm-normal.png" alt="">
@@ -385,15 +385,12 @@
     </div>
   </div>
 
-  <!-- ===================== ENCRYPTED FULL BACKUP ===================== -->
+  <!-- ===================== FULL BACKUP ===================== -->
   <div id="screenSaveExport" class="overlay" hidden>
     <div class="overlay-card save-card" role="dialog" aria-modal="true" aria-labelledby="saveExportTitle">
       <h3 id="saveExportTitle" class="picker-title"><span>Back up your game</span></h3>
-      <p class="hint center">One encrypted file contains your complete game: all active runs, avatar, theme, Shiny Collection, history, career, and Daily record.</p>
-      <label class="save-label" for="savePasswordOut">Backup password</label>
-      <input id="savePasswordOut" class="search" type="password" minlength="10" autocomplete="new-password" placeholder="At least 10 characters" />
-      <p class="hint center save-file-hint">Keep this password safe. It cannot be recovered, and it is required to restore this backup.</p>
-      <button type="button" id="btnDownloadSave" class="btn-primary wide">Download encrypted backup</button>
+      <p class="hint center">One file contains your complete game: all active runs, avatar, theme, Shiny Collection, history, career, and Daily record.</p>
+      <button type="button" id="btnDownloadSave" class="btn-primary wide">Download backup</button>
       <p id="saveExportMsg" class="hint center save-msg" aria-live="polite"></p>
       <button type="button" id="btnSaveExportClose" class="btn-secondary wide">Close</button>
     </div>
@@ -401,11 +398,9 @@
   <div id="screenSaveImport" class="overlay" hidden>
     <div class="overlay-card save-card" role="dialog" aria-modal="true" aria-labelledby="saveImportTitle">
       <h3 id="saveImportTitle" class="picker-title"><span>Restore backup</span></h3>
-      <p class="hint center">Choose an encrypted Dailylocke backup, then enter the password used when it was created. Restoring replaces this device's saved game.</p>
-      <label class="save-file-btn btn-secondary wide" for="saveFileIn">Choose encrypted backup…<input type="file" id="saveFileIn" accept=".json,application/json" hidden aria-label="Choose encrypted Dailylocke backup"></label>
+      <p class="hint center">Choose a Dailylocke backup file. Restoring replaces this device's saved game.</p>
+      <label class="save-file-btn btn-secondary wide" for="saveFileIn">Choose backup…<input type="file" id="saveFileIn" accept=".json,application/json" hidden aria-label="Choose Dailylocke backup"></label>
       <p id="saveFileName" class="hint center save-file-name" hidden></p>
-      <label class="save-label" for="savePasswordIn">Backup password</label>
-      <input id="savePasswordIn" class="search" type="password" autocomplete="current-password" placeholder="Enter backup password" />
       <p id="saveImportMsg" class="hint center save-msg" aria-live="polite"></p>
       <button type="button" id="btnImportLoad" class="btn-primary wide">Restore backup</button>
       <button type="button" id="btnSaveImportClose" class="btn-secondary wide">Cancel</button>
@@ -506,7 +501,7 @@
        core.js        -> window.Core          (needs PS + PokeData)
        nuzlocke.js    -> window.Nuz           (needs Core)
        ...feature modules...
-       savecode.js    -> window.SaveCode      (encrypted backup files)
+       savecode.js    -> window.SaveCode      (backup files)
        pwa.js         -> window.PWA           (service worker + install button)
        app.js         -> boots the game       (needs everything above)
 
