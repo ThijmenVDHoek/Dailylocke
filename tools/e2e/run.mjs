@@ -237,16 +237,21 @@ try {
     await page.click('#btnMenuTransfer');
     await page.waitForSelector('#screenSaveExport:not([hidden])');
     const transferred = await page.evaluate(() => {
-      const code = document.getElementById('saveCodeOut').value;
-      const save = window.SaveCode.decode(code);
-      return save && {
-        mode: save.mode,
-        section: save.section,
-        party: (save.party || []).map((m) => m.name),
+      // The Download button writes Game.fullBackupState(); assert on the
+      // actual payload instead of a removed save-code API.
+      const dl = document.getElementById('btnDownloadSave');
+      const state = window.Game.fullBackupState();
+      const save = state && state.runs && state.runs.daily;
+      return {
+        dlVisible: !!dl && !dl.disabled,
+        mode: save && save.mode,
+        section: save && save.section,
+        party: (save && save.party || []).map((m) => m.name),
       };
     });
     check('an ongoing Daily can be transferred from the title menu',
-      transferred && transferred.mode === 'daily' && transferred.party.includes('Testmon'),
+      transferred.dlVisible && transferred.mode === 'daily' &&
+      transferred.party.includes('Testmon'),
       JSON.stringify(transferred));
     await page.click('#btnSaveExportClose');
 
@@ -413,7 +418,10 @@ try {
     // Every overlay, opened from the title screen.
     const modals = [
       ['screenMenu', () => document.getElementById('btnTitleMenu').click()],
-      ['screenSaveImport', () => document.getElementById('btnTitleLoad').click()],
+      ['screenSaveImport', () => {
+        document.getElementById('btnTitleMenu').click();
+        document.getElementById('btnMenuImport').click();
+      }],
       ['screenInstall', () => window.PWA && window.PWA.openSheet && window.PWA.openSheet()],
     ];
 

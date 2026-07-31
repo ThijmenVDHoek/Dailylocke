@@ -6,8 +6,6 @@ Dailylocke distributes the following third-party software:
 | --- | --- | --- | --- |
 | `@pkmn/sim` 0.10.11 | `vendor/pkmn-sim.js`, `vendor/pkmn-learnsets.js` | Copyright © 2011–2026 Guangcong Luo and other Pokémon Showdown contributors; <https://github.com/pkmn/ps> | MIT |
 | three.js r149 | `vendor/three.min.js` | Copyright © 2010–2023 three.js authors; <https://github.com/mrdoob/three.js> | MIT |
-| lz-string 1.5.0 | `vendor/lz-string.min.js` | Copyright © 2013 pieroxy; <https://github.com/pieroxy/lz-string> | MIT |
-| qrcodejs 1.0.0 | `vendor/qrcode.js` | Copyright © 2012 davidshimjs and © 2009 Kazuhiko Arase; <https://github.com/davidshimjs/qrcodejs> | MIT |
 | VT323 | `assets/fonts/vt323-*.woff2` | Copyright © 2011 The VT323 Project Authors (peter.hull@oikoi.com); <https://github.com/googlefonts/VT323> | SIL Open Font License 1.1 |
 
 The MIT license for those components follows:
@@ -29,8 +27,6 @@ The MIT license for those components follows:
 > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
-
-“QR Code” is a registered trademark of DENSO WAVE INCORPORATED.
 
 VT323 is licensed under the SIL Open Font License, Version 1.1, whose full text
 is distributed alongside the font files in

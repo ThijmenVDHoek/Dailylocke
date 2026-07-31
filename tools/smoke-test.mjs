@@ -11,7 +11,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { JSDOM } from 'jsdom';
+import { JSDOM, VirtualConsole } from 'jsdom';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..');
@@ -43,10 +43,19 @@ check('index.html no longer inlines the engine', html.length < 200 * 1024,
   `${(html.length / 1024).toFixed(1)} KB`);
 
 // -------------------------------------------------------------- the dom ----
+// jsdom cannot navigate: the app calls location.reload() after a successful
+// backup restore (a real reload in browsers). Swallow that one jsdomError so
+// the suite's stderr stays clean; everything else still reaches the console.
+const vc = new VirtualConsole();
+vc.on('jsdomError', (err) => {
+  if (/navigation/.test((err && err.message) || '')) return;
+  console.error(err);
+});
 const dom = new JSDOM(html, {
   url: pathToFileURL(resolve(repo, 'index.html')).href,
   pretendToBeVisual: true,
   runScripts: 'outside-only',
+  virtualConsole: vc,
 });
 const { window } = dom;
 
@@ -442,11 +451,19 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
     html.includes('rel="preload" as="font" type="font/woff2" href="assets/fonts/vt323-latin-ext-400.woff2"'));
   check('the app waits for its precached font instead of flashing a fallback',
     (appCss.match(/font-display:block/g) || []).length === 2 && !appCss.includes('font-display:swap'));
+  // CTAs are themed through CSS variables now (applyTheme sets --cta /
+  // --cta-text from the chosen theme). The DEFAULT theme must stay the classic
+  // plain-white-on-black with no always-on outline ring -- the outline only
+  // exists on :focus-visible, which is the accessible-by-design state.
   const whiteButtonRule = (appCss.match(/\.btn-white\s*\{([^}]*)\}/) || [])[1] || '';
   const dailyButtonRule = (appCss.match(/\.btn-daily\s*\{([^}]*)\}/) || [])[1] || '';
+  const appJs = readFileSync(resolve(repo, 'src/app.js'), 'utf8');
+  const defaultTheme = (appJs.match(/id:'default',name:'Default',dot:'([^']+)'/) || [])[1];
   check('start-screen CTAs are plain white and black with no outline ring',
-    /background:#fff/.test(whiteButtonRule) && /color:#000/.test(whiteButtonRule) &&
-    !/outline|0\s+0\s+0/.test(whiteButtonRule + dailyButtonRule));
+    /var\(--cta/.test(whiteButtonRule) && /var\(--cta-text\)/.test(whiteButtonRule) &&
+    !/outline:|0\s+0\s+0/.test(whiteButtonRule + dailyButtonRule) &&
+    defaultTheme === '#ffffff' && /isLight = choice\.id === 'default'/.test(appJs),
+    `default dot ${defaultTheme}`);
   check('title actions use one gap for horizontal and vertical spacing',
     /--title-action-gap:10px/.test(appCss) &&
     /title-btns[\s\S]*?gap:var\(--title-action-gap\)/.test(appCss) &&
@@ -491,72 +508,56 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
     'that moved to src/pwa.js');
 }
 
-// ------------------------------------------------------ save code transfer --
-// Cross-device saves: compress -> share -> decompress -> validate. The codec
-// must round-trip perfectly and must never throw on garbage input.
+// --------------------------------------------------- full backup transfer --
+// Cross-device saves are a single plain-JSON file that carries every slot,
+// the profile and the Daily record. It must round-trip through SaveCode's
+// file helpers, and the payload must survive Storage.validate + migration.
 {
   const SC = window.SaveCode;
-  check('lz-string loaded', typeof window.LZString !== 'undefined');
-  check('qrcode.js loaded', typeof window.QRCode !== 'undefined');
-  check('SaveCode.enabled with lz-string present', SC.enabled() === true);
+  check('SaveCode exposes the backup format marker', SC.FORMAT === 'dailylocke-full-state', SC.FORMAT);
 
-  const state = {
-    __v: 2, seed: 42, section: 3, battleInSection: 1,
-    party: [{ id: 'gengar', species: 'Gengar', name: 'Casper', hpPct: 0.618,
-              moves: ['shadowball', 'sludgebomb', 'focusblast', 'nastyplot'],
-              pp: { shadowball: 12 }, sp: { hp: 2, atk: 0, def: 0, spa: 32, spd: 0, spe: 32 } }],
-    bag: { pokeball: 5, potion: 3 }, money: 4000, battlesWon: 9, trainersBeaten: 2,
-    damageDealt: { 1: 8123 }, sectionStats: { money: 2400, won: 3, caught: null, lost: [], damage: 8123, kos: 2, startedAt: 1 },
-  };
-  const code = SC.encode(state);
-  check('save state compresses to a URL-safe code', /^[A-Za-z0-9+\-$]{40,}$/.test(code),
-    `${code.length} chars from ${JSON.stringify(state).length} JSON bytes`);
-  check('code round-trips to identical state',
-    JSON.stringify(SC.decode(code)) === JSON.stringify(state));
-  check('corrupted codes decode to null, never throw',
-    SC.decode('not-a-real-code') === null && SC.decode('') === null
-    && SC.decode('$$$') === null && SC.decode(null) === null);
+  // readFile is the import path: File bytes -> string, with a size cap.
+  const tiny = new window.File(['{"hello":"world"}'], 'tiny.json', { type: 'application/json' });
+  const round = await SC.readFile(tiny);
+  check('SaveCode.readFile reads a backup file', round === '{"hello":"world"}');
+  const big = new window.File([new Array(6 * 1024 * 1024 + 1).join('x')], 'big.json');
+  let bigRejected = null;
+  try { await SC.readFile(big); } catch (e) { bigRejected = e.message; }
+  check('SaveCode.readFile rejects files over 5 MB', /too large/.test(bigRejected || ''), bigRejected);
+  let nullRejected = null;
+  try { await SC.readFile(null); } catch (e) { nullRejected = e.message; }
+  check('SaveCode.readFile rejects a missing file', /Choose a save file/.test(nullRejected || ''), nullRejected);
 
-  const url = SC.buildShareUrl(code);
-  check('share url carries ?save=', url.includes('?save=' + code), url.slice(0, 80));
-  check('extractCode parses a full share link', SC.extractCode(url) === code);
-  check('extractCode unwraps messy pastes',
-    SC.extractCode('  ' + code.slice(0, 40) + '\n' + code.slice(40) + ' ') === code);
-  check('extractCode rejects plain junk',
-    SC.extractCode('hello world!') === '' && SC.extractCode('') === '');
+  // The Download button writes Game.fullBackupState(): every slot + profile +
+  // the Daily record, all in one JSON document under the format marker.
+  const state = window.Game.fullBackupState();
+  check('a full backup carries the format marker',
+    !!state && state.format === 'dailylocke-full-state' && state.version === 1);
+  check('a full backup covers all three run slots',
+    !!state && typeof state.runs === 'object' &&
+    ['daily', 'free', 'gauntlet'].every((m) => Object.prototype.hasOwnProperty.call(state.runs, m)));
+  check('a full backup carries profile and Daily record',
+    !!state && !!state.profile && !!state.daily && Array.isArray(state.profile.shinies));
+  check('the backup payload survives JSON round-tripping',
+    (() => { try { const s = JSON.parse(JSON.stringify(state)); return !!s && s.format === 'dailylocke-full-state'; } catch { return false; } })());
 
-  // ---- save FILE path (preferred when QR is too small) ----
-  check('SaveCode exposes file helpers',
-    typeof SC.packFile === 'function' && typeof SC.parseFileText === 'function' &&
-    typeof SC.downloadText === 'function' && typeof SC.fileNameFor === 'function' &&
-    typeof SC.qrFits === 'function');
-  const fileBody = SC.packFile(state);
-  check('packFile wraps the state with a format marker',
-    fileBody.includes('"__format":"dailylocke-save"') && fileBody.includes('"seed":42'));
-  const fromFile = SC.parseFileText(fileBody);
-  check('parseFileText round-trips a downloaded JSON save',
-    !!fromFile && fromFile.seed === 42 && fromFile.section === 3 &&
-    fromFile.party[0].id === 'gengar' && fromFile.__format === undefined);
-  check('parseFileText also accepts a bare save code',
-    SC.parseFileText(code).seed === 42);
-  // Bare JSON without our marker is still accepted (hand-exports); the game's
-  // schema validate rejects it later. A wrong format marker is hard-rejected.
-  check('parseFileText accepts unmarked JSON (hand exports)',
-    SC.parseFileText(JSON.stringify({ seed: 7, party: [{ id: 'x' }] })).seed === 7);
-  check('parseFileText rejects a wrong format marker',
-    SC.parseFileText(JSON.stringify({ __format: 'other-game', seed: 1, party: [] })) === null);
-  check('schema validate still rejects non-run JSON files',
-    typeof window.Storage.validate(SC.parseFileText('{"hello":"world"}')) === 'string');
-  check('fileNameFor builds a safe download name',
-    /\.json$/.test(SC.fileNameFor(state)) && !/\s/.test(SC.fileNameFor(state)));
-  check('qrFits reports short payloads as OK', SC.qrFits('https://example.com/?save=abc') === true);
-  check('qrFits rejects oversized payloads',
-    SC.qrFits('x'.repeat(4000)) === false);
+  // Every run inside must be schema-valid (or absent), so restoreFullBackup
+  // can accept it wholesale.
+  const runsValid = (() => {
+    for (const mode of ['daily', 'free', 'gauntlet']) {
+      const r = state.runs[mode];
+      if (!r) continue;
+      if (window.Storage.validate(r) !== null) return false;
+      if (!window.Storage.migrate(JSON.parse(JSON.stringify(r)), { cleanName: window.Core.cleanName })) return false;
+    }
+    return true;
+  })();
+  check('every run in a fresh backup passes validation + migration', runsValid);
 }
 
-// The title has no live `run` object after a reload, so transfer must discover
-// ongoing runs in storage. Daily and Free Play use different slots; this is the
-// regression path that used to inspect only Free Play and reject a valid Daily.
+// The title has no live `run` object, so transfer must discover ongoing runs
+// in storage. Daily and Free Play use different slots; this is the regression
+// path that used to inspect only Free Play and reject a valid Daily.
 {
   const mem = new Map();
   const originalLocalStorage = Object.getOwnPropertyDescriptor(window, 'localStorage');
@@ -582,121 +583,111 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
   });
   S.putRun('daily', savedRun('daily', 3));
 
+  // Export: the menu's Transfer opens the export dialog with the Download
+  // button enabled, and the payload it would write contains the Daily.
   window.document.getElementById('btnTitleMenu').click();
   window.document.getElementById('btnMenuTransfer').click();
   const exportScreen = window.document.getElementById('screenSaveExport');
-  const exportedDaily = window.SaveCode.decode(
-    window.document.getElementById('saveCodeOut').value);
-  check('an ongoing Daily can be transferred from the title menu',
-    !exportScreen.hidden && exportedDaily && exportedDaily.mode === 'daily' &&
-    exportedDaily.section === 3);
-  check('a single ongoing run needs no transfer picker',
-    window.document.getElementById('saveRunPickerWrap').hidden === true);
-  window.Modal.close('screenSaveExport');
-
-  // If both independent slots exist, neither should be silently selected on
-  // the player's behalf: the same export dialog exposes both choices.
-  S.putRun('free', savedRun('free', 8));
-  window.document.getElementById('btnTitleMenu').click();
-  window.document.getElementById('btnMenuTransfer').click();
-  const picker = window.document.getElementById('saveRunPicker');
-  check('both ongoing runs are offered for transfer',
-    !window.document.getElementById('saveRunPickerWrap').hidden &&
-    picker.options.length === 2);
-  picker.value = '1';
-  picker.dispatchEvent(new window.Event('change'));
-  const exportedFree = window.SaveCode.decode(
-    window.document.getElementById('saveCodeOut').value);
-  check('choosing Free Play updates the transferred save',
-    exportedFree && exportedFree.mode === 'free' && exportedFree.section === 8);
-  window.Modal.close('screenSaveExport');
-
-  // With no parked run, transfer must still open — as a profile backup — so
-  // shinies / history can hop devices without an active run.
-  S.clearRun('daily');
-  S.clearRun('free');
-  // Seed a shiny so the profile-only export has something to carry.
-  S.saveProfile({
-    __v: 1, shinies: [{ id: 'gengar', species: 'Gengar', name: 'Casper', types: ['Ghost'], how: 'caught', section: 1, at: 1 }],
-    history: [], totalRuns: 1, bestBattles: 3, bestSection: 2, totalCaught: 1, totalKOs: 0,
-    avatar: 'red', theme: 'fire',
-  });
-  window.document.getElementById('btnTitleMenu').click();
-  window.document.getElementById('btnMenuTransfer').click();
-  const profileExport = window.document.getElementById('screenSaveExport');
-  const profileCode = window.document.getElementById('saveCodeOut').value;
-  const profileSnap = profileCode ? window.SaveCode.decode(profileCode) : null;
-  // File download is the primary control and must be present even without a run.
   const dlBtn = window.document.getElementById('btnDownloadSave');
-  check('transfer works with no active run (profile backup)',
-    !profileExport.hidden && !!dlBtn &&
-    ((profileSnap && profileSnap.mode === 'profile') ||
-     (profileSnap && profileSnap._shiny && profileSnap._shiny.length === 1) ||
-     (dlBtn && !dlBtn.disabled)));
-  // Build a file body the same way the Download button does and re-import it.
-  if (window.Game && profileSnap) {
-    /* profileSnap from code is enough */
-  }
-  const packed = window.SaveCode.packFile(
-    profileSnap || { mode: 'profile', _shiny: [{ id: 'gengar', at: 1, name: 'Casper', species: 'Gengar' }] });
-  const reimported = window.SaveCode.parseFileText(packed);
-  check('a profile save file round-trips shinies',
-    !!reimported && Array.isArray(reimported._shiny) && reimported._shiny[0].id === 'gengar');
+  const exportState = window.Game.fullBackupState();
+  check('an ongoing Daily can be transferred from the title menu',
+    !exportScreen.hidden && !!dlBtn && !dlBtn.disabled &&
+    exportState.runs.daily && exportState.runs.daily.mode === 'daily' &&
+    exportState.runs.daily.section === 3);
   window.Modal.close('screenSaveExport');
 
-  // UI exposes file import controls.
+  // Both independent slots must appear in the same export.
+  S.putRun('free', savedRun('free', 8));
+  const bothState = window.Game.fullBackupState();
+  check('both ongoing runs are carried by one backup',
+    !!bothState.runs.daily && !!bothState.runs.free &&
+    bothState.runs.free.mode === 'free' && bothState.runs.free.section === 8);
+
+  // Import through the UI: inject a full backup file, choose it, restore.
+  const importPayload = {
+    format: 'dailylocke-full-state', version: 1, savedAt: Date.now(),
+    runs: {
+      daily: null,
+      free: {
+        __v: S.SAVE_VERSION, mode: 'free', seed: 4242, section: 4, battlesWon: 4,
+        party: [{ id: 'sneaselhisui', species: 'Sneasel', name: 'Blade', hpPct: 1,
+                  types: ['Dark', 'Ice'], moves: ['tripleaxel'], pp: { tripleaxel: 5 },
+                  ability: 'Inner Focus', nature: 'Jolly',
+                  evs: { hp:0,atk:0,def:0,spa:0,spd:0,spe:0 },
+                  ivs: { hp:31,atk:31,def:31,spa:31,spd:31,spe:31 } }],
+        bag: {}, money: 100, graveyard: [], damageDealt: {}, knockouts: {},
+        monMeta: {}, seenSpecies: {}, sectionStats: { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:4 },
+      },
+      gauntlet: null,
+    },
+    profile: { __v: 1, shinies: [], history: [], totalRuns: 0, bestBattles: 0,
+               bestSection: 0, totalCaught: 0, totalKOs: 0, avatar: 'red', theme: 'default' },
+    daily: { __v: 1, results: {}, streak: 0, best: 0, lastPlayed: null, grace: 0 },
+  };
+  // Stale species name on purpose — restoreFullBackup must repair it from mon.id.
+  const goodFile = new window.File([JSON.stringify(importPayload)], 'dailylocke-backup.json', { type: 'application/json' });
   window.document.getElementById('btnTitleMenu').click();
   window.document.getElementById('btnMenuImport').click();
+  const importScreen = window.document.getElementById('screenSaveImport');
+  const fileInput = window.document.getElementById('saveFileIn');
   check('import modal offers a file picker',
-    !!window.document.getElementById('saveFileIn') &&
-    !window.document.getElementById('screenSaveImport').hidden);
-  window.Modal.close('screenSaveImport');
-
-  // Importing a run must land on the TITLE, not force the player into it.
-  // The title CTAs ("Resume Daily" / "Continue run") own the next step.
-  S.putRun('free', savedRun('free', 4));
-  const freeCode = window.SaveCode.encode(S.loadRun('free', (d) => d) || savedRun('free', 4));
-  // Build a minimal valid free-play payload and import through the UI path.
-  const importPayload = {
-    __v: S.SAVE_VERSION, mode: 'free', seed: 4242, section: 4, battlesWon: 4,
-    party: [{ id: 'sneaselhisui', species: 'Sneasel', name: 'Blade', hpPct: 1,
-              types: ['Dark', 'Ice'], moves: ['tripleaxel'], pp: { tripleaxel: 5 },
-              ability: 'Inner Focus', nature: 'Jolly',
-              evs: { hp:0,atk:0,def:0,spa:0,spd:0,spe:0 },
-              ivs: { hp:31,atk:31,def:31,spa:31,spd:31,spe:31 } }],
-    bag: {}, money: 100, graveyard: [], damageDealt: {}, knockouts: {},
-    monMeta: {}, seenSpecies: {}, sectionStats: { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:4 },
-  };
-  // Stale species name on purpose — reviveRun must repair it from mon.id.
-  window.document.getElementById('saveCodeIn').value = window.SaveCode.encode(importPayload);
-  // Call the same path the Load button uses.
+    !importScreen.hidden && !!fileInput && !!fileInput.accept);
+  Object.defineProperty(fileInput, 'files', { configurable: true, value: [goodFile] });
+  fileInput.dispatchEvent(new window.Event('change'));
   window.document.getElementById('btnImportLoad').click();
-  // Give the modal close / title paint a tick.
-  await new Promise((r) => setTimeout(r, 30));
-  check('importing a run returns to the title screen',
+  await new Promise((r) => setTimeout(r, 60));
+  check('importing a backup returns to the title screen',
     window.document.getElementById('screenTitle').hidden === false &&
     window.document.getElementById('screenCrossroads').hidden === true);
   // The imported run is parked, not live — resume from the title CTA.
   check('import parks the run instead of auto-entering it',
     window.Game.run == null || window.Game.run.over === true ||
     window.document.getElementById('screenTitle').hidden === false);
-  // Opening Free Play after import must repair the regional forme identity.
-  const parked = S.loadRun('free', (d) => window.Storage.migrate(d, { cleanName: window.Core.cleanName }));
-  // Manually revive the way the title does to assert the repair.
-  if (parked) {
-    // species string was intentionally wrong ("Sneasel"); after migrate+revive
-    // path via loadGameState it should have been corrected. Re-check storage.
-    const raw = mem.get(S.SLOTS.free);
-    const stored = raw ? JSON.parse(raw) : null;
-    check('import repairs a stale regional species name from mon.id',
-      !!stored && stored.party && stored.party[0] &&
-      (stored.party[0].species === 'Sneasel-Hisui' || stored.party[0].id === 'sneaselhisui'),
-      stored && stored.party && stored.party[0] && `${stored.party[0].id}/${stored.party[0].species}`);
-    check('import repairs regional typing from mon.id',
-      !!stored && stored.party[0].types &&
-      stored.party[0].types.join('/') === 'Fighting/Poison',
-      stored && stored.party[0].types && stored.party[0].types.join('/'));
-  }
+  // The stored run must already be repaired: id is the durable key, so a
+  // stale species string and base-forme typing never reach storage.
+  const raw = mem.get(S.SLOTS.free);
+  const stored = raw ? JSON.parse(raw) : null;
+  check('import repairs a stale regional species name from mon.id',
+    !!stored && stored.party && stored.party[0] &&
+    (stored.party[0].species === 'Sneasel-Hisui' || stored.party[0].id === 'sneaselhisui'),
+    stored && stored.party && stored.party[0] && `${stored.party[0].id}/${stored.party[0].species}`);
+  check('import repairs regional typing from mon.id',
+    !!stored && stored.party[0].types &&
+    stored.party[0].types.join('/') === 'Fighting/Poison',
+    stored && stored.party[0].types && stored.party[0].types.join('/'));
+  window.Modal.close('screenSaveImport');
+
+  // A wrong-format file is rejected with a message and changes nothing.
+  S.clearRun('free');
+  const badFile = new window.File([JSON.stringify({ format: 'some-other-game', runs: {}, profile: {} })], 'bad.json');
+  window.document.getElementById('btnTitleMenu').click();
+  window.document.getElementById('btnMenuImport').click();
+  Object.defineProperty(fileInput, 'files', { configurable: true, value: [badFile] });
+  fileInput.dispatchEvent(new window.Event('change'));
+  window.document.getElementById('btnImportLoad').click();
+  await new Promise((r) => setTimeout(r, 60));
+  const badMsg = window.document.getElementById('saveImportMsg').textContent;
+  check('a wrong-format backup is rejected with a clear message',
+    /not a valid Dailylocke backup/.test(badMsg), badMsg);
+  check('a rejected backup leaves storage untouched',
+    mem.get(S.SLOTS.free) == null && mem.get(S.SLOTS.daily) == null);
+
+  // A backup with an invalid run inside is rejected wholesale, never partially
+  // applied.
+  const invalidRunPayload = JSON.parse(JSON.stringify(importPayload));
+  invalidRunPayload.runs.free = { __v: S.SAVE_VERSION, mode: 'free', party: [], seed: 1 };
+  const badRunFile = new window.File([JSON.stringify(invalidRunPayload)], 'badrun.json');
+  window.document.getElementById('btnMenuImport').click();
+  Object.defineProperty(fileInput, 'files', { configurable: true, value: [badRunFile] });
+  fileInput.dispatchEvent(new window.Event('change'));
+  window.document.getElementById('btnImportLoad').click();
+  await new Promise((r) => setTimeout(r, 60));
+  const badRunMsg = window.document.getElementById('saveImportMsg').textContent;
+  check('a backup with an invalid run is rejected wholesale',
+    /invalid/.test(badRunMsg) || /no surviving/.test(badRunMsg), badRunMsg);
+  check('an invalid run never reaches storage',
+    mem.get(S.SLOTS.free) == null);
+  window.Modal.close('screenSaveImport');
 
   S.clearRun('daily');
   S.clearRun('free');
@@ -1450,6 +1441,22 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   ] }] };
   const choice = RB._chooseAIMove(req, ['Electric'], ['Water'], { depth: 2 });
   check('the AI returns a legal engine choice', /^move [12]$/.test(choice), choice);
+
+  // A Daily is a shared puzzle: the tie-breaking jitter must be seeded (the
+  // app passes a per-battle mulberry32 for daily runs) so two players on the
+  // same day get the same opponent decisions. Reproducibility is the property;
+  // without a rand in the context the engine keeps real randomness.
+  check('seeded AI scoring is deterministic',
+    (() => {
+      const seeded = (seed) => sc('bodyslam', { rand: window.Core.mulberry32(seed) });
+      return seeded(42) === seeded(42);
+    })());
+  check('seeded AI choice is reproducible across a request',
+    (() => {
+      const choice2 = (seed) => RB._chooseAIMove(req, ['Electric'], ['Water'],
+        { depth: 2, rand: window.Core.mulberry32(seed) });
+      return choice2(1234) === choice2(1234);
+    })());
   check('an AI with no usable moves falls back to default',
     RB._chooseAIMove({ active: [{ moves: [{ id: 'tackle', pp: 0, disabled: true }] }] },
       ['Normal'], ['Normal'], {}) === 'default');

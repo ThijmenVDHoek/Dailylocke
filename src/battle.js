@@ -87,6 +87,11 @@
     var stab = ctx.myTypes.indexOf(d.type) >= 0 ? 1.5 : 1;
     var acc = d.accuracy === true ? 1 : d.accuracy / 100;
     var depth = ctx.depth || 0;
+    // Tie-breaking jitter. A Daily is a shared, scoreable puzzle, so the AI's
+    // decisions must be reproducible for everyone on that day: the caller
+    // passes a seeded `rand` derived from the run seed + battle slot. Free
+    // Play passes nothing and keeps real randomness.
+    var jitter = ctx.rand ? ctx.rand() : Math.random();
 
     if (d.category !== 'Status') {
       if (eff === 0) return 0;
@@ -102,7 +107,7 @@
       // Priority is how you finish a faster, nearly-dead opponent.
       if (d.priority > 0 && ctx.foeHp <= 0.3) score *= 1.5;
       if (depth >= 2 && !ctx.faster && ctx.myHp <= 0.25 && d.priority > 0) score *= 1.4;
-      return score + Math.random() * 5;
+      return score + jitter * 5;
     }
 
     // ---- status moves, scored on the actual board ----
@@ -157,9 +162,9 @@
     } else {
       // Unknown status move: the old flat guess, but lower than any scored
       // option so it's a fallback rather than a default.
-      base = 10 + Math.random() * 8;
+      base = 10 + jitter * 8;
     }
-    return base + Math.random() * 6;
+    return base + jitter * 6;
   }
 
   function chooseAIMove(request, myTypes, foeTypes, ctx) {
@@ -173,7 +178,8 @@
       myStatus: ctx.myStatus || '', foeStatus: ctx.foeStatus || '',
       boosts: ctx.boosts || null, faster: !!ctx.faster,
       depth: ctx.depth || 0, turn: ctx.turn || 1,
-      hazardsUp: !!ctx.hazardsUp, weather: ctx.weather || ''
+      hazardsUp: !!ctx.hazardsUp, weather: ctx.weather || '',
+      rand: ctx.rand || null
     };
     var best = null, bestScore = -1;
     for (var i = 0; i < moves.length; i++) {
@@ -340,11 +346,12 @@
     }
 
     // Board state the AI scores against. Read fresh every request -- HP,
-    // status and boosts all move between turns.
+    // status and boosts all move between turns. `rand` is the deterministic
+    // jitter source for Daily battles (null in Free Play -> Math.random).
     function aiContext() {
       var b = stream.battle;
       var me = liveEnemy(), foe = livePlayer();
-      var ctx = { depth: cfg.aiDepth || 0, turn: (b && b.turn) || 1 };
+      var ctx = { depth: cfg.aiDepth || 0, turn: (b && b.turn) || 1, rand: cfg.rand || null };
       if (!me || !foe) return ctx;
       try {
         ctx.myHp = me.maxhp ? me.hp / me.maxhp : 1;

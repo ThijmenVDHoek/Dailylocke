@@ -266,9 +266,6 @@
   // not) and the three starters. Trainer-owned Pokemon are never shiny --
   // they cannot be caught, so a shiny there would only be a tease.
   var SHINY_ODDS = 1 / 512;
-  // Legacy helper kept for starter generation (which uses its own RNG) and
-  // for old save compatibility; new wild shinies use deterministic roll.
-  function rollShiny(run) { return run.rand() < SHINY_ODDS; }
   function rollShinyDeterministic(run, speciesId) {
     var r = drand(run.seed + '|shiny|' + run.section + '|' + run.battleInSection + '|' + speciesId);
     return r() < SHINY_ODDS;
@@ -819,6 +816,6 @@
     rollMart: rollMart, applyItem: applyItem,
     tutorOptions: tutorOptions, teachMove: teachMove, abilityOptions: abilityOptions,
     mvp: mvp, roster: roster, trainPlayerMon: trainPlayerMon,
-    SHINY_ODDS: SHINY_ODDS, rollShiny: rollShiny
+    SHINY_ODDS: SHINY_ODDS
   };
 })();

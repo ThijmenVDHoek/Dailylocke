@@ -7,6 +7,15 @@
   if (!window.BattleUI) { console.error('[ui-patch] BattleUI missing'); return; }
   var BU = window.BattleUI;
 
+  // Nicknames are player input (and can arrive via an imported backup), so any
+  // name interpolated into panel HTML must be escaped at the renderer too, not
+  // just at the call site.
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
   // extra styles
   var css = [
     // Action bar + panels, matched to the vendor HUD's frosted-glass language.
@@ -291,7 +300,7 @@
       var isRich = p.type === 'party-rich';
       var html = '';
       // Only show title for list and party panels, NOT for party-rich (battle switcher)
-      if (p.title && !isRich) html += '<div class="ptitle">' + p.title + '</div>';
+      if (p.title && !isRich) html += '<div class="ptitle">' + esc(p.title) + '</div>';
       
       // Use grid layout for party-rich (battle switcher) to match overview
       // Layout requirement: grid fills width of container, back button below grid and also fills width.
@@ -310,7 +319,7 @@
           if (i === 0 && !it.fainted) html += '<span class="ts-lead">LEAD</span>';
           if (st && !it.fainted) html += '<span class="ts-st st-' + st + '">' + st.toUpperCase() + '</span>';
           html += '<span class="ts-art">' + (it.iconHtml || '') + '</span>';
-          html += '<span class="ts-name">' + it.name + '</span>';
+          html += '<span class="ts-name">' + esc(it.name) + '</span>';
           if (!it.fainted) {
             html += '<span class="ts-bar"><i style="width:' + pct + '%;background:' + col + '"></i></span>';
           }
@@ -325,10 +334,10 @@
             // simple item row: name + qty + note (no HP bar)
             html += '<button class="pitem" data-i="' + itemIndex + '"' + (item.disabled ? ' disabled' : '') + '>' +
               '<div style="flex:1;min-width:0">' +
-                '<div class="pi-n">' + item.name + (item.qty ? ' <span class="qty">x' + item.qty + '</span>' : '') + '</div>' +
-                (item.note ? '<div class="pi-h">' + item.note + '</div>' : '') +
+                '<div class="pi-n">' + esc(item.name) + (item.qty ? ' <span class="qty">x' + item.qty + '</span>' : '') + '</div>' +
+                (item.note ? '<div class="pi-h">' + esc(item.note) + '</div>' : '') +
               '</div>' +
-              (item.right ? '<span class="pi-r">' + item.right + '</span>' : '') +
+              (item.right ? '<span class="pi-r">' + esc(item.right) + '</span>' : '') +
               '</button>';
           } else {
             var hpColor = item.hp > 0.5 ? '#4ade80' : item.hp > 0.2 ? '#facc15' : '#ef4444';
@@ -341,7 +350,7 @@
               (item.iconHtml ? item.iconHtml
                             : (item.icon ? '<img src="' + item.icon + '" alt="">' : '')) +
               '<div style="flex:1;min-width:0">' +
-                '<div class="pi-n">' + item.name + (item.active ? ' <span style="opacity:.7">(out)</span>' : '') + '</div>' +
+                '<div class="pi-n">' + esc(item.name) + (item.active ? ' <span style="opacity:.7">(out)</span>' : '') + '</div>' +
                 '<div class="pi-h">' + (item.fainted ? 'Fainted' : Math.round(item.hp * 100) + '%' + (item.status ? ' ' : '')) + badge + '</div>' +
                 '<div class="pbar"><i style="width:' + Math.round(item.hp * 100) + '%;background:' + hpColor + '"></i></div>' +
               '</div></button>';
