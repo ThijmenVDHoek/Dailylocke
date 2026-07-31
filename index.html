@@ -81,25 +81,17 @@
 
       <div class="title-sep" id="titleFreeSep"><span>Free Play</span></div>
 
-      <div class="title-btns" id="titleFreeRun" hidden>
-        <button type="button" id="btnContinue" class="btn-white btn-daily">
-          <span class="bd-main">Continue run</span>
-          <span class="bd-sub" id="continueSub"></span>
-        </button>
-        <button type="button" id="btnAbandonTitle" class="btn-glass">Abandon Free Play run</button>
-      </div>
       <!-- Both Free Play options live together: start a randomized run or
            build a full team for the trainer-only gauntlet. -->
-      <div class="title-btns title-free-actions">
-        <button type="button" id="btnNewRun" class="btn-glass">
+      <div class="title-btns title-free-grid" id="titleFreeGrid">
+        <button type="button" id="btnNewRun" class="btn-glass title-action-btn">
           <span class="bd-main">Random run</span>
         </button>
-        <button type="button" id="btnGauntlet" class="btn-glass">
+        <button type="button" id="btnGauntlet" class="btn-glass title-action-btn">
           <span class="bd-main" id="gauntletMain">Full team gauntlet</span>
         </button>
-      </div>
-      <div class="title-btns" id="titleGauntlet">
-        <button type="button" id="btnAbandonGauntlet" class="btn-glass" hidden>Abandon Gauntlet run</button>
+        <button type="button" id="btnAbandonTitle" class="btn-glass title-abandon-btn" hidden>Abandon Free Play run</button>
+        <button type="button" id="btnAbandonGauntlet" class="btn-glass title-abandon-btn" hidden>Abandon Gauntlet run</button>
       </div>
     </div>
   </section>
@@ -210,7 +202,7 @@
   <section id="screenCrossroads" hidden>
     <div class="x-top">
       <span class="x-cash" id="xCashPill">$<b id="xCash">0</b></span>
-      <button type="button" id="btnMenu" class="menu-pill">Menu</button>
+      <button type="button" id="btnMenu" class="menu-pill" aria-label="Menu"><span id="menuButtonAvatar" class="menu-button-avatar"></span></button>
     </div>
 
     <div class="x-head">
