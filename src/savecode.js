@@ -1,11 +1,16 @@
 // ============================================================================
-// savecode.js — cross-device save transfer ("Save Codes").
+// savecode.js — cross-device save transfer ("Save Codes" + save files).
 //
-// 100% client-side, no accounts, no server:
-//   game state -> JSON -> LZString.compressToEncodedURIComponent() -> a short,
-//   URL-safe code. The code can be copied as raw text, embedded in a share
-//   link (?save=CODE) or rendered into a QR code (vendor/qrcode.js) that a
-//   phone camera turns back into the link.
+// 100% client-side, no accounts, no server. Two complementary formats:
+//
+//   1. SAVE FILE (preferred for size) — plain JSON downloaded as
+//      `dailylocke-….json`. No QR capacity limit; works offline via share
+//      sheets / AirDrop / USB. Upload the same file on the other device.
+//
+//   2. SAVE CODE — game state -> JSON -> LZString.compressToEncodedURIComponent()
+//      -> a short URL-safe code. Copy as text, embed in a share link
+//      (?save=CODE), or render as a QR (vendor/qrcode.js). Codes that exceed
+//      QR capacity still transfer fine via the file or the link/code itself.
 //
 // This module owns NOTHING about the game itself; app.js provides the game
 // state object and decides what to do with a decoded one (schema validation,
@@ -18,12 +23,18 @@
   // The query param that shares save codes in URLs.
   var PARAM = 'save';
 
+  // Marker written into downloaded JSON so import can tell a real save file
+  // from arbitrary JSON a player might drop by mistake.
+  var FILE_FORMAT = 'dailylocke-save';
+  var FILE_EXT = '.json';
+
   // Exact alphabet produced by compressToEncodedURIComponent(). Anything
   // outside it is guaranteed not to be one of our codes, which lets the
   // import path reject junk before touching the decompressor.
   var CODE_RE = /^[A-Za-z0-9+\-$]+$/;
 
   var MAX_CODE_LEN = 9000;   // sanity cap for pasted blobs (paranoia, not spec)
+  var MAX_FILE_LEN = 2 * 1024 * 1024;  // 2 MB — a full run is tens of KB
 
   function lz() {
     return (typeof window.LZString !== 'undefined') ? window.LZString : null;
@@ -138,16 +149,141 @@
     }
   }
 
+  // ----------------------------------------------------------- SAVE FILES --
+  // Preferred transfer path when a QR/link would be huge: a plain JSON file
+  // the player downloads and re-uploads. No compression, no capacity ceiling,
+  // works through any file-share channel (Messages, Drive, AirDrop, USB).
+
+  // Wrap a plain save-state object for download. The format marker lets import
+  // reject random JSON; the rest is the same object encode()/loadGameState() use.
+  function packFile(state) {
+    if (!state || typeof state !== 'object') return '';
+    try {
+      var out = {};
+      Object.keys(state).forEach(function (k) { out[k] = state[k]; });
+      out.__format = FILE_FORMAT;
+      return JSON.stringify(out);
+    } catch (e) { return ''; }
+  }
+
+  // Parse a downloaded/uploaded save file. Accepts:
+  //   * our JSON save file (with or without __format — older hand-exports)
+  //   * a bare save code or share link pasted into a .txt
+  // Returns the decoded save-state object, or null.
+  function parseFileText(text) {
+    if (text == null) return null;
+    var t = String(text).replace(/^\uFEFF/, '').trim(); // strip BOM
+    if (!t || t.length > MAX_FILE_LEN) return null;
+
+    // JSON save file first — the common case for a .json download.
+    if (t.charAt(0) === '{' || t.charAt(0) === '[') {
+      try {
+        var data = JSON.parse(t);
+        if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+        // Reject clearly-foreign JSON (no run seed and no party and not ours).
+        if (data.__format && data.__format !== FILE_FORMAT) return null;
+        delete data.__format;
+        return data;
+      } catch (e) { /* fall through: maybe it's a code with a leading brace somehow */ }
+    }
+
+    // Otherwise treat the whole blob as a pasted code / share link.
+    var code = extractCode(t);
+    return code ? decode(code) : null;
+  }
+
+  // Read a File/Blob as text. Resolves the string, or rejects on I/O failure.
+  function readFile(file) {
+    return new Promise(function (resolve, reject) {
+      if (!file) return reject(new Error('No file selected.'));
+      if (file.size > MAX_FILE_LEN) return reject(new Error('That file is too large to be a Dailylocke save.'));
+      // file.text() is modern; FileReader covers older WebKit / Safari.
+      if (typeof file.text === 'function') {
+        file.text().then(resolve, function () { readViaReader(file, resolve, reject); });
+        return;
+      }
+      readViaReader(file, resolve, reject);
+    });
+  }
+
+  function readViaReader(file, resolve, reject) {
+    try {
+      var fr = new FileReader();
+      fr.onload = function () { resolve(String(fr.result || '')); };
+      fr.onerror = function () { reject(new Error('Could not read that file.')); };
+      fr.readAsText(file);
+    } catch (e) { reject(e); }
+  }
+
+  // Trigger a browser download of `text` as `filename`. Returns true when the
+  // click was dispatched (the browser still owns whether the download lands).
+  function downloadText(filename, text, mime) {
+    if (text == null || text === '') return false;
+    try {
+      var blob = new Blob([text], { type: mime || 'application/json;charset=utf-8' });
+      var url = (window.URL || window.webkitURL).createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename || ('dailylocke-save' + FILE_EXT);
+      a.rel = 'noopener';
+      // iOS Safari needs the element in the tree for the download to fire.
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () {
+        try { a.parentNode && a.parentNode.removeChild(a); } catch (e) {}
+        try { (window.URL || window.webkitURL).revokeObjectURL(url); } catch (e) {}
+      }, 1500);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // A short, filesystem-safe name: dailylocke-daily-s3-2026-07-31.json
+  function fileNameFor(state) {
+    var bits = ['dailylocke'];
+    if (state && state.mode === 'daily') {
+      bits.push('daily');
+      if (state.dailyDate) bits.push(String(state.dailyDate));
+    } else if (state && state.mode === 'gauntlet') {
+      bits.push('gauntlet');
+    } else if (state && state.mode === 'profile') {
+      bits.push('profile');
+    } else {
+      bits.push('free');
+    }
+    if (state && state.section) bits.push('s' + state.section);
+    var d = new Date();
+    bits.push(
+      d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0')
+    );
+    return bits.join('-').replace(/[^a-zA-Z0-9._-]+/g, '-') + FILE_EXT;
+  }
+
   // ----------------------------------------------------------------- QR ----
   // Byte-mode capacity of a full-size (version 40) QR at each error
   // correction level (mirrors qrcodejs' own limit table). Attempt levels from
   // highest correction (densest visual, best damage tolerance) downward:
   // lower levels hold more, and any of them scans trivially for URLs.
+  //
+  // Long saves often exceed every level — that is expected. The UI then points
+  // the player at the save-file download, which has no size ceiling.
   var QR_MAX = [['H', 1273], ['M', 2331], ['Q', 1663], ['L', 2953]];
 
   function byteLen(s) {
     try { return unescape(encodeURIComponent(s)).length; }
     catch (e) { return s.length; }
+  }
+
+  // True when `text` cannot fit in any single QR. Used to demote the QR UI
+  // before we even try to draw (avoids a half-second of failed attempts).
+  function qrFits(text) {
+    var bytes = byteLen(text || '');
+    for (var i = 0; i < QR_MAX.length; i++) {
+      if (bytes <= QR_MAX[i][1] - 8) return true;
+    }
+    return false;
   }
 
   // Draw `text` (the full share URL) as a QR into `container`. Returns
@@ -160,6 +296,7 @@
       return { ok: false, reason: 'The QR library failed to load.' };
     }
     var bytes = byteLen(text);
+    var tooLongMsg = 'This save is too long for a QR code \u2014 download the save file instead.';
     for (var i = 0; i < QR_MAX.length; i++) {
       // qrcodejs walks its limit table and can fall off the end (TypeError)
       // for oversized input, so only attempt levels that can physically hold
@@ -186,13 +323,13 @@
         }
         if (!roomy) {
           return /too long|length overflow/i.test(String(e && e.message))
-            ? { ok: false, reason: 'This save is too long for a single QR code \u2014 use the link or code instead.' }
+            ? { ok: false, reason: tooLongMsg }
             : { ok: false, reason: 'The QR code could not be generated.' };
         }
       }
     }
     // Reaching here means every level was skipped by the capacity check.
-    return { ok: false, reason: 'This save is too long for a single QR code \u2014 use the link or code instead.' };
+    return { ok: false, reason: tooLongMsg };
   }
 
   // ---------------------------------------------------------- CLIPBOARD ----
@@ -227,6 +364,8 @@
 
   window.SaveCode = {
     PARAM: PARAM,
+    FILE_FORMAT: FILE_FORMAT,
+    FILE_EXT: FILE_EXT,
     enabled: enabled,
     encode: encode,
     decode: decode,
@@ -234,6 +373,12 @@
     buildShareUrl: buildShareUrl,
     readCodeFromUrl: readCodeFromUrl,
     stripCodeFromUrl: stripCodeFromUrl,
+    packFile: packFile,
+    parseFileText: parseFileText,
+    readFile: readFile,
+    downloadText: downloadText,
+    fileNameFor: fileNameFor,
+    qrFits: qrFits,
     renderQR: renderQR,
     copyText: copyText
   };

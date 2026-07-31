@@ -509,7 +509,16 @@
       else if (cmd === 'switch' || cmd === 'drag' || cmd === 'replace') {
         var ident = p[1] || '', name = (p[2] || '').split(',')[0].trim();
         var sp = Dex.species.get(name);
-        var types = sp.exists ? sp.types.slice() : ['Normal'];
+        // Prefer the run mon's types when available so a regional variant
+        // (e.g. Sneasel-Hisui = Fighting/Poison) is never reported as the
+        // base forme's typing for AI / catch / effectiveness.
+        var liveSide = ident.indexOf('p1') === 0
+          ? (stream.battle && stream.battle.p1 && stream.battle.p1.active[0])
+          : (stream.battle && stream.battle.p2 && stream.battle.p2.active[0]);
+        var sideMon = monOf(liveSide);
+        var types = (sideMon && sideMon.types && sideMon.types.length)
+          ? sideMon.types.slice()
+          : (sp.exists ? sp.types.slice() : ['Normal']);
         if (ident.indexOf('p1') === 0) { state.playerTypes = types; state.playerHp = parseHp(p[3]); }
         else { state.enemyTypes = types; state.enemyHp = parseHp(p[3]); }
       } else if (cmd === '-damage' || cmd === '-heal' || cmd === '-sethp') {
@@ -706,14 +715,24 @@
         streams.p1.write('move ' + (slot + 1));
       },
       // Live info about the wild target, for the catch formula.
+      // Prefer the run object's mon.id (and mon.types) over the engine's
+      // species string so a regional variant never reports as its base forme.
       enemyInfo: function () {
         var el = liveEnemy();
-        if (!el) return { hpPct: state.enemyHp, status: '', id: enemyMons[state.enemyActiveIdx].id, types: state.enemyTypes };
+        var mon = monOf(el);
+        if (!el) {
+          var fallback = mon || enemyMons[0] || {};
+          return {
+            hpPct: state.enemyHp, status: '',
+            id: fallback.id || '',
+            types: (fallback.types && fallback.types.slice()) || state.enemyTypes
+          };
+        }
         return {
           hpPct: el.maxhp ? el.hp / el.maxhp : 0,
           status: el.status || '',
-          id: PS.toID(el.species ? el.species.id : el.baseSpecies),
-          types: state.enemyTypes
+          id: (mon && mon.id) || PS.toID(el.species ? el.species.id : el.baseSpecies),
+          types: (mon && mon.types && mon.types.slice()) || state.enemyTypes
         };
       },
       playerInfo: function () {

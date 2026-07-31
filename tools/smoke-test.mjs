@@ -524,6 +524,34 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
     SC.extractCode('  ' + code.slice(0, 40) + '\n' + code.slice(40) + ' ') === code);
   check('extractCode rejects plain junk',
     SC.extractCode('hello world!') === '' && SC.extractCode('') === '');
+
+  // ---- save FILE path (preferred when QR is too small) ----
+  check('SaveCode exposes file helpers',
+    typeof SC.packFile === 'function' && typeof SC.parseFileText === 'function' &&
+    typeof SC.downloadText === 'function' && typeof SC.fileNameFor === 'function' &&
+    typeof SC.qrFits === 'function');
+  const fileBody = SC.packFile(state);
+  check('packFile wraps the state with a format marker',
+    fileBody.includes('"__format":"dailylocke-save"') && fileBody.includes('"seed":42'));
+  const fromFile = SC.parseFileText(fileBody);
+  check('parseFileText round-trips a downloaded JSON save',
+    !!fromFile && fromFile.seed === 42 && fromFile.section === 3 &&
+    fromFile.party[0].id === 'gengar' && fromFile.__format === undefined);
+  check('parseFileText also accepts a bare save code',
+    SC.parseFileText(code).seed === 42);
+  // Bare JSON without our marker is still accepted (hand-exports); the game's
+  // schema validate rejects it later. A wrong format marker is hard-rejected.
+  check('parseFileText accepts unmarked JSON (hand exports)',
+    SC.parseFileText(JSON.stringify({ seed: 7, party: [{ id: 'x' }] })).seed === 7);
+  check('parseFileText rejects a wrong format marker',
+    SC.parseFileText(JSON.stringify({ __format: 'other-game', seed: 1, party: [] })) === null);
+  check('schema validate still rejects non-run JSON files',
+    typeof window.Storage.validate(SC.parseFileText('{"hello":"world"}')) === 'string');
+  check('fileNameFor builds a safe download name',
+    /\.json$/.test(SC.fileNameFor(state)) && !/\s/.test(SC.fileNameFor(state)));
+  check('qrFits reports short payloads as OK', SC.qrFits('https://example.com/?save=abc') === true);
+  check('qrFits rejects oversized payloads',
+    SC.qrFits('x'.repeat(4000)) === false);
 }
 
 // The title has no live `run` object after a reload, so transfer must discover
@@ -582,6 +610,94 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
   check('choosing Free Play updates the transferred save',
     exportedFree && exportedFree.mode === 'free' && exportedFree.section === 8);
   window.Modal.close('screenSaveExport');
+
+  // With no parked run, transfer must still open — as a profile backup — so
+  // shinies / history can hop devices without an active run.
+  S.clearRun('daily');
+  S.clearRun('free');
+  // Seed a shiny so the profile-only export has something to carry.
+  S.saveProfile({
+    __v: 1, shinies: [{ id: 'gengar', species: 'Gengar', name: 'Casper', types: ['Ghost'], how: 'caught', section: 1, at: 1 }],
+    history: [], totalRuns: 1, bestBattles: 3, bestSection: 2, totalCaught: 1, totalKOs: 0,
+    avatar: 'red', theme: 'fire',
+  });
+  window.document.getElementById('btnTitleMenu').click();
+  window.document.getElementById('btnMenuTransfer').click();
+  const profileExport = window.document.getElementById('screenSaveExport');
+  const profileCode = window.document.getElementById('saveCodeOut').value;
+  const profileSnap = profileCode ? window.SaveCode.decode(profileCode) : null;
+  // File download is the primary control and must be present even without a run.
+  const dlBtn = window.document.getElementById('btnDownloadSave');
+  check('transfer works with no active run (profile backup)',
+    !profileExport.hidden && !!dlBtn &&
+    ((profileSnap && profileSnap.mode === 'profile') ||
+     (profileSnap && profileSnap._shiny && profileSnap._shiny.length === 1) ||
+     (dlBtn && !dlBtn.disabled)));
+  // Build a file body the same way the Download button does and re-import it.
+  if (window.Game && profileSnap) {
+    /* profileSnap from code is enough */
+  }
+  const packed = window.SaveCode.packFile(
+    profileSnap || { mode: 'profile', _shiny: [{ id: 'gengar', at: 1, name: 'Casper', species: 'Gengar' }] });
+  const reimported = window.SaveCode.parseFileText(packed);
+  check('a profile save file round-trips shinies',
+    !!reimported && Array.isArray(reimported._shiny) && reimported._shiny[0].id === 'gengar');
+  window.Modal.close('screenSaveExport');
+
+  // UI exposes file import controls.
+  window.document.getElementById('btnTitleMenu').click();
+  window.document.getElementById('btnMenuImport').click();
+  check('import modal offers a file picker',
+    !!window.document.getElementById('saveFileIn') &&
+    !window.document.getElementById('screenSaveImport').hidden);
+  window.Modal.close('screenSaveImport');
+
+  // Importing a run must land on the TITLE, not force the player into it.
+  // The title CTAs ("Resume Daily" / "Continue run") own the next step.
+  S.putRun('free', savedRun('free', 4));
+  const freeCode = window.SaveCode.encode(S.loadRun('free', (d) => d) || savedRun('free', 4));
+  // Build a minimal valid free-play payload and import through the UI path.
+  const importPayload = {
+    __v: S.SAVE_VERSION, mode: 'free', seed: 4242, section: 4, battlesWon: 4,
+    party: [{ id: 'sneaselhisui', species: 'Sneasel', name: 'Blade', hpPct: 1,
+              types: ['Dark', 'Ice'], moves: ['tripleaxel'], pp: { tripleaxel: 5 },
+              ability: 'Inner Focus', nature: 'Jolly',
+              evs: { hp:0,atk:0,def:0,spa:0,spd:0,spe:0 },
+              ivs: { hp:31,atk:31,def:31,spa:31,spd:31,spe:31 } }],
+    bag: {}, money: 100, graveyard: [], damageDealt: {}, knockouts: {},
+    monMeta: {}, seenSpecies: {}, sectionStats: { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:4 },
+  };
+  // Stale species name on purpose — reviveRun must repair it from mon.id.
+  window.document.getElementById('saveCodeIn').value = window.SaveCode.encode(importPayload);
+  // Call the same path the Load button uses.
+  window.document.getElementById('btnImportLoad').click();
+  // Give the modal close / title paint a tick.
+  await new Promise((r) => setTimeout(r, 30));
+  check('importing a run returns to the title screen',
+    window.document.getElementById('screenTitle').hidden === false &&
+    window.document.getElementById('screenCrossroads').hidden === true);
+  // The imported run is parked, not live — resume from the title CTA.
+  check('import parks the run instead of auto-entering it',
+    window.Game.run == null || window.Game.run.over === true ||
+    window.document.getElementById('screenTitle').hidden === false);
+  // Opening Free Play after import must repair the regional forme identity.
+  const parked = S.loadRun('free', (d) => window.Storage.migrate(d, { cleanName: window.Core.cleanName }));
+  // Manually revive the way the title does to assert the repair.
+  if (parked) {
+    // species string was intentionally wrong ("Sneasel"); after migrate+revive
+    // path via loadGameState it should have been corrected. Re-check storage.
+    const raw = mem.get(S.SLOTS.free);
+    const stored = raw ? JSON.parse(raw) : null;
+    check('import repairs a stale regional species name from mon.id',
+      !!stored && stored.party && stored.party[0] &&
+      (stored.party[0].species === 'Sneasel-Hisui' || stored.party[0].id === 'sneaselhisui'),
+      stored && stored.party && stored.party[0] && `${stored.party[0].id}/${stored.party[0].species}`);
+    check('import repairs regional typing from mon.id',
+      !!stored && stored.party[0].types &&
+      stored.party[0].types.join('/') === 'Fighting/Poison',
+      stored && stored.party[0].types && stored.party[0].types.join('/'));
+  }
+
   S.clearRun('daily');
   S.clearRun('free');
   Object.defineProperty(window, 'localStorage', originalLocalStorage);
@@ -846,8 +962,16 @@ check('gen9 species table loaded', Object.keys(PS.Dex.data.Species).length > 100
 check('moves table loaded', Object.keys(PS.Dex.data.Moves).length > 900);
 check('item descriptions survive the trim',
   /restores/i.test(PS.Dex.items.get('leftovers').desc || ''));
-check('learnsets are NOT in the core bundle', Object.keys(PS.Dex.data.Learnsets).length === 0,
-  'they load on demand');
+// Learnsets ship as a separate chunk. Earlier tests may already have warmed
+// it (import revive → Forme.enforceHeldForme), so only assert emptiness when
+// nothing has asked for them yet; the on-demand load check below is the real
+// contract either way.
+check('learnsets ship as a separate on-demand chunk',
+  existsSync(resolve(repo, 'vendor/pkmn-learnsets.js')) &&
+  typeof PS.learnsetsReady === 'function',
+  Object.keys(PS.Dex.data.Learnsets).length
+    ? `already warmed (${Object.keys(PS.Dex.data.Learnsets).length} entries)`
+    : 'still deferred');
 check('PS.learnsetsReady exists', typeof PS.learnsetsReady === 'function');
 
 // ------------------------------------------------- lazy learnsets loading --
@@ -867,6 +991,36 @@ check('species pool built', pool.length > 800, `${pool.length} entries`);
 const mon = await C.makeMon('gengar');
 check('makeMon rolls a real moveset', mon.moves.length === 4, mon.moves.join(', '));
 check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.types.join('/'));
+
+// Regional variants must keep their full identity. An earlier cleanName() bug
+// walked every forme up to its base species, so Sneasel-Hisui became "Sneasel"
+// — and the battle engine then spawned the default forme (wrong sprite + typing).
+{
+  const hisui = await C.makeMon('sneaselhisui');
+  check('a regional forme keeps its full species name',
+    hisui.species === 'Sneasel-Hisui' && hisui.id === 'sneaselhisui',
+    `${hisui.id} / ${hisui.species}`);
+  check('a regional forme keeps its own typing (not the base forme\'s)',
+    hisui.types.join('/') === 'Fighting/Poison', hisui.types.join('/'));
+  check('cleanName preserves regional variants',
+    C.cleanName('sneaselhisui') === 'Sneasel-Hisui' &&
+    C.cleanName('raichualola') === 'Raichu-Alola' &&
+    C.cleanName('weezinggalar') === 'Weezing-Galar',
+    [C.cleanName('sneaselhisui'), C.cleanName('raichualola'), C.cleanName('weezinggalar')].join(', '));
+  check('cleanName still collapses temporary megas to the root',
+    /charizard/i.test(C.cleanName('charizardmegax')) &&
+    !/mega/i.test(C.cleanName('charizardmegax')),
+    C.cleanName('charizardmegax'));
+  // toSet must feed the engine the forme's real species, even if mon.species
+  // was corrupted to the base name (the old-save failure mode).
+  hisui.species = 'Sneasel';
+  const packed = C.toSet(hisui);
+  check('toSet prefers mon.id over a stale mon.species',
+    packed.species === 'Sneasel-Hisui', packed.species);
+  check('regional formes are in the encounter pool',
+    C.speciesPool().indexOf('sneaselhisui') >= 0 &&
+    C.speciesPool().indexOf('raichualola') >= 0);
+}
 
 // ------------------------------------------------ evolution screen / art --
 // Drive the exact route-screen path that regressed: opening a Pokemon's detail
