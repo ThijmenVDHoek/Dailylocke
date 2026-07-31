@@ -2090,6 +2090,7 @@
     var src = avatarUrl((profile && profile.avatar) || 'red');
     var e = $('menuAvatar'); if (e) e.innerHTML = '<img src="' + src + '" alt="">';
     var button = $('menuButtonAvatar'); if (button) button.innerHTML = '<img src="' + src + '" alt="">';
+    var titleBtn = $('titleMenuAvatar'); if (titleBtn) titleBtn.innerHTML = '<img src="' + src + '" alt="">';
     var hero = $('menuProfileAvatar'); if (hero) hero.innerHTML = '<img src="' + src + '" alt="">';
   }
   function showProfile() {
