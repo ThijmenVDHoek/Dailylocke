@@ -58,17 +58,31 @@ function sm(c,o){return new T.MeshStandardMaterial(Object.assign({color:c,roughn
 function bm(c,o){return new T.MeshBasicMaterial(Object.assign({color:c},o||{}));}
 
 // ===== Persistent image cache (shared across mount/unmount) =====
+// CACHE holds Image objects; FAILED marks URLs that 404'd so we never re-wait
+// on a broken preferred GIF (which used to stall until the 800ms race lost to gen5).
 var CACHE=Object.create(null);
+var FAILED=Object.create(null);
 function preload(url){
-  if(!url||CACHE[url])return CACHE[url]||null;
+  if(!url)return null;
+  if(FAILED[url])return null;
+  if(CACHE[url])return CACHE[url];
   // Do NOT set crossOrigin: CORS-required taints non-CORS Showdown GIFs for DOM <img> display.
   // Images are only displayed as DOM <img> (never drawn to canvas / uploaded to WebGL),
   // so we don't need CORS permissions at all.
   var img=new Image();
-  CACHE[url]=img;img.loading='eager';img.decoding='async';img.src=url;
+  CACHE[url]=img;img.decoding='async';
+  // fetchPriority is a real browser hint on HTMLImageElement in Chromium/Safari 17+.
+  try{if('fetchPriority' in img)img.fetchPriority='high';}catch(_){}
+  img.onerror=function(){FAILED[url]=1;};
+  img.src=url;
   return img;
 }
 function preloadList(urls){(urls||[]).forEach(preload);}
+// True when this URL is a Showdown (or PokeAPI) *animated* GIF we should prefer
+// over a static gen5 PNG placeholder.
+function isAnimatedSpriteUrl(u){
+  return typeof u==='string'&&/\.gif(?:$|\?)/i.test(u);
+}
 
 function BattleUI(){
   this.host=null;this.r=null;this.sc=null;this.cam=null;
@@ -535,6 +549,19 @@ BattleUI.prototype._stepField=function(t,dt){
 };
 
 // ===== Sprite loading via DOM <img> =====
+// Preferred-first with optional provisional fallback.
+//
+// Old behaviour raced every URL in the chain with an 800ms timeout AND
+// preloaded gen5 PNGs in parallel. The smaller static PNGs almost always won
+// that race, so players mostly saw gen5 art even when the Showdown animated
+// GIF was about to finish. Now:
+//   1. Load the preferred URL (almost always the Showdown ani GIF) first.
+//   2. Never abandon a still-loading preferred animated URL for a static PNG.
+//   3. After a short delay, a static fallback may paint provisionally so the
+//      battlefield is never blank — but the preferred GIF always upgrades over
+//      it the moment it arrives.
+//   4. Only advance past a preferred URL on a real error / known failure /
+//      long stall (network hung), never on a short timer race.
 BattleUI.prototype._setTex=function(k,urls){
   var s=this.s[k];if(!s)return;
   // The <img> host only exists after mount(); queue and retry once it does,
@@ -543,50 +570,155 @@ BattleUI.prototype._setTex=function(k,urls){
     if(!this.s.mounted)this._pending.push(function(){this._setTex(k,urls);});
     return;
   }
-  urls=(Array.isArray(urls)?urls:urls?[urls]:[]);
+  urls=(Array.isArray(urls)?urls:urls?[urls]:[]).filter(function(u){return!!u;});
   var key=urls.join('|');if(s.tu===key)return;
+  // Cancel any in-flight load for a previous species on this slot.
+  s._texGen=(s._texGen|0)+1;
+  var gen=s._texGen;
   s.tu=key;s.url=null;s.ar=1;s.fadeT=0;s.appearT=0;
   s.img.style.opacity=0;s.img.style.width=0;s.img.style.height=0;s.img.style.filter='brightness(0)';
-  // Kick off preload
-  for(var pi=0;pi<urls.length;pi++)preload(urls[pi]);
-  var idx=0;
-  function apply(u){
-    var img=CACHE[u];if(!img){tryNext();return;}
-    function ready(){
-      try{
-        var w=img.naturalWidth||1,h=img.naturalHeight||1;
-        s.ar=w/h;s.url=u;
-        // Fade-in animation: opacity 0→1 over 0.35s with black (brightness 0→1) wipe.
-        // Use appearT so _projectSprites drives the transition per-frame.
+
+  // Warm the preferred URL immediately at high priority. Fallbacks are NOT
+  // preloaded yet — they compete for the same HTTP/2 sockets and used to beat
+  // the bigger animated GIF to the finish line.
+  if(urls[0])preload(urls[0]);
+
+  function alive(){return s._texGen===gen&&s.img;}
+
+  function paint(u,provisional){
+    if(!alive())return;
+    var img=CACHE[u];
+    if(!img||!img.naturalWidth)return;
+    // Never let a provisional static PNG replace an already-shown preferred GIF.
+    if(provisional&&s.url&&isAnimatedSpriteUrl(s.url))return;
+    // Already showing this exact URL.
+    if(s.url===u)return;
+    try{
+      var w=img.naturalWidth||1,h=img.naturalHeight||1;
+      s.ar=w/h;s.url=u;
+      // Fade-in only for the first paint of this slot; upgrades (gen5→ani) swap
+      // in place so the mon doesn't black-wipe a second time.
+      if(!provisional||!s.appearT){
         s.appearT=0.001;
         s.fadeT=0.001;
-        s.img.dataset.ar=s.ar;
-        // Force GIF animation to restart/play: clear src first, then assign; without
-        // this, some browsers (esp. when image was preloaded in a detached Image())
-        // will show frame 0 and never advance the animation.
-        var useUrl=img.currentSrc||img.src;
-        var tgt=s.img;
+      }
+      s.img.dataset.ar=s.ar;
+      // Force GIF animation to restart/play: clear src first, then assign; without
+      // this, some browsers (esp. when image was preloaded in a detached Image())
+      // will show frame 0 and never advance the animation.
+      var useUrl=img.currentSrc||img.src||u;
+      var tgt=s.img;
+      if(!provisional){
         tgt.style.opacity=0;
         tgt.style.filter='brightness(0)';
+      }
+      // Re-assigning the same src can no-op in some browsers; clear first.
+      if(tgt.getAttribute('src')!==useUrl){
         tgt.removeAttribute('src');
-        // Force a reflow then assign
         void tgt.offsetWidth;
         tgt.src=useUrl;
-      }catch(e){tryNext();}
-    }
-    if(img.complete&&img.naturalWidth>0)ready();
-    else{var onl=function(){img.removeEventListener('load',onl);ready();};img.addEventListener('load',onl);}
+      }
+    }catch(e){}
   }
-  function tryNext(){
-    if(idx>=urls.length)return;
-    var u=urls[idx++];
-    var img=CACHE[u]||preload(u);
-    if(img.complete&&img.naturalWidth>0){apply(u);return;}
-    var t=setTimeout(tryNext,800); // safety timeout to next URL
-    img.addEventListener('load',function(){clearTimeout(t);apply(u);},{once:true});
-    img.addEventListener('error',function(){clearTimeout(t);tryNext();},{once:true});
+
+  function waitFor(u,opts){
+    opts=opts||{};
+    return new Promise(function(resolve){
+      if(!u||FAILED[u]){resolve(false);return;}
+      var img=CACHE[u]||preload(u);
+      if(!img){resolve(false);return;}
+      if(img.complete){resolve(img.naturalWidth>0);return;}
+      var done=false;
+      function finish(ok,hardFail){
+        if(done)return;done=true;
+        img.removeEventListener('load',onL);
+        img.removeEventListener('error',onE);
+        if(timer)clearTimeout(timer);
+        // Only permanent-fail on a real error. A stall timeout must NOT poison
+        // the cache — the GIF may still arrive a moment later and paint.
+        if(!ok&&hardFail)FAILED[u]=1;
+        resolve(ok);
+      }
+      function onL(){finish(img.naturalWidth>0,false);}
+      function onE(){finish(false,true);}
+      img.addEventListener('load',onL);
+      img.addEventListener('error',onE);
+      // Long stall only — never a short race against fallbacks. 12s covers a
+      // cold Showdown CDN hit on a slow mobile link without yielding to gen5.
+      var timer=setTimeout(function(){finish(false,false);},opts.stallMs||12000);
+    });
   }
-  tryNext();
+
+  // Kick a static fallback after a brief beat so the field isn't empty while
+  // the preferred animated GIF is still in flight. The preferred URL always
+  // upgrades over it (see paint()).
+  var provisionalTimer=null;
+  if(urls.length>1){
+    provisionalTimer=setTimeout(function(){
+      if(!alive())return;
+      // Prefer the first non-animated fallback (gen5 PNG) as the placeholder.
+      var fb=null;
+      for(var i=1;i<urls.length;i++){
+        if(!isAnimatedSpriteUrl(urls[i])){fb=urls[i];break;}
+      }
+      if(!fb)fb=urls[1];
+      if(!fb||FAILED[fb])return;
+      waitFor(fb,{stallMs:4000}).then(function(ok){
+        if(ok&&alive()&&!(s.url&&isAnimatedSpriteUrl(s.url)))paint(fb,true);
+      });
+    },220);
+  }
+
+  // Keep a background listener on the preferred animated URL so a late arrival
+  // (after we already painted a provisional/static fallback) still upgrades.
+  if(urls[0]&&isAnimatedSpriteUrl(urls[0])){
+    (function(pref){
+      var img=CACHE[pref]||preload(pref);
+      if(!img)return;
+      function upgrade(){
+        if(!alive())return;
+        if(img.naturalWidth>0){
+          paint(pref,false);
+          if(provisionalTimer)clearTimeout(provisionalTimer);
+        }
+      }
+      if(img.complete&&img.naturalWidth>0)return; // run() will paint it
+      img.addEventListener('load',function(){upgrade();},{once:true});
+    })(urls[0]);
+  }
+
+  (function run(i){
+    if(!alive())return;
+    if(i>=urls.length)return;
+    var u=urls[i];
+    // Skip known-bad URLs immediately.
+    if(!u||FAILED[u]){run(i+1);return;}
+    // Already showing a preferred animated sprite — nothing left to do.
+    if(s.url&&isAnimatedSpriteUrl(s.url))return;
+
+    var prefer=isAnimatedSpriteUrl(u);
+    waitFor(u,{stallMs:prefer?12000:6000}).then(function(ok){
+      if(!alive())return;
+      // A late preferred upgrade may have won while we waited.
+      if(s.url&&isAnimatedSpriteUrl(s.url))return;
+      if(ok){
+        paint(u,false);
+        // Preferred animated GIF is the goal — stop walking the chain.
+        if(prefer){
+          if(provisionalTimer)clearTimeout(provisionalTimer);
+          return;
+        }
+        // Static loaded as a real result (preferred failed earlier). Keep
+        // walking only if we still have a better animated candidate behind us.
+        for(var j=i+1;j<urls.length;j++){
+          if(isAnimatedSpriteUrl(urls[j])&&!FAILED[urls[j]]){run(j);return;}
+        }
+        return;
+      }
+      // Preferred failed/stalled: walk the rest of the chain.
+      run(i+1);
+    });
+  })(0);
 };
 BattleUI.prototype._rs=function(si){
   if(!si)return 'p';

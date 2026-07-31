@@ -27,7 +27,7 @@ const CACHE_PREFIX = 'dailylocke-';
 
 // ---- GENERATED: do not edit by hand -------------------------------------
 // `npm run build:sw --prefix tools` recomputes this from the shell contents.
-const SHELL_REV = '86a1fbcfe211';
+const SHELL_REV = '0359f9639d9a';
 // -------------------------------------------------------------------------
 
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${SHELL_REV}`;
@@ -38,7 +38,7 @@ const KEEP = new Set([SHELL_CACHE, IMG_CACHE, AUDIO_CACHE]);
 // Runtime cache bounds. Generous enough to make a repeat encounter instant,
 // small enough that the game never becomes the reason a phone runs out of
 // space (an eviction of our whole origin would take the app shell with it).
-const MAX_IMG = 240;
+const MAX_IMG = 360;
 const MAX_AUDIO = 60;
 
 const SCOPE = new URL('./', self.location).pathname;   // e.g. '/Dailylocke/'
