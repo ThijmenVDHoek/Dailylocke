@@ -11,7 +11,6 @@ const projectRules = {
   'no-unused-vars': ['error', {
     args: 'after-used',
     caughtErrors: 'none',
-    varsIgnorePattern: '^QRCode$',
   }],
   'no-useless-assignment': 'error',
 };
@@ -31,10 +30,8 @@ export default [
   {
     ignores: [
       'tools/node_modules/**',
-      'vendor/lz-string.min.js',
       'vendor/pkmn-learnsets.js',
       'vendor/pkmn-sim.js',
-      'vendor/qrcode.js',
       'vendor/three.min.js',
     ],
   },

@@ -8,8 +8,6 @@ License texts and asset credits are collected in `../THIRD_PARTY_NOTICES.md`.
 | `pkmn-sim.js` | `tools/build-sim.mjs` (@pkmn/sim, gen9 only, learnsets split out) |
 | `pkmn-learnsets.js` | `tools/build-sim.mjs` (gen9 learnsets, loaded on demand) |
 | `three.min.js` | three.js r149 UMD build |
-| `lz-string.min.js` | lz-string 1.5.0 (MIT, pieroxy) — save-code compression |
-| `qrcode.js` | qrcodejs 1.0.0 (MIT, davidshimjs; QR code © DENSO WAVE) — save-code QR rendering |
 | `battle-ui.js` | hand-written 3D battle renderer (edit this one directly) |
 
 Rebuild the @pkmn/sim bundles with:

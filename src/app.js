@@ -563,7 +563,7 @@
       card.className = 'card starter-card';
       card.innerHTML =
         '<div class="sprite-box">' + bigSprite(mon.id, '', 112, 150, 1, mon.shiny) + '</div>' +
-        '<div class="sc-name">' + mon.name + '</div>' +
+        '<div class="sc-name">' + escapeHtml(mon.name) + '</div>' +
         '<div class="types">' + typeChips(mon.types) + '</div>' +
         '<div class="statline">HP ' + C.maxHP(mon) + ' \u00b7 BST ' + C.bst(mon.id) + '</div>' +
         '<div class="ability">' + mon.ability + '</div>' +
@@ -1631,7 +1631,7 @@
         html += '<button class="tslot' + (i === partySel ? ' sel' : '') + '" data-i="' + i + '">' +
           (i === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
           '<span class="ts-art">' + animSprite(m.id, 46, 52, '', 1.4, m.shiny) + '</span>' +
-          '<span class="ts-name">' + m.name + '</span>' +
+          '<span class="ts-name">' + escapeHtml(m.name) + '</span>' +
           '<span class="ts-bar"><i style="width:' + pct + '%;background:' + col + '"></i></span>' +
           statusBadgeHtml(m.status) +
           '</button>';
@@ -1687,7 +1687,7 @@
         gridHtml += '<button class="tslot' + (gi === partySel ? ' sel' : '') + '" data-gi="' + gi + '">' +
           (gi === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
           '<span class="ts-art">' + animSprite(gm.id, 46, 52, '', 1.4, gm.shiny) + '</span>' +
-          '<span class="ts-name">' + gm.name + '</span>' +
+          '<span class="ts-name">' + escapeHtml(gm.name) + '</span>' +
           '<span class="ts-bar"><i style="width:' + gPct + '%;background:' + gCol + '"></i></span>' +
           statusBadgeHtml(gm.status) +
           '</button>';
@@ -1740,7 +1740,7 @@
           '<div class="pd-art">' + bigSprite(mon.id, '', 104, 104, 1, mon.shiny) + '</div>' +
           '<div class="pd-id">' +
             '<div class="pd-species">' + speciesOf(mon) + (mon.shiny ? ' \u2728' : '') + '</div>' +
-            '<div class="pd-name">' + mon.name + '</div>' +
+            '<div class="pd-name">' + escapeHtml(mon.name) + '</div>' +
             '<div class="types">' + typeChips(mon.types) + '</div>' +
           '</div>' +
         '</div>' +
@@ -1962,7 +1962,7 @@
           html += '<button class="owned-item held" data-take="' + m.uid + '" data-tip="item:' + id + '">' +
             '<span class="oi-art">' + (window.ItemArt ? window.ItemArt.itemImg(id, 28) : '') + '</span>' +
             '<span class="oi-n">' + itemName(id) +
-              '<em class="oi-who">' + m.name + '</em></span>' +
+              '<em class="oi-who">' + escapeHtml(m.name) + '</em></span>' +
             '<span class="oi-q take">take</span>' +
             '</button>';
         });
@@ -1987,13 +1987,21 @@
     });
     // tapping an equipped item takes it back off that Pokemon
     host.querySelectorAll('[data-take]').forEach(function (b) {
-      b.addEventListener('click', function () {
+      b.addEventListener('click', async function () {
         var uid = b.dataset.take;
         var m = run.party.filter(function (x) { return String(x.uid) === String(uid); })[0];
         if (!m || !m.item) return;
         var was = m.item;
         N.addItem(run, was, 1);
-        m.item = '';
+        // Route through Forme enforcement like the party-detail handler does:
+        // removing a forme-forcing item (Griseous Core, Adamant Crystal, a
+        // plate, ...) must snap the Pokemon back to its base forme, or the
+        // Bag path and the party-detail path would disagree.
+        if (window.Forme && window.Forme.setHeldItemAndEnforce) {
+          await window.Forme.setHeldItemAndEnforce(run, m, '');
+        } else {
+          m.item = '';
+        }
         toast('Took the ' + itemName(was) + ' from ' + m.name + '.');
         renderCrossroads(); saveGame();
       });
@@ -2049,9 +2057,15 @@
     {id:'fairy',name:'Fairy',dot:'#d685ad',p:{'--bg-0':'#210d1d','--bg-1':'#3f1937','--bg-2':'#642956','--gold':'#ffd0ed','--blue':'#e98ec8','--green':'#b9debc','--amber':'#ffd075','--red':'#f577a4','--violet':'#e59ee9'}}
   ];
   function avatarUrl(id) { return 'https://play.pokemonshowdown.com/sprites/trainers/' + id + '.png'; }
+  // profile.avatar can come from an imported backup, so it must be allow-listed
+  // against the catalogue before it is ever used in an <img src>.
+  function safeAvatar() {
+    var a = profile && profile.avatar;
+    return AVATARS.indexOf(a) >= 0 ? a : 'red';
+  }
   var pendingAvatar = null;
   function openAvatarPicker() {
-    pendingAvatar = profile.avatar || 'red';
+    pendingAvatar = safeAvatar();
     var grid = $('avatarModalGrid');
     grid.innerHTML = AVATARS.map(function (id) { var label = id.replace(/^./, function (x) { return x.toUpperCase(); }); return '<button class="avatar-choice' + (id === pendingAvatar ? ' on' : '') + '" data-avatar="' + id + '" title="' + label + '" aria-label="' + label + '"><img loading="lazy" decoding="async" src="' + avatarUrl(id) + '" alt="" onerror="this.onerror=null;this.src=\'https://play.pokemonshowdown.com/sprites/trainers/red.png\'"></button>'; }).join('');
     grid.querySelectorAll('[data-avatar]').forEach(function (b) { b.onclick = function () { pendingAvatar = b.dataset.avatar; grid.querySelectorAll('.avatar-choice').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
@@ -2087,7 +2101,7 @@
   };
 
   function updateMenuAvatar() {
-    var src = avatarUrl((profile && profile.avatar) || 'red');
+    var src = avatarUrl(safeAvatar());
     var e = $('menuAvatar'); if (e) e.innerHTML = '<img src="' + src + '" alt="">';
     var button = $('menuButtonAvatar'); if (button) button.innerHTML = '<img src="' + src + '" alt="">';
     var titleBtn = $('titleMenuAvatar'); if (titleBtn) titleBtn.innerHTML = '<img src="' + src + '" alt="">';
@@ -2095,7 +2109,7 @@
   }
   function showProfile() {
     closeMenu(); loadProfile(); applyTheme(); updateMenuAvatar();
-    var shinies = profile.shinies.length, av = profile.avatar || 'red';
+    var shinies = profile.shinies.length, av = safeAvatar();
     var cur = run && !run.over ? '<div class="prof-now"><div class="pd-label">Current run</div><div class="prof-grid">' + statCard(run.battlesWon || 0, 'Battles won') + statCard('S' + (run.section || 1), 'Section') + statCard(run.caught || 0, 'Caught') + statCard('$' + (run.money || 0).toLocaleString(), 'Cash') + '</div></div>' : '<p class="hint center">No run in progress.</p>';
     var bf = profile.battlefield || 'dynamic';
     $('profBody').innerHTML = '<div class="profile-hero"><div class="profile-avatar"><img src="' + avatarUrl(av) + '" alt="Avatar"></div><div style="flex:1"><div class="profile-name">Trainer Profile</div><div class="profile-sub">Customize your look and game theme</div></div><button id="editAvatar" class="btn-mini">Edit sprite</button></div>' +
@@ -2185,8 +2199,8 @@
       return '<div class="shiny-card">' +
         '<span class="sc-star"></span>' +
         '<div class="sc-art">' + animSprite(sh.id, 72, 84, '', 1.4, true) + '</div>' +
-        '<div class="sc-nm">' + sh.name + '</div>' +
-        '<div class="sc-sp">' + sh.species + '</div>' +
+        '<div class="sc-nm">' + escapeHtml(sh.name) + '</div>' +
+        '<div class="sc-sp">' + escapeHtml(sh.species) + '</div>' +
         '<div class="types">' + typeChips(sh.types || []) + '</div>' +
         '<div class="sc-meta">' + (sh.how === 'starter' ? 'Starter' : 'Section ' + sh.section) +
           ' \u00b7 ' + when.toLocaleDateString() + '</div>' +
@@ -2483,7 +2497,7 @@
       return '<button class="pick-row mon' + (eff.art ? ' has-art' : '') + '" data-i="' + i + '"' +
         (dis ? ' disabled' : '') + '>' +
         iconEl(m.id, 1.2, '', m.shiny) +
-        '<div class="pick-info"><b>' + m.name + '</b>' +
+        '<div class="pick-info"><b>' + escapeHtml(m.name) + '</b>' +
           '<div class="pick-hp"><i style="width:' + pct + '%;background:' + col + '"></i></div>' +
           '<span class="pick-meta">' + C.curHP(m) + '/' + C.maxHP(m) +
           (m.status ? ' \u00b7 ' + m.status.toUpperCase() : '') + '</span></div>' +
@@ -2538,7 +2552,14 @@
   }
 
   // ------------------------------------------------------------ BATTLES ---
+  // True only between an auto-resumed battle being spun up and its first
+  // request: handleRequest() uses it to re-apply saved HP/status to the HUD
+  // once, then clears it. A module flag rather than a field on `run` so it can
+  // never be persisted into a save or leak into a later battle.
+  var resumePending = false;
+
   function teardownBattleUI() {
+    resumePending = false;
     clearQueue();
     if (ui) { try { ui.unmount(); } catch (e) {} ui = null; }
     var h = $('battleHost'); if (h) h.innerHTML = '';
@@ -2603,6 +2624,8 @@
   async function startNextBattle() {
     if (battleStarting) return;
     if (!N.alive(run).length) return gameOver();
+    // A fresh battle must never re-apply stale resume overrides.
+    resumePending = false;
     battleStarting = true;
     var isTrainer = N.nextIsTrainer(run);
     show('Battle');
@@ -2662,6 +2685,14 @@
     return [0, 0, 0, 0].map(function () { return Math.floor(r() * 0x10000); });
   }
 
+  // Daily battles are a shared puzzle: the engine rolls are seeded via
+  // dailyBattleSeed(), and the AI's tie-breaking jitter must be seeded too or
+  // two players can get different opponent decisions on the same day. Free
+  // Play passes nothing and keeps the engine's own randomness.
+  function dailyAIRand() {
+    return C.mulberry32(C.hashString(run.seed + '|ai|' + run.section + '|' + run.battleInSection));
+  }
+
   function beginBattle(cfg) {
     // lead = first non-fainted
     var lead = 0;
@@ -2673,8 +2704,11 @@
     saveGame();
 
     // Save battle config so we can resume if the app is closed mid-battle.
+    // Everything the engine needs to rebuild the enemy side is captured here,
+    // including held items and elite modifiers -- a resumed trainer fight must
+    // be the same fight, not a hollowed-out 1-mon version of it.
     run._battleCfg = {
-      enemies: cfg.enemies.map(function (e) { return { id: e.id, name: e.name, species: e.species, types: e.types.slice(), moves: e.moves.slice(), ability: e.ability, nature: e.nature, shiny: !!e.shiny, hpPct: e.hpPct, status: e.status, pp: e.pp ? JSON.parse(JSON.stringify(e.pp)) : {} }; }),
+      enemies: cfg.enemies.map(function (e) { return { id: e.id, name: e.name, species: e.species, types: e.types.slice(), moves: e.moves.slice(), ability: e.ability, nature: e.nature, shiny: !!e.shiny, hpPct: e.hpPct, status: e.status, pp: e.pp ? JSON.parse(JSON.stringify(e.pp)) : {}, item: e.item || '', elite: e.elite || null }; }),
       isWild: cfg.isWild,
       catchable: cfg.catchable,
       trainer: cfg.trainer ? { name: cfg.trainer.name, tag: cfg.trainer.tag, sprite: cfg.trainer.sprite, boss: cfg.trainer.boss } : null,
@@ -2767,6 +2801,8 @@
       fieldEffect: cfg.fieldEffect || null,
       // A Daily must play out identically for everyone, crits included.
       battleSeed: run.mode === 'daily' ? dailyBattleSeed() : null,
+      // ... and the AI's tie-breaking jitter must be seeded too.
+      rand: run.mode === 'daily' ? dailyAIRand() : null,
       handlers: {
         onLog: handleLog,
         onRequest: handleRequest,
@@ -3235,11 +3271,13 @@
     if (req.wait) { ui.setMoves([], {}, null); return; }
     // Sync live battle state to run.party before handing control to the player.
     // This ensures closing the app mid-battle preserves damage taken so far.
-    syncBattleToRun(); saveGame();
-    // On resume, override the engine's HP/status with saved values after the
-    // opening switch events have been processed.
-    if (run._isResume && bctx && bctx.cfg) {
-      run._isResume = false;
+    syncBattleToRun();
+    // On resume, override the HUD's HP/status with saved values after the
+    // opening switch events have been processed. The flag lives on a module
+    // variable (never on the run save) and is consumed exactly once, on the
+    // first request of the resumed battle.
+    if (resumePending && bctx && bctx.cfg) {
+      resumePending = false;
       var p = run.party[0];
       var e = bctx.cfg.enemies[0];
       if (p && ui.s.p) {
@@ -3252,6 +3290,7 @@
         if (e.status) ui.setStatus('e', e.status);
       }
     }
+    saveGame();
     // While the intro is still flushing, render immediately so Fight/Bag/Ball
     // /Party are usable from the very first frame of the battle.
     if (!opening && (evQ.length || evTimer)) { pendingRequest = req; return; }
@@ -3379,7 +3418,7 @@
     var html = '<p class="fled-note">You fled the battle \u2014 <b>no prize money</b>.</p>';
     if (dead && dead.length) {
       html += '<div class="losses"><h4>Lost forever</h4>' + dead.map(function (m) {
-        return '<div class="grave">' + iconEl(m.id, 1.1, '', m.shiny) + '<span>' + m.name + '</span></div>';
+        return '<div class="grave">' + iconEl(m.id, 1.1, '', m.shiny) + '<span>' + escapeHtml(m.name) + '</span></div>';
       }).join('') + '</div>';
     }
     if (missedCatch) {
@@ -3406,7 +3445,7 @@
       // Use live battle HP/status for the active Pokemon (run.party is only synced at battle start)
       var isActive = m === activeMon;
       var liveHp = isActive && ui && ui.s && ui.s.p ? ui.s.p.hp : m.hpPct;
-      var liveStatus = isActive && ui && ui.s && ui.s.p ? ui.s.st : m.status;
+      var liveStatus = isActive && ui && ui.s && ui.s.p ? ui.s.p.st : m.status;
       var pct = pctHP(liveHp);
       var hpCol = liveHp > 0.5 ? '#4ade80' : liveHp > 0.2 ? '#facc15' : '#ef4444';
       var cur = Math.round(C.maxHP(m) * liveHp), mx = C.maxHP(m);
@@ -3417,7 +3456,7 @@
         '<div class="pd-art">' + bigSprite(m.id, '', 72, 72, 1, m.shiny) + '</div>' +
         '<div class="pd-id" style="min-width:0">' +
           '<div class="pd-species">' + speciesOf(m) + (m.shiny ? ' \u2728' : '') + '</div>' +
-          '<div class="pd-name" style="font-size:1.1rem">' + m.name + '</div>' +
+          '<div class="pd-name" style="font-size:1.1rem">' + escapeHtml(m.name) + '</div>' +
           '<div class="types" style="margin-top:2px">' + typeChips(m.types) + '</div>' +
         '</div>' +
       '</div>' +
@@ -3427,7 +3466,7 @@
           (liveStatus ? '<span class="battle-st-badge" style="margin-left:6px;background:' + stCol + ';color:' + stTxtCol + ';padding:2px 6px;border-radius:999px;font-size:.62rem">' + liveStatus.toUpperCase() + '</span>' : '') +
         '</div>';
       return {
-        name: m.name,
+        name: escapeHtml(m.name),
         species: speciesOf(m),
         hp: liveHp,
         fainted: C.isFainted(m),
@@ -3722,7 +3761,7 @@
     $('catchBody').innerHTML =
       '<div class="catch-new">' + bigSprite(clone.id, '', 140, 154, 1, clone.shiny) +
       '<div class="catch-info">' +
-      '<h3 style="margin:0 0 8px 0;">' + clone.name + '</h3>' +
+      '<h3 style="margin:0 0 8px 0;">' + escapeHtml(clone.name) + '</h3>' +
       '<div class="types" style="justify-content:center;">' + typeChips(clone.types) + '</div>' +
       '<div class="statline" style="margin:8px 0;font-size:1rem;">HP ' + pctHP(clone.hpPct) + '% \u00b7 Status ' + st + '</div>' +
       '<div class="ability" style="margin:6px 0;opacity:0.8;">' + clone.ability + '</div>' +
@@ -3758,7 +3797,7 @@
       $('btnCatchDone').hidden = true;
       swap.innerHTML = '<p class="hint">Your party is full. Choose a Pokemon to release, or let it go.</p>' +
         '<div class="swap-grid">' + run.party.map(function (m, i) {
-          return '<button class="swap-btn" data-i="' + i + '">' + iconEl(m.id, 1.2, '', m.shiny) + '<span>' + m.name + '</span>' +
+          return '<button class="swap-btn" data-i="' + i + '">' + iconEl(m.id, 1.2, '', m.shiny) + '<span>' + escapeHtml(m.name) + '</span>' +
                  '<small>' + pctHP(m.hpPct) + '% \u00b7 ' + Math.round(run.damageDealt[m.uid] || 0) + ' dmg</small></button>';
         }).join('') + '<button class="swap-btn skip" data-i="-1"><span>Release the new one</span></button></div>';
       swap.querySelectorAll('.swap-btn').forEach(function (b) {
@@ -3850,7 +3889,7 @@
     if (money) html += '<p class="reward-money">+$' + money + '</p>';
     if (dead && dead.length) {
       html += '<div class="losses"><h4>Lost forever</h4>' + dead.map(function (m) {
-        return '<div class="grave">' + iconEl(m.id, 1.1, '', m.shiny) + '<span>' + m.name + '</span></div>';
+        return '<div class="grave">' + iconEl(m.id, 1.1, '', m.shiny) + '<span>' + escapeHtml(m.name) + '</span></div>';
       }).join('') + '</div>';
     }
     if (missedCatch) {
@@ -3938,7 +3977,7 @@
         var pct = pctHP(m.hpPct);
         var col = m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444';
         return '<div class="sum-row">' + iconEl(m.id, 1.1, '', m.shiny) +
-          '<div class="sum-who"><b>' + m.name + '</b><span>' + speciesOf(m) + '</span></div>' +
+          '<div class="sum-who"><b>' + escapeHtml(m.name) + '</b><span>' + speciesOf(m) + '</span></div>' +
           '<div class="sum-hp"><i style="width:' + pct + '%;background:' + col + '"></i></div>' +
           '<span class="sum-pct">' + pct + '%</span></div>';
       }).join('');
@@ -3946,7 +3985,7 @@
     if (ss.lost.length) {
       $('sumLost').innerHTML = '<div class="sum-label bad">Lost forever</div>' +
         '<div class="sum-graves">' + ss.lost.map(function (g) {
-          return '<div class="grave">' + iconEl(g.id, 1.1, '', g.shiny) + '<span>' + g.name + '</span></div>';
+          return '<div class="grave">' + iconEl(g.id, 1.1, '', g.shiny) + '<span>' + escapeHtml(g.name) + '</span></div>';
         }).join('') + '</div>';
       $('sumLost').hidden = false;
     } else {
@@ -3976,7 +4015,7 @@
     $('goMvp').innerHTML = m
       ? '<div class="mvp"><div class="mvp-tag">MVP</div>' +
         bigSprite(m.id, '', 104, 104, 1, m.shiny) +
-        '<div><div class="sc-name">' + m.name + '</div>' +
+        '<div><div class="sc-name">' + escapeHtml(m.name) + '</div>' +
         '<div class="statline">' + m.damage.toLocaleString() + ' total damage \u00b7 ' + m.kos + ' KOs</div>' +
         '<div class="hint">' + (m.survived ? 'Survived to the end.' : 'Fell in battle.') + '</div></div></div>'
       : '<p class="hint">No damage was dealt. Rough run.</p>';
@@ -3984,7 +4023,7 @@
     $('goRoster').innerHTML = '<h3 class="sub-title">Roster</h3>' + ros.map(function (r) {
       return '<div class="ros-row' + (r.alive ? '' : ' dead') + '">' +
         iconEl(r.id, 1, '', r.shiny) +
-        '<span class="ros-n">' + r.name + '</span>' +
+        '<span class="ros-n">' + escapeHtml(r.name) + '</span>' +
         '<span class="ros-d">' + r.damage.toLocaleString() + ' dmg</span>' +
         '<span class="ros-s">' + (r.alive ? pctHP(r.hpPct) + '%' : 'S' + r.section) + '</span></div>';
     }).join('');
@@ -4289,7 +4328,7 @@
         run.bag[itemId]--; if (run.bag[itemId] <= 0) delete run.bag[itemId];
         stage.classList.remove('morphing');
         stage.classList.add('done');
-        $('evoText').innerHTML = mon.name + ' became <b>' + res.to + '</b>!';
+        $('evoText').innerHTML = escapeHtml(mon.name) + ' became <b>' + res.to + '</b>!';
         N.logMsg(run, res.from + ' changed forme to ' + res.to + '.');
         if (mon.shiny) {
           recordShiny(mon, 'forme');
@@ -4553,7 +4592,7 @@
   function fullBackupState() {
     if (run && !run.over) saveGame();
     return {
-      format: 'dailylocke-full-state', version: 1,
+      format: window.SaveCode ? window.SaveCode.FORMAT : 'dailylocke-full-state', version: 1,
       savedAt: Date.now(),
       runs: { daily: loadGame('daily'), free: loadGame('free'), gauntlet: loadGame('gauntlet') },
       profile: ST.loadProfile(),
@@ -4585,11 +4624,126 @@
     $('saveFileName').hidden = !pendingImportFile;
     $('saveFileName').textContent = pendingImportFile ? 'Selected: ' + pendingImportFile.name : '';
   }
+  // Every value in a backup is untrusted input: it can come from another
+  // device, a hand edit, or a malicious file. Nothing is written to storage
+  // until it has been schema-checked and coerced to safe shapes, and any
+  // player-controlled string is escaped at render time (see escapeHtml).
+  function sanitizeProfileBackup(p) {
+    var d = ST.blankProfile();
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return d;
+    ['totalRuns', 'bestBattles', 'bestSection', 'totalCaught', 'totalKOs'].forEach(function (k) {
+      var n = Number(p[k]);
+      if (isFinite(n) && n >= 0) d[k] = Math.floor(n);
+    });
+    if (Array.isArray(p.shinies)) {
+      d.shinies = p.shinies.filter(function (sh) {
+        return sh && typeof sh === 'object' && typeof sh.id === 'string' && sh.id;
+      }).slice(0, 1000).map(function (sh) {
+        return { id: sh.id, species: String(sh.species || sh.id),
+                 name: String(sh.name || sh.species || sh.id),
+                 types: Array.isArray(sh.types) ? sh.types.map(String) : [],
+                 how: String(sh.how || 'caught'),
+                 section: Math.max(0, Math.floor(Number(sh.section) || 0)),
+                 at: isFinite(Number(sh.at)) ? Number(sh.at) : Date.now() };
+      });
+    }
+    if (Array.isArray(p.history)) {
+      d.history = p.history.filter(function (h) { return h && typeof h === 'object'; })
+        .slice(0, 50)
+        .map(function (h) {
+          return { at: isFinite(Number(h.at)) ? Number(h.at) : Date.now(),
+                   battles: Math.max(0, Math.floor(Number(h.battles) || 0)),
+                   section: Math.max(0, Math.floor(Number(h.section) || 0)),
+                   caught: Math.max(0, Math.floor(Number(h.caught) || 0)),
+                   trainers: Math.max(0, Math.floor(Number(h.trainers) || 0)),
+                   mvp: h.mvp && typeof h.mvp === 'object'
+                     ? { id: String(h.mvp.id || ''), name: String(h.mvp.name || ''),
+                         damage: Math.max(0, Math.floor(Number(h.mvp.damage) || 0)) }
+                     : null,
+                   seed: isFinite(Number(h.seed)) ? Number(h.seed) : 0,
+                   roster: Array.isArray(h.roster) ? h.roster.filter(function (p2) {
+                     return p2 && typeof p2.id === 'string';
+                   }).slice(0, 20).map(function (p2) {
+                     return { id: p2.id, name: String(p2.name || p2.id), shiny: !!p2.shiny };
+                   }) : [] };
+        });
+    }
+    // Avatar and theme come from fixed catalogues, never free-form strings.
+    if (AVATARS.indexOf(String(p.avatar)) >= 0) d.avatar = String(p.avatar);
+    if (THEMES.some(function (t) { return t.id === p.theme; })) d.theme = p.theme;
+    return d;
+  }
+
+  function sanitizeDailyBackup(s) {
+    var out = { __v: 1, results: {}, streak: 0, best: 0, lastPlayed: null, grace: 0, lastStreakDay: null };
+    if (!s || typeof s !== 'object' || !s.results || typeof s.results !== 'object') return out;
+    Object.keys(s.results).forEach(function (k) {
+      var e = s.results[k];
+      if (!e || typeof e !== 'object' || !/^\d{4}-\d{2}-\d{2}$/.test(String(k))) return;
+      out.results[k] = {
+        date: String(k),
+        n: Math.max(1, Math.floor(Number(e.n) || 1)),
+        outcome: e.outcome === 'complete' ? 'complete' : 'wipe',
+        sections: Math.max(0, Math.floor(Number(e.sections) || 0)),
+        battles: Math.max(0, Math.floor(Number(e.battles) || 0)),
+        caught: Math.max(0, Math.floor(Number(e.caught) || 0)),
+        lost: Math.max(0, Math.floor(Number(e.lost) || 0)),
+        trainers: Math.max(0, Math.floor(Number(e.trainers) || 0)),
+        score: Math.max(0, Math.floor(Number(e.score) || 0)),
+        starter: e.starter && typeof e.starter === 'object'
+          ? { id: String(e.starter.id || ''), name: String(e.starter.name || '') } : null,
+        mvp: e.mvp && typeof e.mvp === 'object'
+          ? { id: String(e.mvp.id || ''), name: String(e.mvp.name || ''),
+              damage: Math.max(0, Math.floor(Number(e.mvp.damage) || 0)) } : null,
+        marks: Array.isArray(e.marks) ? e.marks.map(String).slice(0, 40) : [],
+        at: isFinite(Number(e.at)) ? Number(e.at) : Date.now()
+      };
+    });
+    if (isFinite(Number(s.streak))) out.streak = Math.max(0, Math.floor(Number(s.streak)));
+    if (isFinite(Number(s.best))) out.best = Math.max(0, Math.floor(Number(s.best)));
+    if (isFinite(Number(s.grace))) out.grace = Math.max(0, Math.floor(Number(s.grace)));
+    if (typeof s.lastPlayed === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.lastPlayed)) out.lastPlayed = s.lastPlayed;
+    if (typeof s.lastStreakDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.lastStreakDay)) out.lastStreakDay = s.lastStreakDay;
+    return out;
+  }
+
+  // Normalise every party member's species/types from its durable id -- the
+  // same repair reviveRun() performs -- so an imported backup written under
+  // the old cleanName bug (regional variants collapsed to their base forme
+  // name) is corrected before it ever reaches storage, not on the next load.
+  function repairRunSpecies(r) {
+    (r.party || []).forEach(function (m) {
+      var sp = m.id ? Dex.species.get(m.id) : null;
+      if (sp && sp.exists) {
+        m.species = sp.name;
+        if (Array.isArray(sp.types) && sp.types.length) m.types = sp.types.slice();
+      } else if (!m.species) {
+        m.species = C.cleanName(m.id);
+      }
+      if (!m.name) m.name = m.species;
+      if (!m.pp) m.pp = {};
+    });
+    return r;
+  }
+
   function restoreFullBackup(data) {
-    if (!data || data.format !== 'dailylocke-full-state' || !data.runs || !data.profile) throw new Error('This backup is incomplete or invalid.');
-    ST.saveProfile(data.profile);
-    ['daily', 'free', 'gauntlet'].forEach(function (mode) { if (data.runs[mode]) ST.putRun(mode, data.runs[mode]); else ST.clearRun(mode); });
-    if (data.daily && window.Daily) window.Daily.save(data.daily);
+    var FMT = window.SaveCode ? window.SaveCode.FORMAT : 'dailylocke-full-state';
+    if (!data || data.format !== FMT || !data.runs || typeof data.runs !== 'object' || !data.profile) {
+      throw new Error('This backup is incomplete or invalid.');
+    }
+    // Each run slot is validated, migrated and species-repaired before it
+    // touches storage; anything unusable rejects the whole restore.
+    ['daily', 'free', 'gauntlet'].forEach(function (mode) {
+      var r = data.runs[mode];
+      if (!r) { ST.clearRun(mode); return; }
+      var err = ST.validate(r);
+      if (err) throw new Error('The ' + mode + ' run in this backup is invalid: ' + err);
+      var migrated = migrateSave(r);
+      if (!migrated) throw new Error('The ' + mode + ' run in this backup has no surviving Pokemon.');
+      ST.putRun(mode, repairRunSpecies(migrated));
+    });
+    ST.saveProfile(sanitizeProfileBackup(data.profile));
+    if (data.daily && window.Daily) window.Daily.save(sanitizeDailyBackup(data.daily));
     run = null; loadProfile(); applyTheme(); updateMenuAvatar(); setContinueState();
   }
   function performManualImport() {
@@ -4597,8 +4751,10 @@
     if (!pendingImportFile) { msg.textContent = 'Choose a backup file first.'; return; }
     window.SaveCode.readFile(pendingImportFile).then(function (text) {
       var data;
-      try { data = JSON.parse(String(text).replace(/^\uFEFF/, '').trim()); } catch (e) { throw new Error('This is not a valid Dailylocke save file.'); }
-      if (!data || data.format !== 'dailylocke-full-state') throw new Error('This is not a valid Dailylocke backup file.');
+      try { data = JSON.parse(String(text).replace(/^\uFEFF/, '').trim()); }
+      catch (e) { throw new Error('This is not a valid Dailylocke save file.', { cause: e }); }
+      var FMT = window.SaveCode ? window.SaveCode.FORMAT : 'dailylocke-full-state';
+      if (!data || data.format !== FMT) throw new Error('This is not a valid Dailylocke backup file.');
       restoreFullBackup(data); closeSaveImport(); closeMenu(); show('Title'); toast('Backup restored. Reloading...');
       setTimeout(function () { window.location.reload(); }, 350);
     }).catch(function (e) { msg.textContent = e.message || 'Could not restore this backup.'; });
@@ -4680,34 +4836,45 @@
       if (resumeRun) {
         run = reviveRun(resumeRun);
         var cfg = run._battleCfg;
-        // Restore enemy data from the saved config
-        if (cfg.enemies && cfg.enemies[0]) {
-          var eData = cfg.enemies[0];
-          // Rebuild the enemy mon from saved data
-          var resumeEnemy = {
-            id: eData.id, name: eData.name, species: eData.species || eData.name,
-            types: eData.types, moves: eData.moves, ability: eData.ability || 'No Ability',
-            nature: eData.nature || 'Serious', shiny: !!eData.shiny,
-            hpPct: eData.hpPct != null ? eData.hpPct : 1, status: eData.status || '',
-            pp: eData.pp || {}, level: 100,
-            uid: 'e' + Date.now(), evs: {hp:0,atk:0,def:0,spa:0,spd:0,spe:0},
-            ivs: {hp:31,atk:31,def:31,spa:31,spd:31,spe:31},
-            sp: null, item: '', section: run.section || 1
-          };
+        if (cfg && cfg.enemies && cfg.enemies.length && cfg.enemies[0]) {
+          // Rebuild EVERY enemy from the saved config -- a trainer fight has
+          // up to six of them, and resuming a 6v6 as a 6v1 was a free win.
+          var enemies = cfg.enemies.map(function (eData, ei) {
+            return {
+              id: eData.id, name: eData.name, species: eData.species || eData.name,
+              types: eData.types || [], moves: eData.moves || [],
+              ability: eData.ability || 'No Ability',
+              nature: eData.nature || 'Serious', shiny: !!eData.shiny,
+              hpPct: eData.hpPct != null ? eData.hpPct : 1, status: eData.status || '',
+              pp: eData.pp || {}, item: eData.item || '', elite: eData.elite || null,
+              level: 100, uid: 'e' + Date.now() + '-' + ei,
+              evs: {hp:0,atk:0,def:0,spa:0,spd:0,spe:0},
+              ivs: {hp:31,atk:31,def:31,spa:31,spd:31,spe:31},
+              sp: null, section: run.section || 1
+            };
+          });
           show('Battle');
           var resumeCfg = {
-            enemies: [resumeEnemy],
+            enemies: enemies,
             isWild: cfg.isWild,
             catchable: cfg.catchable,
             trainer: cfg.trainer || null,
             clause: cfg.clause || null,
-            fieldEffect: null
+            // The field effect is deterministic per seed/section/battle, so it
+            // can be recomputed instead of stored in the save.
+            fieldEffect: N.fieldEffectFor(run, cfg.isWild ? false : true)
           };
-          // Mark that we're resuming so beginBattle can set HP correctly
-          run._isResume = true;
+          // handleRequest() applies the saved HP/status once on the first
+          // request (module flag -- never persisted into the save).
+          resumePending = true;
           beginBattle(resumeCfg);
-          run._isResume = false;
           toast('Resuming battle...');
+        } else {
+          // Battle config was lost or corrupt: drop the flag and let the title
+          // offer the run normally rather than stranding the player.
+          run._inBattle = false;
+          run._battleCfg = null;
+          saveGame();
         }
       }
     } catch (e) { console.warn('[boot] auto-resume failed', e); }
@@ -4807,6 +4974,9 @@
   window.Game = { get run() { return run; }, show: show, startNextBattle: startNextBattle,
                   startGauntlet: startGauntlet,
                   redrawRoute: renderCrossroads, toast: toast,
+                  // The exact payload the Download backup button writes. Exposed
+                  // so tests can assert on what an export contains.
+                  fullBackupState: fullBackupState,
                   // the live 3D battle UI, for debugging field effects
                   get ui() { return ui; },
                   // Post-battle progression. Exposed because the end of a

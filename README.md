@@ -53,7 +53,7 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `tooltip.js` | — | move/ability/item tooltips |
 | `ui-patch.js` | — | extends `BattleUI` with the run action bar + ball rail |
 | `battle.js` | `RogueBattle` | wraps `@pkmn/sim`: HP/status/PP persistence, situational AI |
-| `savecode.js` | `SaveCode` | password-encrypted, authenticated full-backup files |
+| `savecode.js` | `SaveCode` | full-account backup files (plain JSON, validated on import) |
 | `safari-compat.js` | — | iOS viewport quirks |
 | `pwa.js` | `PWA` | service worker registration + the install button |
 | `app.js` | `Game` | screens, section flow, battle glue — boots the game |
@@ -103,33 +103,32 @@ The worker also precaches with `cache.add()` per file rather than `addAll()`,
 because `addAll()` is atomic — one 404 would reject `install()` and leave the
 app permanently offline-less.
 
-## Encrypted full-game backups
+## Full-game backups
 
 The game autosaves active runs to browser storage. The Menu's **Transfer save**
 and **Import save** options provide a single, straightforward recovery and
 cross-device flow:
 
-1. Choose **Transfer save**, enter a backup password of at least 10 characters,
-   and download the encrypted backup.
-2. Keep both the file and its password safe; the password is never saved in the
-   file and cannot be recovered.
-3. On the other device choose **Import save**, select the file, enter that
-   password, and restore it.
+1. Choose **Transfer save** and download the backup file.
+2. Move the file to the other device (or keep it somewhere safe).
+3. On that device choose **Import save**, select the file, and restore it.
 
 Each backup is a complete account state: Daily, Free Play and Gauntlet slots;
 avatar and theme; Shiny Collection; run history and career; and the Daily
 record/streak. Restoring deliberately replaces the saved state on the current
 device, avoiding ambiguous partial merges.
 
-Files use PBKDF2-SHA-256 (310,000 iterations) to derive an AES-256-GCM key.
-AES-GCM encrypts the data and authenticates it, so a modified, corrupt, or
-wrong-password file cannot be accepted as a valid save. Save codes, share URLs,
-and QR transfers are intentionally not supported.
+Backups are **plain JSON** — there is deliberately no password or encryption.
+They protect against losing a device, not against someone who gets hold of the
+file, so treat a backup like you would any other save file of an online
+account. Every value in an imported file is validated and sanitized before it
+touches browser storage, and anything malformed is rejected wholesale with a
+clear message rather than partially applied. Share URLs and QR transfers are
+intentionally not supported.
 
-This protects exported saves against casual inspection and forgery. As with any
-entirely client-side game, it cannot make local browser state or a user-known
-password server-authoritative: durable anti-cheat for competitive scores would
-require server-side validation and a secret held off the client.
+As with any entirely client-side game, browser state is not
+server-authoritative: durable anti-cheat for competitive scores would require
+server-side validation and a secret held off the client.
 
 ## The Daily
 
@@ -247,8 +246,9 @@ The plan, in order of least-entangled first:
 7. ES modules, and only then a bundler
 
 Each step keeps the old function names in `app.js` as thin delegates, so callers
-don't move in the same commit that the logic does. `app.js` is ~197 KB today,
-down from ~203 KB, with the extracted modules independently unit-tested.
+don't move in the same commit that the logic does. `app.js` is ~244 KB today,
+down from ~203 KB when the split began, with the extracted modules
+independently unit-tested.
 
 ## Loading strategy
 
@@ -302,9 +302,10 @@ Two suites, because they see different things.
 **`tools/smoke-test.mjs` (JSDOM)** loads `index.html` using the real script
 order, boots the game and fights an actual battle through the engine. It covers
 module wiring, the trimmed bundle's data, on-demand learnsets, the install
-button on every platform path, subpath-safe PWA paths, save-code round-tripping,
-and now the Daily's date/streak/share logic, the ascension curve, role-based
-movesets, the AI's situational scoring and the modal controller.
+button on every platform path, subpath-safe PWA paths, backup export/import
+round-tripping (including rejection of malformed files), and now the Daily's
+date/streak/share logic, the ascension curve, role-based movesets, the AI's
+situational scoring and the modal controller.
 
 **`tools/e2e/run.mjs` (Playwright)** drives a real browser, which is the only
 way to test what JSDOM stubs: a WebGL battle, focus management, layout at phone
@@ -325,23 +326,22 @@ The E2E suite needs a Chromium. It uses Playwright's own download if present,
 otherwise a system browser, otherwise `DAILYLOCKE_CHROMIUM=/path/to/chromium` —
 and **skips cleanly** rather than failing when none is available.
 
-### CI (needs one manual step)
+### CI (one manual step left)
 
 A ready-to-use GitHub Actions workflow lives at
 [`tools/ci/check.yml`](tools/ci/check.yml). It runs lint + the JSDOM suite +
-the service-worker revision guard, and a second job for the Playwright suite on
-Chromium.
-
-It is **not active yet** — GitHub rejects pushes that touch
-`.github/workflows/` from an app without `workflows` permission, so it could
-not be added by the PR that introduced it. Activate it with:
+the service-worker revision guard, and a second job for the Playwright suite
+on Chromium. It is **staged, not active**: GitHub rejects pushes that touch
+`.github/workflows/` from an app without `workflows` permission. A maintainer
+with normal permissions activates it in one move:
 
 ```sh
 mkdir -p .github/workflows && git mv tools/ci/check.yml .github/workflows/
 ```
 
 Worth doing: `static.yml` currently deploys `main` to Pages with no checks at
-all, so nothing today stops a broken build from going live.
+all, so nothing today stops a broken build from going live (the workflow above
+is exactly what plugs that hole).
 
 ```sh
 npx playwright install chromium --prefix tools
