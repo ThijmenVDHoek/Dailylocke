@@ -3003,7 +3003,12 @@
       // engine details are usually right, but a stale mon.species (old saves)
       // or a temporary display quirk must never collapse a regional variant
       // (Sneasel-Hisui) to its default forme sprite/types.
-      var swMon = isP ? battle.activeMon() : (bctx && bctx.enemies && bctx.enemies[0]);
+      // For the enemy side, never use enemies[0] -- that is always the lead.
+      // Use the live active enemy mon so the second, third, etc. Pokemon show
+      // their own sprite and typing after the previous one faints.
+      var swMon = isP ? battle.activeMon() : (battle.activeEnemyMon ? battle.activeEnemyMon() : null);
+      // Fallback to bctx for pre-battle log lines where active may not exist yet
+      if (!swMon && !isP && bctx && bctx.enemies) swMon = bctx.enemies[0];
       var sp = Dex.species.get((p[2] || '').split(',')[0].trim());
       if (swMon && swMon.id) {
         var monSp = Dex.species.get(swMon.id);
@@ -3040,7 +3045,7 @@
       var dIsP = sideOf(p[1]) === 'p';
       var dsp = Dex.species.get((p[2] || '').split(',')[0].trim());
       if (dsp.exists) {
-        var dfMon = dIsP ? battle.activeMon() : (bctx && bctx.enemies && bctx.enemies[0]);
+        var dfMon = dIsP ? battle.activeMon() : (battle.activeEnemyMon ? battle.activeEnemyMon() : (bctx && bctx.enemies && bctx.enemies[0]));
         var dpay = { name: dsp.name, types: dsp.types.slice(), h: worldH(dsp.id),
                      sid: dsp.spriteid || dsp.id, num: dsp.num,
                      u: spriteUrls(dsp.id, dIsP, !!(dfMon && dfMon.shiny)) };
@@ -3118,7 +3123,7 @@
       // Update the 3D sprite, types, and species label to match.
       if (ek === 'illusion') {
         var ilIsP = sideOf(p[1]) === 'p';
-        var ilMon = ilIsP ? battle.activeMon() : (bctx && bctx.enemies && bctx.enemies[0]);
+        var ilMon = ilIsP ? battle.activeMon() : (battle.activeEnemyMon ? battle.activeEnemyMon() : (bctx && bctx.enemies && bctx.enemies[0]));
         if (ilMon) {
           var ilSp = Dex.species.get(ilMon.id || ilMon.species);
           if (ilSp && ilSp.exists) {
@@ -3279,7 +3284,16 @@
     if (resumePending && bctx && bctx.cfg) {
       resumePending = false;
       var p = run.party[0];
-      var e = bctx.cfg.enemies[0];
+      // On resume the active enemy might not be the lead if the battle was
+      // saved mid-trainer fight. Prefer the live active mon, falling back to
+      // first non-fainted in the saved cfg.
+      var eMon = battle.activeEnemyMon ? battle.activeEnemyMon() : null;
+      var e = eMon || bctx.cfg.enemies[0];
+      if (!eMon && bctx.cfg.enemies.length > 1) {
+        for (var ei = 0; ei < bctx.cfg.enemies.length; ei++) {
+          if (bctx.cfg.enemies[ei].hpPct > 0) { e = bctx.cfg.enemies[ei]; break; }
+        }
+      }
       if (p && ui.s.p) {
         ui.setHp('p', p.hpPct || 1);
         if (p.status) ui.setStatus('p', p.status);
@@ -3351,7 +3365,8 @@
     // A shiny is always catchable: it ignores both the one-per-section rule
     // and the "only the first wild" rule. Letting one walk away would be a
     // uniquely miserable moment in a Nuzlocke.
-    var wildShiny = bctx.cfg.isWild && bctx.enemies[0] && bctx.enemies[0].shiny;
+    var activeShinyMonR = battle.activeEnemyMon ? battle.activeEnemyMon() : null;
+    var wildShiny = bctx.cfg.isWild && (activeShinyMonR ? activeShinyMonR.shiny : (bctx.enemies[0] && bctx.enemies[0].shiny));
     var canCatch = wildShiny || (bctx.cfg.catchable && !run.catchUsedThisSection);
 
     ui.setActions({
@@ -3501,9 +3516,11 @@
   function buildBallRail() {
     var info = battle.enemyInfo();
     var list = [];
+    var activeShinyMon = battle.activeEnemyMon ? battle.activeEnemyMon() : null;
+    var shinySrc = activeShinyMon || (bctx.enemies && bctx.enemies[0]) || {};
     Object.keys(run.bag).forEach(function (id) {
       if (!C.BALLS[id]) return;
-      var shinyTgt = bctx.enemies[0] && bctx.enemies[0].shiny;
+      var shinyTgt = shinySrc && shinySrc.shiny;
       var ch = shinyTgt ? 1 : C.catchChance(id, info.id, info.hpPct, info.status,
         { turn: battle.state.turn, targetTypes: info.types });
       list.push({
@@ -3694,7 +3711,9 @@
     var nm = C.BALLS[ballId].name;
     ui.setMsg('You threw a ' + nm + '!'); ui.log('You threw a ' + nm + '!');
     // Shinies have a 100% catch rate -- any ball, any HP.
-    var tgt = bctx.enemies[0];
+    // Use the active enemy mon, not hard-coded enemies[0], so a shiny that
+    // appears mid-battle (wild only has one, but future-proof) is respected.
+    var tgt = (battle.activeEnemyMon ? battle.activeEnemyMon() : null) || bctx.enemies[0];
     var res = (tgt && tgt.shiny)
       ? { caught: true, shakes: 4 }
       : C.rollCatch(ballId, info.id, info.hpPct, info.status,
@@ -3713,7 +3732,7 @@
 
   function onCaught() {
     battle.sync();
-    var caught = bctx.enemies[0];
+    var caught = (battle.activeEnemyMon ? battle.activeEnemyMon() : null) || bctx.enemies[0];
     var clone = JSON.parse(JSON.stringify(caught));
     clone.uid = 'c' + Date.now();
     // Keep EXACTLY the HP / PP / status it had at capture. Only guard against
