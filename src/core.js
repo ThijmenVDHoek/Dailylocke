@@ -102,7 +102,7 @@
       // not to have a `baseForme` property.
       if (s.baseSpecies && s.baseSpecies !== s.name) {
         var f = (s.forme || '');
-        var isRegional = /alola|galar|hisui|paldea|bloodmoon|eternal/i.test(f);
+        var isRegional = /alola|galar|hisui|paldea|bloodmoon/i.test(f);
         // A few gender formes are genuine alternate builds, not just a
         // different sprite. Keep them when their battle data differs from
         // the canonical form (Basculegion-F, Indeedee-F, Oinkologne-F, ...).

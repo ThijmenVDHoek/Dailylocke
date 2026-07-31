@@ -152,28 +152,7 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .btn-secondary:hover:not(:disabled) { background:rgba(255,255,255,.16); }
 .btn-secondary:disabled { opacity:.4; cursor:not-allowed; }
 
-.title-free-actions { display:flex; gap:10px; align-items:flex-start; margin-bottom:12px; }
-.run-col {
-  display:flex; flex-direction:column; gap:8px; flex:1; min-width:0;
-}
-.title-free-actions .btn-white, .title-free-actions .btn-glass {
-  padding:14px 12px; font-size:1.02rem; height:68px;
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
-}
-.title-free-actions .bd-sub { font-size:.7rem; opacity:.7; margin-top:2px; letter-spacing:0; }
-.run-col .btn-secondary {
-  padding:8px 12px; font-size:.88rem; margin-top:0; border-radius:var(--r-md);
-  background:rgba(255,255,255,.10); color:#fff; border:none;
-  backdrop-filter:blur(10px) saturate(1.3); -webkit-backdrop-filter:blur(10px) saturate(1.3);
-  cursor:pointer;
-}
-.run-col .btn-secondary:hover { background:rgba(255,255,255,.16); transform:translateY(-1px); }
-
-.tslot.fainted .ts-art { filter: grayscale(1) opacity(0.5); }
-.tslot.fainted .ts-name { opacity: 0.5; }
-.tslot.fainted .ts-bar { display: none; }
-
-
+.wide { display:block; width:100%; margin-top:12px; }
 
 /* Two-button row on finish screens (Save progress + Continue). */
 .footer-btns {
@@ -345,6 +324,8 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 }
 .title-btns[hidden] { display:none; }
 /* The two ways to begin Free Play are peers, not separate categories. */
+.title-free-actions { flex-direction:row; }
+.title-free-actions > button { flex:1 1 0; width:auto; padding-left:12px; padding-right:12px; }
 #titleGauntlet { margin-top:var(--title-action-gap); }
 
 /* PRIMARY: plain white with black text -- no border or outline around the
@@ -548,20 +529,20 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
   font-size:1.05rem; color:var(--ink-2); letter-spacing:1px;
 }
 .tb-team { margin:0 0 14px; }
-.tb-sort {
-  display:flex; align-items:center; justify-content:space-between;
-  gap:8px; margin-bottom:12px;
+.tb-team .tslot.filled { cursor:pointer; }
+.tb-team .tslot.empty { font-size:1.3rem; }
+.tb-search {
+  width:100%; margin:0 0 10px;
+  padding:12px 14px; border-radius:var(--r-md);
+  background:var(--surface-hi); color:var(--ink);
+  border:none; box-shadow:inset 0 0 0 1px rgba(255,255,255,.12), var(--e1);
+  font-family:inherit; font-size:1.1rem; text-align:left;
 }
-.tb-sort label { display:flex; align-items:center; gap:8px; flex:1; font-size:.85rem; color:var(--ink-2); }
-.tb-sort select {
-  appearance:none; -webkit-appearance:none;
-  background:rgba(255,255,255,.08); backdrop-filter:var(--glass); -webkit-backdrop-filter:var(--glass);
-  border:1px solid rgba(255,255,255,.1); border-radius:var(--r-pill);
-  color:var(--ink); padding:6px 14px; font-family:inherit; font-size:.85rem;
-  cursor:pointer; margin-left:auto; text-align:right;
+.tb-search:focus { outline:none; box-shadow:inset 0 0 0 2px var(--blue), var(--e1); }
+.tb-list {
+  display:flex; flex-direction:column; gap:8px;
+  margin-bottom:24px;
 }
-.tb-sort select:focus { outline:none; border-color:var(--blue); background:rgba(255,255,255,.12); }
-
 .tb-row {
   display:flex; align-items:center; gap:12px;
   width:100%; text-align:left; cursor:pointer;
@@ -1198,33 +1179,13 @@ textarea.search.save-code {
 }
 .x-cash b { color:var(--gold); }
 .menu-pill {
-  width:42px; height:42px; padding:3px; border-radius:50%;
-  background:var(--surface-hi); border:2px solid var(--gold); cursor:pointer;
-  display:flex; align-items:center; justify-content:center;
-  transition:transform .12s; box-shadow:var(--e2);
-  margin-left:auto;
+  width:48px; height:48px; padding:4px; border-radius:50%;
+  background:var(--surface); color:var(--ink); border:2px solid var(--gold);
+  transition:background-color .15s, color .15s, transform .12s;
 }
-.menu-pill:hover { transform:scale(1.05); }
-.menu-avatar-wrap {
-  width:100%; height:100%; border-radius:50%;
-  background:var(--bg-1); overflow:hidden;
-  display:flex; align-items:center; justify-content:center;
-}
-.menu-avatar-wrap img { width:85%; height:85%; object-fit:contain; image-rendering:pixelated; }
-
-.title-menu-pos {
-  position:absolute; z-index:3; top:max(14px, env(safe-area-inset-top)); right:14px;
-}
-.menu-left { margin-left:0; margin-right:auto; }
-
-.title-free-actions { display:flex; gap:10px; align-items:flex-start; margin-bottom:12px; }
-
-
-
-.tslot.fainted .ts-art { filter: grayscale(1) opacity(0.5); }
-.tslot.fainted .ts-name { opacity: 0.5; }
-.tslot.fainted .ts-bar { display: none; }
-
+.menu-pill:hover { background:var(--surface-hi); color:#fff; transform:scale(1.05); }
+.menu-button-avatar { display:block; width:100%; height:100%; }
+.menu-button-avatar img { width:100%; height:100%; object-fit:contain; image-rendering:pixelated; }
 
 .menu-intro { display:flex; align-items:center; gap:18px; padding:8px 4px 22px; border-bottom:1px solid rgba(255,255,255,.1); margin-bottom:18px; }
 .menu-profile-avatar { width:92px; height:92px; flex:0 0 92px; border-radius:50%; background:var(--surface-hi); display:grid; place-items:center; }
@@ -1887,13 +1848,7 @@ body.modal-open { overflow:hidden; }
 /* Team builder controls and compact item marker. */
 .tb-sort { display:flex; gap:8px; align-items:center; margin:0 0 12px; color:var(--ink-3); font-size:.8rem; }
 .tb-sort select { background:var(--surface-hi); color:var(--ink); border:1px solid rgba(255,255,255,.15); border-radius:8px; padding:7px 8px; font:inherit; }
-.ts-item {
-  position:absolute; left:50%; bottom:-6px; transform:translateX(-50%);
-  width:22px; height:22px; display:flex; align-items:center; justify-content:center;
-  z-index:2; background:rgba(0,0,0,.6); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
-  border-radius:50%; border:1px solid rgba(255,255,255,.2);
-  box-shadow:0 2px 6px rgba(0,0,0,.4);
-}
+.ts-item { position:absolute; left:50%; bottom:4px; transform:translateX(-50%); width:24px; height:24px; display:flex; align-items:center; justify-content:center; z-index:2; filter:drop-shadow(0 1px 2px #000); }
 .ts-item img { display:block; }
 .tslot.filled { position:relative; }
 .gb-item-results .btn-mini { display:inline-flex; align-items:center; gap:3px; }
