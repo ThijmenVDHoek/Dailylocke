@@ -333,17 +333,18 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .title-btns:last-child { margin-top:var(--title-action-gap); }
 .title-action-btn { display:block; width:100%; padding:13px 22px; border-radius:var(--r-md); font-family:inherit; font-size:1.05rem; }
 
-/* PRIMARY: plain white with black text -- no border or outline around the
-   title-screen CTAs. Elevation may change on hover, but their fill does not. */
+/* PRIMARY title CTAs use the same theme-aware accent variables as .btn-primary.
+   The Default theme still resolves to white, preserving the classic title look. */
 .btn-white {
   display:flex; flex-direction:column; align-items:center; gap:2px;
   padding:15px 22px; border-radius:var(--r-md);
-  background:#fff; color:#000; font-family:inherit; cursor:pointer;
+  background:linear-gradient(180deg,var(--cta-hi),var(--cta));
+  color:var(--cta-text); font-family:inherit; cursor:pointer;
   box-shadow:var(--e2), inset 0 1px 0 rgba(255,255,255,.22);
   transition:transform .12s cubic-bezier(.2,.8,.3,1), box-shadow .16s;
   will-change:transform;
 }
-.btn-white:hover { background:#fff; transform:translateY(-2px); box-shadow:var(--e3), inset 0 1px 0 rgba(255,255,255,.28); }
+.btn-white:hover { background:linear-gradient(180deg,var(--cta-hi),var(--cta)); transform:translateY(-2px); box-shadow:var(--e3), inset 0 1px 0 rgba(255,255,255,.28); }
 .btn-white:active { transform:translateY(0) scale(.995); }
 .btn-daily .bd-main { font-size:1.5rem; letter-spacing:1.5px; line-height:1; }
 .btn-daily .bd-sub { font-size:.76rem; color:var(--cta-text); opacity:.62; letter-spacing:0; }
