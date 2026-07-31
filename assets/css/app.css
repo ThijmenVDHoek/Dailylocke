@@ -188,14 +188,13 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
     linear-gradient(180deg, rgba(6,8,16,.72) 0%, rgba(6,8,16,.28) 26%, transparent 45%),
     linear-gradient(0deg, rgba(6,8,16,.92) 0%, rgba(6,8,16,.72) 18%, rgba(6,8,16,.3) 34%, transparent 50%);
 }
-.title-menu {
-  position:absolute; z-index:3; top:max(14px, env(safe-area-inset-top)); right:14px;
-  padding:8px 16px; border-radius:var(--r-pill); font-family:inherit; font-size:.92rem;
-  background:none; color:rgba(255,255,255,.9); cursor:pointer;
-  text-shadow:0 2px 10px rgba(0,0,0,.9);
-  transition:color .15s, transform .12s;
+/* Title screen's top-right menu button: same avatar pill the player sees
+   during a run, absolutely positioned so it sits in the corner over the
+   live 3D scene. `.menu-pill` provides the look; this just places it. */
+.title-menu-pill {
+  position:absolute; z-index:3;
+  top:max(14px, env(safe-area-inset-top)); right:14px;
 }
-.title-menu:hover { color:#fff; transform:translateY(-1px); }
 
 /* ---- floating install pill ---------------------------------------------
    Sits at the top of the title screen, opposite the Menu button, floating
