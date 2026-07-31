@@ -2409,8 +2409,11 @@
     $('nickHint').textContent = 'Give it a name you will remember. It only gets one life.';
     // Naming is mandatory -- there is no cancel -- so Escape and a backdrop
     // click must NOT dismiss this one.
-    window.Modal.open('screenNickname', {
-      initialFocus: input, escape: false, dismissOnScrim: false
+    var el = $('screenNickname');
+    window.Modal.open(el, {
+      initialFocus: el.querySelector('.overlay-card'),
+      escape: false,
+      dismissOnScrim: false
     });
   }
 
