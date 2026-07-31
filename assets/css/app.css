@@ -13,7 +13,7 @@
   /* Wait for the precached face instead of painting Courier for the first
      frame. Installed PWAs cold-start from the app shell, so this is local and
      avoids WebKit retaining the fallback face after a standalone launch. */
-  font-display:swap;
+  font-display:block;
   src:url('../fonts/vt323-latin-400.woff2') format('woff2');
   unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,
                 U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,
@@ -23,7 +23,7 @@
   font-family:'VT323';
   font-style:normal;
   font-weight:400;
-  font-display:swap;
+  font-display:block;
   src:url('../fonts/vt323-latin-ext-400.woff2') format('woff2');
   unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,
                 U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,
@@ -73,6 +73,7 @@
   --e3:0 10px 30px rgba(0,0,0,.42);
   --e4:0 18px 48px rgba(0,0,0,.5);
 
+  --title-action-gap:10px;
   --glass:blur(18px) saturate(1.35);
   --pad:16px;
 }
@@ -329,22 +330,20 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
   max-width:400px; margin:0 auto;
 }
 .title-free-grid[hidden] { display:none; }
+.title-btns:last-child { margin-top:var(--title-action-gap); }
 .title-action-btn { display:block; width:100%; padding:13px 22px; border-radius:var(--r-md); font-family:inherit; font-size:1.05rem; }
-.title-abandon-btn { display:block; width:100%; padding:10px 14px; border-radius:var(--r-md); font-family:inherit; font-size:.92rem; background:rgba(255,255,255,.08); color:#fff; cursor:pointer; backdrop-filter:blur(10px) saturate(1.3); -webkit-backdrop-filter:blur(10px) saturate(1.3); transition:background-color .15s, transform .12s; }
-.title-abandon-btn:hover { background:rgba(255,255,255,.14); transform:translateY(-2px); }
-.title-abandon-btn[hidden] { display:none; }
 
 /* PRIMARY: plain white with black text -- no border or outline around the
    title-screen CTAs. Elevation may change on hover, but their fill does not. */
 .btn-white {
   display:flex; flex-direction:column; align-items:center; gap:2px;
   padding:15px 22px; border-radius:var(--r-md);
-  background:var(--cta); color:var(--cta-text); font-family:inherit; cursor:pointer;
+  background:#fff; color:#000; font-family:inherit; cursor:pointer;
   box-shadow:var(--e2), inset 0 1px 0 rgba(255,255,255,.22);
   transition:transform .12s cubic-bezier(.2,.8,.3,1), box-shadow .16s;
   will-change:transform;
 }
-.btn-white:hover { background:var(--cta); transform:translateY(-2px); box-shadow:var(--e3), inset 0 1px 0 rgba(255,255,255,.28); }
+.btn-white:hover { background:#fff; transform:translateY(-2px); box-shadow:var(--e3), inset 0 1px 0 rgba(255,255,255,.28); }
 .btn-white:active { transform:translateY(0) scale(.995); }
 .btn-daily .bd-main { font-size:1.5rem; letter-spacing:1.5px; line-height:1; }
 .btn-daily .bd-sub { font-size:.76rem; color:var(--cta-text); opacity:.62; letter-spacing:0; }
@@ -1486,6 +1485,7 @@ textarea.search.save-code {
 .menu-item.danger { background:rgba(255,95,109,.12); }
 .menu-item.danger:hover { background:rgba(255,95,109,.24); }
 .menu-item.danger b { color:#ffb3ba; }
+.menu-item[hidden] { display:none; }
 .mi-ic { position:relative; width:22px; height:22px; flex:0 0 auto; }
 .menu-img { object-fit:contain; image-rendering:pixelated; }
 .avatar-ic { width:34px; height:34px; margin:-6px; overflow:visible; background:none; }

@@ -1165,11 +1165,24 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   })());
   window.Game.setContinueState();
   check('the title CTA becomes Resume Gauntlet once parked',
-    doc.getElementById('gauntletMain').textContent === 'Resume Gauntlet' &&
-    doc.getElementById('btnAbandonGauntlet').hidden === false);
+    doc.getElementById('gauntletMain').textContent === 'Resume Gauntlet');
 
-  S.clearRun('gauntlet');
-  window.Game.show('Title');
+  doc.getElementById('btnMenu').click();
+  check('the menu offers an option to abandon the live run',
+    doc.getElementById('btnMenuAbandon').hidden === false &&
+    doc.getElementById('btnMenuAbandon').classList.contains('danger'));
+  let confirmMsg = null;
+  const oldConfirm = window.confirm;
+  window.confirm = (msg) => { confirmMsg = msg; return true; };
+  doc.getElementById('btnMenuAbandon').click();
+  window.confirm = oldConfirm;
+  check('abandoning a run asks for confirmation with the exact message',
+    confirmMsg === 'Are you sure you want to abandon this run?');
+  check('abandoning clears the gauntlet run and returns to title',
+    !mem.get(S.SLOTS.gauntlet) &&
+    doc.getElementById('screenTitle').hidden === false &&
+    doc.getElementById('gauntletMain').textContent === 'Full team gauntlet');
+
   mem.clear();
   Object.defineProperty(window, 'localStorage', originalLocalStorage);
 }

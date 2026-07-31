@@ -333,19 +333,7 @@
     });
     $('btnDaily').addEventListener('click', onDailyClick);
     $('btnGauntlet').addEventListener('click', onGauntletClick);
-    var agb = $('btnAbandonGauntlet');
-    if (agb) agb.addEventListener('click', function () {
-      if (confirm('Abandon the Gauntlet run? Your hand-built team is lost.')) {
-        clearSave('gauntlet'); if (run && run.mode === 'gauntlet') run = null; setContinueState();
-      }
-    });
     $('btnTitleMenu').addEventListener('click', openMenu);
-    var ab = $('btnAbandonTitle');
-    if (ab) ab.addEventListener('click', function () {
-      if (confirm('Abandon the Free Play run? Your team is lost.')) {
-        clearSave('free'); if (run && run.mode === 'free') run = null; setContinueState();
-      }
-    });
     var ar = $('btnArchiveDaily');
     if (ar) ar.addEventListener('click', archiveStaleDaily);
     setContinueState();
@@ -505,12 +493,11 @@
     // ---- Full team gauntlet ----
     var gauntlet = loadGame('gauntlet');
     var gMain = $('gauntletMain'), gBtn = $('btnGauntlet');
-    var gAb = $('btnAbandonGauntlet');
     if (gMain && gBtn) {
       gBtn.classList.add('btn-glass');
       gBtn.classList.remove('btn-white', 'btn-daily');
       if (gauntlet) {
-        gMain.textContent = 'Resume gauntlet';
+        gMain.textContent = 'Resume Gauntlet';
         gBtn.title = 'Trainer ' + (gauntlet.section || 1) + ' \u00b7 ' +
           (gauntlet.trainersBeaten || 0) + ' beaten';
       } else {
@@ -518,7 +505,6 @@
         gBtn.removeAttribute('title');
       }
     }
-    if (gAb) gAb.hidden = !gauntlet;
 
     // ---- archived Daily offer ----
     var ar = $('btnArchiveDaily');
@@ -2018,6 +2004,8 @@
       ? h + (h === 1 ? ' run finished' : ' runs finished')
       : 'No runs finished';
     updateMenuAvatar();
+    var abBtn = $('btnMenuAbandon');
+    if (abBtn) abBtn.hidden = !run || run.over || !$('screenTitle').hidden;
     window.Modal.open('screenMenu');
   }
   function closeMenu() { window.Modal.close('screenMenu'); }
@@ -4974,6 +4962,16 @@
     $('btnMenuTransfer').addEventListener('click', function () { closeMenu(); openSaveExport(); });
     $('btnMenuImport').addEventListener('click', function () { closeMenu(); openSaveImport(); });
     $('btnRulesBack').addEventListener('click', backToRoute);
+    $('btnMenuAbandon').addEventListener('click', function () {
+      if (!run) return;
+      if (!confirm('Are you sure you want to abandon this run?')) return;
+      var mode = run.mode || 'free';
+      clearSave(mode);
+      run = null;
+      closeMenu();
+      show('Title');
+      setContinueState();
+    });
     $('btnMenuQuit').addEventListener('click', function () {
       closeMenu(); show('Title'); setContinueState();
     });
