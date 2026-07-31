@@ -750,6 +750,7 @@
       // The run-object for whoever is currently on the field. Always use this
       // instead of an index -- side.pokemon gets reordered by the engine.
       activeMon: function () { return monOf(livePlayer()); },
+      activeEnemyMon: function () { return monOf(liveEnemy()); },
       // Index of the active Pokemon inside OUR party array (not the engine's).
       activeIndex: function () {
         var mon = monOf(livePlayer());
