@@ -2551,25 +2551,33 @@
 
   // Sync live battle HP/status back to run.party so closing mid-fight
   // doesn't let the player cheat by restoring full HP on reload.
+  //
+  // NEVER walk `p1.pokemon` by index here. Showdown REORDERS a side's party
+  // array on every switch (the mon coming in is swapped into the outgoing
+  // mon's slot), so `p1.pokemon[i]` stops matching `run.party[i]` the moment
+  // anyone switches -- including the forced switch after the lead faints.
+  // Doing so wrote the incoming Pokemon's healthy HP onto the dead lead and
+  // the dead lead's 0 HP onto whoever now sat at that index: the lead came
+  // back to life and an innocent party member was buried in its place.
+  //
+  // The engine wrapper already owns a stable identity mapping (a tag stamped
+  // on each live Pokemon), and it syncs straight into the very objects in
+  // `run.party` (they are passed in as `playerMons`). So delegate to it.
   function syncBattleToRun() {
     if (!battle || !battle.battle || !run) return;
     try {
-      var p1 = battle.battle.p1;
-      if (!p1 || !p1.pokemon) return;
-      for (var i = 0; i < Math.min(run.party.length, p1.pokemon.length); i++) {
-        var bp = p1.pokemon[i];
-        var rp = run.party[i];
-        if (!bp || !rp) continue;
-        rp.hpPct = (bp.maxhp > 0) ? Math.max(0, bp.hp / bp.maxhp) : 0;
-        rp.status = bp.status || '';
-      }
-      // Also sync enemy state into _battleCfg for resume
-      if (run._battleCfg && run._battleCfg.enemies && run._battleCfg.enemies[0]) {
-        var p2 = battle.battle.p2;
-        if (p2 && p2.active && p2.active[0]) {
-          var ea = p2.active[0];
-          run._battleCfg.enemies[0].hpPct = (ea.maxhp > 0) ? Math.max(0, ea.hp / ea.maxhp) : 1;
-          run._battleCfg.enemies[0].status = ea.status || '';
+      battle.sync();
+      // Mirror the (now up-to-date) enemy state into _battleCfg for resume.
+      // bctx.enemies IS the array handed to the engine, so `battle.sync()`
+      // has already refreshed it by identity -- copy it across positionally,
+      // which is safe because both arrays are ours and never reordered.
+      var cfgEnemies = run._battleCfg && run._battleCfg.enemies;
+      var liveEnemies = bctx && bctx.enemies;
+      if (cfgEnemies && liveEnemies) {
+        for (var i = 0; i < Math.min(cfgEnemies.length, liveEnemies.length); i++) {
+          if (!cfgEnemies[i] || !liveEnemies[i]) continue;
+          cfgEnemies[i].hpPct = Math.max(0, liveEnemies[i].hpPct != null ? liveEnemies[i].hpPct : 1);
+          cfgEnemies[i].status = liveEnemies[i].status || '';
         }
       }
     } catch (e) {}

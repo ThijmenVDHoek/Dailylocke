@@ -310,7 +310,7 @@
           for (var j = 0; j < live.baseMoveSlots.length; j++) {
             var ms = live.baseMoveSlots[j];
             if (ms.id === IDLE_MOVE) continue;
-            if (mon.pp[ms.id] != null) mon.pp[ms.id] = ms.pp;
+            if (mon.pp && mon.pp[ms.id] != null) mon.pp[ms.id] = ms.pp;
           }
         }
         for (var k = 0; b.p2 && k < b.p2.pokemon.length; k++) {
