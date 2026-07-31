@@ -1336,6 +1336,106 @@ check('battle ran without engine errors', !battleResult.error, battleResult.erro
 check('battle reached a conclusion', !!battleResult.ended || !!battleResult.capped,
   battleResult.timeout ? 'TIMED OUT' : 'ok');
 
+// ------------------------------------ identity survives a switch (REGRESSION)
+// Showdown REORDERS side.pokemon whenever anyone switches: the incoming mon is
+// swapped into the outgoing mon's slot. Any code that reads `p1.pokemon[i]` as
+// "party member i" therefore writes the wrong HP onto the wrong Pokemon.
+//
+// That was the Gauntlet bug: when the LEAD fainted and you sent out a
+// replacement, the engine swapped the two, the index-based sync copied the
+// replacement's healthy HP back onto the dead lead and the lead's 0 HP onto
+// the replacement -- so the lead was resurrected for the next round and an
+// untouched party member got buried in its place.
+//
+// This asserts the invariant that makes the whole thing safe: after a switch,
+// syncing must still route each engine Pokemon to the correct run object.
+{
+  const party = [
+    await C.makeMon('gengar'),
+    await C.makeMon('garchomp'),
+    await C.makeMon('blissey'),
+  ];
+  party.forEach((m, i) => { m.uid = 'party' + i; });
+  const foe = [await C.makeMon('snorlax')];
+
+  const swapped = await new Promise((res) => {
+    let switchedOnce = false, requests = 0;
+    const timer = setTimeout(() => res({ timeout: true }), 8000);
+    const b = window.RogueBattle.startBattle({
+      playerMons: party, enemyMons: foe, isWild: false, trainerName: 'Tester',
+      handlers: {
+        onLog() {},
+        onRequest(req) {
+          if (++requests > 30) { clearTimeout(timer); return res({ capped: true }); }
+          if (req && req.forceSwitch) { setTimeout(() => b.chooseSwitch(1), 0); return; }
+          if (req && req.active) {
+            // Switch to party slot 1 exactly once, then keep attacking. That
+            // one switch is all it takes to reorder the engine's array.
+            if (!switchedOnce) {
+              switchedOnce = true;
+              setTimeout(() => b.chooseSwitch(1), 0);
+              return;
+            }
+            clearTimeout(timer);
+            // Report how the engine has reordered itself, and who the wrapper
+            // believes each engine slot belongs to.
+            const live = b.battle.p1.pokemon;
+            // Give every engine Pokemon a distinct, recognisable HP so we can
+            // see exactly where each value lands once we sync.
+            live.forEach((p, n) => { p.hp = Math.round(p.maxhp * (0.9 - n * 0.3)); });
+            const expected = {};
+            live.forEach((p) => {
+              const owner = party.find((m) => m.id === String(p.species.id));
+              if (owner) expected[owner.uid] = p.hp / p.maxhp;
+            });
+            b.sync();   // the identity-based sync used by syncBattleToRun()
+            return res({
+              // engine order, by species -- proves a real reorder happened
+              engineOrder: live.map((p) => String(p.species.id)).join(','),
+              partyOrder: party.map((m) => m.id).join(','),
+              // the wrapper's own idea of who is on the field
+              activeUid: b.activeMon() ? b.activeMon().uid : null,
+              activeIndex: b.activeIndex(),
+              // did each run object receive ITS OWN hp, not a neighbour's?
+              hpRoutedCorrectly: party.every(
+                (m) => Math.abs(m.hpPct - expected[m.uid]) < 1e-9),
+              // what a naive index-based sync would have produced
+              indexSyncWouldCorrupt: party.some(
+                (m, n) => live[n] && String(live[n].species.id) !== m.id),
+              got: party.map((m) => `${m.id}=${m.hpPct.toFixed(2)}`).join(' '),
+            });
+          }
+        },
+        onEnd() { clearTimeout(timer); res({ endedEarly: true }); },
+        onError(e) { clearTimeout(timer); res({ error: e.message }); },
+      },
+    });
+  });
+
+  // Only assert if we actually got far enough to observe a switch.
+  if (swapped.engineOrder) {
+    check('a switch really does reorder the engine party array',
+      swapped.engineOrder !== swapped.partyOrder,
+      `engine=${swapped.engineOrder} vs party=${swapped.partyOrder}`);
+    // The heart of it: after the reorder, the wrapper still resolves the
+    // ACTIVE Pokemon to the right run object (garchomp = party slot 1).
+    check('after a switch the engine still maps to the right party member',
+      swapped.activeUid === 'party1' && swapped.activeIndex === 1,
+      `uid=${swapped.activeUid} index=${swapped.activeIndex}`);
+    // Sanity: this scenario is genuinely one that index-based syncing breaks,
+    // so the next check is actually testing something.
+    check('the scenario would defeat an index-based sync',
+      swapped.indexSyncWouldCorrupt === true);
+    // The fix itself: HP lands on its own owner, so a dead lead stays dead and
+    // no bystander inherits its 0 HP.
+    check('syncing after a switch gives every Pokemon its own HP',
+      swapped.hpRoutedCorrectly === true, swapped.got);
+  } else {
+    check('switch-identity probe ran', false,
+      swapped.error || (swapped.timeout ? 'TIMED OUT' : 'battle ended too early'));
+  }
+}
+
 // --------------------------------------------------------- BattleUI mount --
 const host = window.document.getElementById('battleHost');
 const ui = new window.BattleUI();
