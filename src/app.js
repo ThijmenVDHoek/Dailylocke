@@ -326,7 +326,11 @@
   }
 
   function initTitle() {
-    $('btnNewRun').addEventListener('click', startFreeRun);
+    $('btnNewRun').addEventListener('click', function () {
+      var s = loadGame('free');
+      if (s) { run = reviveRun(s); renderCrossroads(); show('Crossroads'); return; }
+      startFreeRun();
+    });
     $('btnDaily').addEventListener('click', onDailyClick);
     $('btnGauntlet').addEventListener('click', onGauntletClick);
     var agb = $('btnAbandonGauntlet');
@@ -341,11 +345,6 @@
       if (confirm('Abandon the Free Play run? Your team is lost.')) {
         clearSave('free'); if (run && run.mode === 'free') run = null; setContinueState();
       }
-    });
-    var cont = $('btnContinue');
-    if (cont) cont.addEventListener('click', function () {
-      var s = loadGame('free'); if (!s) { toast('No save found.'); return; }
-      run = reviveRun(s); renderCrossroads(); show('Crossroads');
     });
     var ar = $('btnArchiveDaily');
     if (ar) ar.addEventListener('click', archiveStaleDaily);
@@ -484,45 +483,42 @@
     // there is deliberately no duplicate "See today's result" button here.
 
     // ---- Free Play row ----
-    var freeRow = $('titleFreeRun'), contSub = $('continueSub');
     var freeSep = $('titleFreeSep');
-    if (freeRow) freeRow.hidden = !free;
-    if (free && contSub) {
-      var sec = free.section || 1, won = free.battlesWon || 0;
-      var n = (free.party && free.party.length) || 0;
-      contSub.textContent = 'Section ' + sec + ' \u00b7 ' + won +
-        (won === 1 ? ' battle won' : ' battles won') + ' \u00b7 ' + n +
-        (n === 1 ? ' Pokemon' : ' Pokemon');
-    }
-    var btnNewRun = $('btnNewRun');
-    // A parked Free Play run gets its own Continue action; do not offer a
-    // second random run that would overwrite it. Keep the Free Play heading
-    // visible because the gauntlet is the other option in that group.
-    if (btnNewRun) btnNewRun.hidden = !!free;
     if (freeSep) freeSep.hidden = false;
 
+    var btnNewRun = $('btnNewRun');
+    var btnNewRunMain = btnNewRun ? btnNewRun.querySelector('.bd-main') : null;
+    if (btnNewRunMain) {
+      if (free) {
+        btnNewRunMain.textContent = 'Continue run';
+        var sec = free.section || 1, won = free.battlesWon || 0;
+        var n = (free.party && free.party.length) || 0;
+        btnNewRun.title = 'Section ' + sec + ' \u00b7 ' + won +
+          (won === 1 ? ' battle won' : ' battles won') + ' \u00b7 ' + n +
+          (n === 1 ? ' Pokemon' : ' Pokemon');
+      } else {
+        btnNewRunMain.textContent = 'Random run';
+        btnNewRun.removeAttribute('title');
+      }
+    }
+
     // ---- Full team gauntlet ----
-    // The gauntlet is presented as a Free Play option, while retaining its
-    // separate parked run so either kind of run can be resumed safely.
     var gauntlet = loadGame('gauntlet');
     var gMain = $('gauntletMain'), gBtn = $('btnGauntlet');
-    var gAb = $('btnAbandonGauntlet'), gControls = $('titleGauntlet');
+    var gAb = $('btnAbandonGauntlet');
     if (gMain && gBtn) {
+      gBtn.classList.add('btn-glass');
+      gBtn.classList.remove('btn-white', 'btn-daily');
       if (gauntlet) {
-        gBtn.classList.remove('btn-glass');
-        gBtn.classList.add('btn-white', 'btn-daily');
         gMain.textContent = 'Resume gauntlet';
-        gBtn.title = 'Trainer ' + (gauntlet.section || 1) + ' · ' +
+        gBtn.title = 'Trainer ' + (gauntlet.section || 1) + ' \u00b7 ' +
           (gauntlet.trainersBeaten || 0) + ' beaten';
       } else {
-        gBtn.classList.add('btn-glass');
-        gBtn.classList.remove('btn-white', 'btn-daily');
         gMain.textContent = 'Full team gauntlet';
         gBtn.removeAttribute('title');
       }
     }
     if (gAb) gAb.hidden = !gauntlet;
-    if (gControls) gControls.hidden = !gauntlet;
 
     // ---- archived Daily offer ----
     var ar = $('btnArchiveDaily');
@@ -817,7 +813,25 @@
         }).join('') + '</div>';
     }
 
+    // Quick-switch team grid for the gauntlet builder
+    var gbGridHtml = '<div class="team-strip" style="margin:0 0 14px">';
+    for (var gi = 0; gi < gbTeam.length; gi++) {
+      var ge = gbTeam[gi];
+      if (ge && ge.mon) {
+        gbGridHtml += '<button class="tslot' + (gi === gbConfigIdx ? ' sel' : '') + '" data-gbgi="' + gi + '">' +
+          (gi === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
+          '<span class="ts-art">' + animSprite(ge.mon.id, 46, 52, '', 1.4, ge.mon.shiny) + '</span>' +
+          '<span class="ts-name">' + escapeHtml(ge.name) + '</span>' +
+          (ge.mon.item ? '<span class="ts-item" title="' + escapeHtml(itemName(ge.mon.item)) + '">' + (window.ItemArt ? window.ItemArt.itemImg(ge.mon.item, 20) : '') + '</span>' : '') +
+          '</button>';
+      } else {
+        gbGridHtml += '<div class="tslot empty"><span class="dock-ball"></span></div>';
+      }
+    }
+    gbGridHtml += '</div>';
+
     host.innerHTML =
+      gbGridHtml +
       '<div class="party-detail">' +
         '<div class="pd-hero">' +
           '<div class="pd-art">' + bigSprite(mon.id, '', 104, 104, 1, mon.shiny) + '</div>' +
@@ -852,6 +866,13 @@
       '<button type="button" class="btn-secondary wide pd-close">Close</button>';
 
     // Wire up event handlers
+    // Team grid click handlers - quick switch
+    host.querySelectorAll('.tslot[data-gbgi]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        gbConfigIdx = +b.dataset.gbgi;
+        drawGbDetail();
+      });
+    });
     var close = host.querySelector('.pd-close');
     if (close) close.addEventListener('click', function () { window.Modal.close('xTeamDetail'); });
 
