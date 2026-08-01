@@ -141,6 +141,7 @@
     // is declared in the presentation section below; assignment here is safe
     // because attach() only runs after the whole module has been evaluated.
     pending.length = 0;
+    releaseActionLock();
     return state();
   }
   function persist() { if (saveFn) { try { saveFn(); } catch (e) {} } }
@@ -153,7 +154,11 @@
   // (evolve the starter, train the team) armed until the player has actually
   // done it, not merely dismissed the card.
   function unsee(id) { delete state().seen[id]; persist(); }
-  function setOff(v) { state().off = !!v; persist(); }
+  function setOff(v) {
+    state().off = !!v;
+    if (v) releaseActionLock();
+    persist();
+  }
   function setBadges(v) { state().badges = !!v; persist(); }
   function isOnboarded() { return !!state().onboarded; }
   function setOnboarded(v) { state().onboarded = !!v; persist(); }
@@ -168,6 +173,7 @@
     c.seen = {}; c.modes = {}; c.off = false; c.badges = true;
     c.onboarded = false; c.prologue = false;
     pending.length = 0;
+    releaseActionLock();
     persist();
   }
 
@@ -518,25 +524,27 @@
     { id: 'welcome', where: 'basics', title: 'One life each',
       body: 'If a Pokemon faints, it is gone forever. No revives, no exceptions.' },
     { id: 'starter', where: 'basics', title: 'Choose your starter!',
-      body: 'Pick one. It fights with you. Name it!' },
+      body: 'The first starter card is the guided choice for this lesson. Tap its glowing <b>Choose</b> button, then give it a name.' },
     { id: 'route', where: 'basics', title: 'The path',
-      body: 'Each section is a short route: a <b>Capture Encounter</b>, two wild battles for prize money, then the <b>Trainer</b>. Beat the Trainer to move on.' },
+      body: 'This section starts with a <b>Capture Encounter</b>. Tap the glowing <b>Capture Encounter</b> button to begin.' },
     { id: 'battleBag', where: 'battle', title: 'Bag: heal mid-battle',
       body: 'Tap <b>Bag</b> and use a <b>Super Potion</b> to heal your active Pokemon. It costs your turn, so heal before a big hit lands — not after!' },
     { id: 'tutorialDamage', where: 'battle', title: 'Weaken Pikachu first',
-      body: 'Choose a damaging move to lower Pikachu\'s HP. Status moves will not weaken it, and Pikachu cannot be knocked out during this tutorial encounter. Once its HP is lower, throw a Poke Ball.' },
+      body: 'Tap the one glowing damaging move. Status moves cannot weaken Pikachu, and Pikachu cannot be knocked out during this lesson. The other moves are locked until you do; then the Poke Ball will appear.' },
     { id: 'tutorialCatch', where: 'battle', title: 'Throw a Poke Ball!',
-      body: 'Pikachu is weakened! Now tap a <b>Poke Ball</b> on the rail to catch it.' },
+      body: 'Pikachu is weakened. Tap the one glowing <b>Poke Ball</b> to catch it.' },
     { id: 'catch', where: 'catching', title: 'Catch your first!',
       body: 'Weaken the wild Pokemon with attacks first \u2014 the lower its HP, the better your odds. Then tap a <b>Poke Ball</b> on the rail to catch it.' },
     { id: 'caught', where: 'catching', title: 'New friend!',
       body: 'It joins your team with the HP and status it had when caught \u2014 not at full health. Give it a name, then open its team card and use a <b>Potion</b> to heal it before the next battle.' },
     { id: 'effect', where: 'battle', title: 'Super effective!',
-      body: 'Moves marked <b>\u00d72</b> hit a weakness and deal double damage. This wild Pokemon is weak to one of your moves \u2014 look for the \u00d72 tag and press it!' },
+      body: 'The glowing move has a <b>\u00d72</b> tag: it hits a weakness and deals double damage. Tap that one move; every other action is locked until you do.' },
     { id: 'switch', where: 'battle', title: 'How to Switch',
-      body: 'Tap <b>Party</b> during battle to swap to a Pokemon with a better type matchup. Switching costs your turn \u2014 but the right switch can save a life.' },
+      body: 'Tap the glowing <b>Party</b> button. It opens the switch list; the next lesson will point to the one Pokemon to choose.' },
+    { id: 'switchPick', where: '_tutorial', title: 'Choose your switch',
+      body: 'Tap the one glowing <b>{NAME}</b> card to send it out. The other cards are locked.' },
     { id: 'trainer', where: 'basics', title: 'Heal first!',
-      body: 'A Trainer battle is next: a full team, smarter moves, and no catching. Heal your team from the Bag before you go in!' },
+      body: 'The first Trainer battle is next. Tap the glowing <b>Trainer Battle</b> button to start it; this guided fight only allows the steps on screen.' },
     { id: 'skipping', where: 'basics', title: 'The middle stops are a budget',
       body: 'Every wild battle pays prize money, but costs HP and PP. If a fight goes badly, <b>Run</b> always works \u2014 it only costs you the reward.' },
     { id: 'save', where: 'saving', title: 'Save your game',
@@ -548,7 +556,9 @@
     { id: 'held', where: 'training', title: 'Free power, every turn',
       body: 'A held item works every turn without spending a move. If a \u2726Tip badge says one fits your Pokemon, it genuinely does.' },
     { id: 'evolve', where: 'training', title: 'Evolve your starter',
-      body: 'Nothing levels up here \u2014 evolution needs an item. Buy a <b>Rare Candy</b> from the Mart, then use it on your starter from your team sheet. Evolving is a huge permanent power spike.' },
+      body: 'Evolution needs an item here. Tap the glowing <b>Rare Candy</b> tile to buy it.' },
+    { id: 'evoOpen', where: '_tutorial', title: 'Open your starter',
+      body: 'The Rare Candy is ready. Tap the one glowing <b>{NAME}</b> card on your team.' },
     { id: 'evoBranch', where: 'training', title: 'It can become more than one thing',
       body: 'This evolution branches, and the choice is permanent. Check what each form does before you commit.' },
     { id: 'moveChoice', where: 'training', title: 'Four moves, no take-backs',
@@ -561,27 +571,33 @@
     { id: 'makeLeadTap', where: '_tutorial', title: 'Make lead',
       body: 'Tap <b>Make lead</b> to put this Pokemon at the front of your team.' },
     { id: 'evoUse', where: '_tutorial', title: 'Use the Rare Candy',
-      body: 'Tap <b>Ready to evolve</b> \u2014 your starter is holding the evolution in its hands.' },
+      body: 'Tap the one glowing <b>Ready to evolve</b> button.' },
+    { id: 'evoDone', where: '_tutorial', title: 'See the result',
+      body: 'Your starter evolved. Tap the one glowing <b>Continue</b> button to return to the route.' },
     { id: 'trainOpen', where: '_tutorial', title: 'Time to train',
-      body: 'Tap <b>{NAME}</b> on your team, then tap <b>Train Pokemon</b>. Follow me \u2014 we are changing everything.' },
+      body: 'Tap the one glowing <b>{NAME}</b> card on your team.' },
+    { id: 'trainButton', where: '_tutorial', title: 'Open Training',
+      body: 'Tap the one glowing <b>Train Pokemon</b> button.' },
     { id: 'trainMovesSlot', where: '_tutorial', title: 'Pick a move slot',
-      body: 'Tap a move you are willing to give up \u2014 you can only keep four.' },
+      body: 'Tap the one glowing move slot. That is the move this lesson will replace.' },
     { id: 'trainPickMove', where: '_tutorial', title: 'Learn this move',
-      body: 'Tap this move to learn it. STAB matches and big power are the ones to grab.' },
+      body: 'Tap the one glowing move card to learn it.' },
     { id: 'trainAbilityTab', where: '_tutorial', title: 'Now your ability',
       body: 'Tap <b>Ability</b> to see and change your Pokemon\u2019s ability.' },
     { id: 'trainAbilityPick', where: '_tutorial', title: 'Pick this ability',
       body: 'Tap this ability \u2014 it changes how your Pokemon plays.' },
     { id: 'trainAbilityOnly', where: '_tutorial', title: 'Its only ability',
-      body: '{NAME} can only have <b>{ABILITY}</b>, so there is nothing to change here \u2014 now you know where to look. On to Nature!' },
+      body: '{NAME} can only have <b>{ABILITY}</b>. Tap the glowing ability card to continue to Nature.' },
     { id: 'trainNatureTab', where: '_tutorial', title: 'Now your nature',
       body: 'Tap <b>Nature</b> \u2014 a nature boosts one stat and lowers another.' },
     { id: 'trainNaturePick', where: '_tutorial', title: 'Pick this nature',
       body: 'Tap this nature \u2014 it boosts the stat this Pokemon already loves.' },
     { id: 'trainStatsTab', where: '_tutorial', title: 'Now Stat Points',
       body: 'Tap <b>Stats</b> to spend the training points that shape its stats.' },
-    { id: 'trainStatsPick', where: '_tutorial', title: 'Move a point',
-      body: 'Drag <b>{TAKE}</b> down one notch, then drag <b>{GIVE}</b> up \u2014 that point moves between them.' },
+    { id: 'trainStatsTake', where: '_tutorial', title: 'Move a point out',
+      body: 'Drag the glowing <b>{TAKE}</b> slider down by one point.' },
+    { id: 'trainStatsGive', where: '_tutorial', title: 'Move a point in',
+      body: 'Drag the glowing <b>{GIVE}</b> slider up by one point.' },
     { id: 'trainDone', where: '_tutorial', title: 'All trained!',
       body: 'Tap <b>Done</b> to lock in your training. That is everything the service does.' }
   ];
@@ -640,6 +656,82 @@
   var busy = false;          // a card is on screen right now
   var cooldownUntil = 0;     // no second card for a moment after one closes
   var COOLDOWN_MS = 550;
+
+  // A guided action is not a suggestion. While one is armed, the player must
+  // press the one control the lesson names; clicking anywhere else is ignored.
+  // This is deliberately owned by the coach rather than scattered across
+  // every screen's click handler. It covers dynamically-rendered controls,
+  // keyboard-generated clicks and buttons that are rebuilt by BattleUI.
+  var actionLock = null;      // { opts: { resolve | anchor | anchorSel } }
+
+  function actionTarget(opts) {
+    return resolveTarget(opts);
+  }
+
+  function isCoachSurface(el) {
+    return !!(el && (el.closest && (el.closest('#screenCoach') || el.closest('.coach-bubble'))));
+  }
+
+  function sameActionTarget(el, target) {
+    return !!(el && target && (el === target || target.contains(el)));
+  }
+
+  function armActionLock(opts) {
+    if (!opts || !opts.actionRequired) return;
+    // Never let a queued later beat replace the action still owed by the
+    // current beat. The first control remains authoritative until it is used.
+    if (actionLock && actionLock.opts !== opts) return;
+    var target = actionTarget(opts);
+    if (!target) return;
+    actionLock = { opts: opts };
+    document.body.classList.add('coach-action-locked');
+  }
+
+  function releaseActionLock() {
+    actionLock = null;
+    document.body.classList.remove('coach-action-locked');
+  }
+
+  function guardActionEvent(e) {
+    if (!actionLock) return;
+    // The lesson's own dismiss control is always available. Dismissing the
+    // card does NOT release the lock; the highlighted game control remains the
+    // only valid next step.
+    if (isCoachSurface(e.target)) return;
+    var target = actionTarget(actionLock.opts);
+    if (sameActionTarget(e.target, target)) {
+      // Slider lessons validate the value in their input handler. Keep the
+      // lock through pointerdown/input/change so dragging the wrong way does
+      // not silently unlock every other control.
+      if (actionLock.opts.holdUntilValid &&
+          (e.type === 'pointerdown' || e.type === 'input' || e.type === 'change')) return;
+      // Release before the app's bubbling handler runs. The target's handler
+      // can then clear the coach mark and perform the action normally.
+      releaseActionLock();
+      return;
+    }
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+
+  // Capture both pointer and click paths. Pointerdown matters for sliders in
+  // the training service; click matters for programmatic `.click()` calls and
+  // browsers that synthesize a click without a pointer event.
+  document.addEventListener('pointerdown', guardActionEvent, true);
+  document.addEventListener('click', guardActionEvent, true);
+  document.addEventListener('input', guardActionEvent, true);
+  document.addEventListener('change', guardActionEvent, true);
+
+  // `resolveTarget` is declared below as a function declaration, so the lock
+  // can safely resolve a fresh node even though these listeners are installed
+  // before the presentation helpers are defined.
+  function actionLockTarget() {
+    return actionLock ? actionTarget(actionLock.opts) : null;
+  }
+
+  function actionLockActive() { return !!actionLock; }
+
+  function clearActionLock() { releaseActionLock(); }
 
   // ---- the vital-lesson queue ---------------------------------------------
   // Tutorial beats (the guided run's scripted lessons) must not silently
@@ -814,11 +906,15 @@
     if (anchor && anchor.isConnected) scrollAnchorIntoView(anchor);
     setBusy(true);
     applyHalo(opts);
+    armActionLock(opts);
     document.body.classList.add('coach-sheet-open');
     window.Modal.open(el, {
       onClose: function () {
         document.body.classList.remove('coach-sheet-open');
-        sweepHalo();
+        // Action-required lessons stay armed after the dialogue is dismissed.
+        // The target is the instruction; the card's Got it button is not the
+        // action being taught.
+        if (!opts.actionRequired && !opts.keepHalo) sweepHalo();
         setBusy(false);
         if (opts.onDone) { try { opts.onDone(); } catch (e) {} }
       }
@@ -943,6 +1039,7 @@
     bubbleOpts = opts;
     setBusy(true);
     applyHalo(opts);
+    armActionLock(opts);
     placeBubble(t, opts.side);
     document.addEventListener('keydown', bubbleKey);
     requestAnimationFrame(function () { b.classList.add('on'); });
@@ -997,6 +1094,7 @@
   // can hide an overlay directly, and then onClose never runs).
   function clearMark() {
     dismissBubble({ sweep: true });
+    releaseActionLock();
     sweepHalo();
     // A screen transition can hide the sheet without routing through
     // Modal.close, so the halo z-index class must be released here too.
@@ -1043,6 +1141,11 @@
         try { okNow = !!opts.stillValid(); } catch (e) { okNow = false; }
         if (!okNow) return false;
       }
+      // Arm the target before the visual surface can open. A vital lesson may
+      // be waiting behind the normal cooldown; without this early lock there
+      // is a small window in which a player could skip ahead by tapping another
+      // control.
+      if (opts.actionRequired) armActionLock(opts);
       if (busy || Date.now() < cooldownUntil) {
         if (opts.vital) queueVital(id, opts);
         return false;
@@ -1097,6 +1200,8 @@
     // presentation
     lesson: lesson, replay: replay, sheet: showSheet, clearMark: clearMark,
     halo: applyHalo, reanchorBubble: reanchorBubble,
+    actionLockTarget: actionLockTarget, actionLocked: actionLockActive,
+    clearActionLock: clearActionLock,
     tipBadge: tipBadge,
     get busy() { return busy; },
     get pendingCount() { return pending.length; }

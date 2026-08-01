@@ -263,6 +263,17 @@
                             'wooper', 'marill', 'oddish', 'bellsprout', 'slugma',
                             'numel', 'vulpix'];
 
+  // Section 1 is a lesson, not a random obstacle course. The second stop is
+  // pinned to one harmless species for each starter so the promised STAB
+  // weakness is always present and every first-time player sees the same
+  // choreography. Later sections return to the normal seeded encounter roll.
+  var PROLOGUE_SECOND_WILD = {
+    treecko: 'sandshrew',   // Grass -> Ground
+    charmander: 'oddish',   // Fire -> Grass
+    froakie: 'sandshrew'    // Water -> Ground
+  };
+  var PROLOGUE_THIRD_WILD = 'bidoof';
+
   // The starter's STAB types. The guided run's super-effective battle must
   // be weak to the STARTER's moves (that is the lesson being taught),
   // regardless of who currently leads the party.
@@ -310,6 +321,21 @@
       // lesson and the battle describe the same move even if the player has
       // already reordered the party.
       if (run.battleInSection === 1) {
+        var starter = null;
+        if (run.tutorialStarterUid && run.party) {
+          for (var si = 0; si < run.party.length; si++) {
+            if (String(run.party[si].uid) === String(run.tutorialStarterUid)) {
+              starter = run.party[si]; break;
+            }
+          }
+        }
+        var pinned = starter && PROLOGUE_SECOND_WILD[starter.id];
+        if (pinned && !(run.seenSpecies || {})[pinned]) {
+          var pinnedSp = Dex.species.get(pinned);
+          if (pinnedSp && pinnedSp.exists && starterStabTypes(run).some(function (t) {
+            return C.typeMod(t, pinnedSp.types || []) >= 2;
+          })) return pinned;
+        }
         var weakTo = starterStabTypes(run);
         if (weakTo.length) {
           var wpool = PROLOGUE_WILDS.concat(PROLOGUE_WEAK_POOL).filter(function (id) {
@@ -320,6 +346,9 @@
           });
           if (wpool.length) return C.pick(wpool, pr);
         }
+      }
+      if (run.battleInSection === 2 && !(run.seenSpecies || {})[PROLOGUE_THIRD_WILD]) {
+        return PROLOGUE_THIRD_WILD;
       }
       var pool = PROLOGUE_WILDS.filter(function (id) {
         return Dex.species.get(id).exists && !(run.seenSpecies || {})[id];
@@ -359,6 +388,7 @@
 
   async function makeWild(run, speciesId) {
     var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
+    var isScriptedSection1 = isPrologueSection(run);
     if (isTutorialCapture) {
       speciesId = 'pikachu';
     }
@@ -371,7 +401,13 @@
       role = pickRoleFor({ roles: ['sweeper', 'wall', 'disruptor', 'pivot'] }, speciesId,
                          Math.floor(rr() * 4));
     }
-    var mon = await C.makeMon(speciesId, { role: role, moves: isTutorialCapture ? ['tickle'] : null });
+    // The first section is scripted end to end. Wild opponents use a harmless
+    // move so a player can learn the instructed action without an unrelated
+    // critical hit, status roll or AI choice ending the tutorial.
+    var mon = await C.makeMon(speciesId, {
+      role: role,
+      moves: isTutorialCapture ? ['tickle'] : (isScriptedSection1 ? ['splash'] : null)
+    });
     applyTraining(run, mon, tr, false, speciesId);
     if (isTutorialCapture) {
       mon.shiny = false;
@@ -573,7 +609,13 @@
       // The strategy assigns each slot a role, so a "Stall" trainer really
       // fields walls and a "Hyper Offence" one really fields sweepers.
       var role = pickRoleFor(strat, id, i);
-      var mon = await C.makeMon(id, { role: role });
+      var mon = await C.makeMon(id, {
+        role: role,
+        // Youngster Joey is still a real multi-Pokemon battle, but his first
+        // tutorial team must not defeat a learner while the UI is teaching
+        // the route. Section 2 restores the normal trainer moveset.
+        moves: isPrologueSection(run) ? ['splash'] : null
+      });
       applyTraining(run, mon, tr, true, id + '|' + i);
       // Ascension 2+: a slot may be elite, with one visible modifier.
       var elite = eliteModFor(run, mon, i, true);

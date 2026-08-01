@@ -315,7 +315,9 @@
           var classes = 'tslot';
           if (it.active) classes += ' active';
           if (it.fainted) classes += ' empty';
-          html += '<button class="' + classes + '" data-i="' + i + '"' + (it.disabled ? ' disabled' : '') + '>';
+          html += '<button class="' + classes + '" data-i="' + i + '"' +
+            (it.tutorial ? ' data-tutorial="switch"' : '') +
+            (it.disabled ? ' disabled' : '') + '>';
           if (i === 0 && !it.fainted) html += '<span class="ts-lead">LEAD</span>';
           if (st && !it.fainted) html += '<span class="ts-st st-' + st + '">' + st.toUpperCase() + '</span>';
           html += '<span class="ts-art">' + (it.iconHtml || '') + '</span>';
@@ -428,7 +430,7 @@
       rail.innerHTML =
         '<div class="br-label">Catch</div>' +
         this.s.balls.map(function (b2, i) {
-          return '<button class="br-btn" data-i="' + i + '"' + (self.s.locked ? ' disabled' : '') + '>' +
+          return '<button class="br-btn" data-i="' + i + '" data-ball="' + esc(b2.id || '') + '"' + (self.s.locked ? ' disabled' : '') + '>' +
             '<span class="br-art">' + (b2.img || '') + '</span>' +
             '<span class="br-qty">' + b2.qty + '</span>' +
             '<span class="br-odds">' + b2.chance + '%</span>' +
