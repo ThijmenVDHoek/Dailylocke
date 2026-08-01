@@ -1582,13 +1582,34 @@
       });
     }
     drawMart();
+    shopCoach();
+  }
+
+  function shopCoach() {
+    var CO = window.Coach;
+    if (!CO || !CO.tipsOn() || !run || !run.prologue || run.section !== 2) return;
+    setTimeout(function () {
+      if ($('screenCrossroads').hidden) return;
+      if (!CO.seen('shopBalls')) {
+        CO.lesson('shopBalls', { anchor: $('xShopBlock'), immersive: true });
+        return;
+      }
+      if (!CO.seen('shopHeals')) {
+        CO.lesson('shopHeals', { anchor: $('xShopBlock'), immersive: true });
+        return;
+      }
+      if (!CO.seen('shopHeld')) {
+        CO.lesson('shopHeld', { anchor: $('xShopBlock'), immersive: true });
+        return;
+      }
+    }, 420);
   }
   function drawMart() {
     var grid = $('martGrid');
     grid.innerHTML = '';
     var isPro = run && run.prologue;
-    // In tutorial: only balls + basic heals, no held items yet
-    var groups = isPro 
+    // In tutorial section 1: only balls + basic heals. In section 2: shop explained (balls, heals, held).
+    var groups = (isPro && run.section === 1) 
       ? { ball: 'Poke Balls', heal: 'Medicine' }
       : { ball: 'Poke Balls', heal: 'Medicine', evo: 'Evolution Items', forme: 'Forme Change', mega: 'Mega Stones', held: 'Held Items', service: 'Services' };
     Object.keys(groups).forEach(function (k) {
@@ -2335,9 +2356,16 @@
         var branching = evoBox.querySelectorAll('.evo-btn').length > 1;
         var which = (branching && !CO.seen('evoBranch')) ? 'evoBranch'
                   : (!CO.seen('evolve') ? 'evolve' : null);
-        if (which) setTimeout(function () {
-          if (window.Modal.isOpen('xTeamDetail')) CO.lesson(which, { anchor: evoBox });
-        }, 480);
+        if (which) {
+          if (which === 'evolve' && run && run.prologue) {
+            window.Coach.setPrologue(false);
+            run.prologue = false;
+            saveGame();
+          }
+          setTimeout(function () {
+            if (window.Modal.isOpen('xTeamDetail')) CO.lesson(which, { anchor: evoBox, immersive: true });
+          }, 480);
+        }
       }
     }
   }
@@ -3967,6 +3995,27 @@
       if (!document.querySelector('.battle-hud')) return;
 
       var pro = run && run.prologue;
+      var n = run.battleInSection;
+      var isWild = bctx && bctx.cfg && bctx.cfg.isWild;
+
+      if (pro && run.section === 1) {
+        if (n === 0 && isWild && !CO.seen('catch')) {
+          CO.lesson('catch', { anchorSel: '.battle-hud .ballrail', immersive: true });
+          return;
+        }
+        if (n === 1 && isWild && !CO.seen('effect')) {
+          CO.lesson('effect', { anchorSel: '.battle-hud .mv', immersive: true });
+          return;
+        }
+        if (n === 2 && isWild && !CO.seen('switch')) {
+          CO.lesson('switch', { anchorSel: '.battle-hud [data-a="switch"], .battle-hud .actbar', immersive: true });
+          return;
+        }
+        if (n === 3 && !isWild && !CO.seen('battleItem')) {
+          CO.lesson('battleItem', { anchorSel: '.battle-hud [data-a="bag"], .battle-hud .actbar', immersive: true });
+          return;
+        }
+      }
 
       if (!CO.seen('battleBar')) {
         CO.lesson('battleBar', { anchorSel: '.battle-hud .actbar', immersive: pro });
