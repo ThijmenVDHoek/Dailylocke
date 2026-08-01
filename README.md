@@ -144,7 +144,20 @@ high catch rates, the gentlest trainer on the roster, a few extra balls) so the
 run cannot end before the lesson about catching has happened.
 
 The guided run is a **scripted tutorial**, and every step is a vital beat
-(queue-backed, so a busy surface or an unlucky race can never swallow it):
+(queue-backed, so a busy surface or an unlucky race can never swallow it). A
+scripted beat is an instruction, not a suggestion: it highlights exactly one
+control, disables every other route for that step, and stays armed after the
+professor's card is dismissed until that control is actually used. Reloading
+mid-run uses the run's own tutorial state rather than the account's lesson
+history, so an old profile can never skip a required action.
+
+Section 1 is deterministic: the first encounter is Pikachu, the second wild is
+chosen from a fixed starter-specific weakness, the third is Bidoof, and the
+trainer is the friendly scripted Youngster. The first wild battle exposes one
+damaging move, then one ball; it cannot be bypassed, and Pikachu cannot faint.
+The second battle exposes one ×2 move. The third exposes Party and then one
+specific switch target. Bag, running, extra moves, and alternate switches are
+not available until the script reaches them.
 
 1. **Choose your starter** — the very first card is the professor's immersive
    dialog sheet (big portrait, typewriter reveal), setting the register for

@@ -191,6 +191,13 @@ async function driveGuided(page, opts = {}) {
       //    dismissed (the pre-boss heal warning fires here), then start the
       //    battle exactly once.
       if (visible('screenCrossroads')) {
+        // A scripted route lesson leaves exactly one glowing target after its
+        // sheet is dismissed. Perform that target before considering the next
+        // battle; this is what a real first-time player is expected to do.
+        const guidedTarget = document.querySelector('#screenCrossroads .coach-spot, #xTeamDetail .coach-spot');
+        if (guidedTarget && !guidedTarget.closest('[hidden]')) {
+          guidedTarget.click(); await wait(500); continue;
+        }
         if (startedBattle) return { seen, stop: 'crossroads' };
         if (!settledRoute) { settledRoute = Date.now(); await wait(750); continue; }
         if (Date.now() - settledRoute < 1400) { await wait(); continue; }
@@ -203,10 +210,15 @@ async function driveGuided(page, opts = {}) {
       if (visible('screenBattle')) {
         const moves = [...document.querySelectorAll('#battleHost .mb[data-i]')].filter((b) => !b.disabled);
         const rows = [...document.querySelectorAll('#battleHost .pitem')].filter((b) => !b.disabled);
+        const switchRows = [...document.querySelectorAll('#battleHost [data-tutorial="switch"]')]
+          .filter((b) => !b.disabled);
         const rail = [...document.querySelectorAll('#battleHost .br-btn')].filter((b) => !b.disabled);
-        if (rows.length) {
-          // A panel is open (bag list, party picker, or forced switch).
-          if (panelOpen === 'bag') { rows[0].click(); }
+        if (rows.length || switchRows.length) {
+          // A panel is open (bag list, ordinary party picker, or the scripted
+          // third-stop switch picker). The coach leaves exactly one tutorial
+          // switch row enabled.
+          if (panelOpen === 'bag') rows[0]?.click();
+          else if (switchRows.length) switchRows[0].click();
           else rows.find((b) => !/\(out\)/.test(b.textContent))?.click();
           panelOpen = false;
           await wait(); continue;
@@ -303,20 +315,29 @@ async function driveTraining(page) {
         const pick = nats.find((n) => !n.classList.contains('sel'));
         if (pick) { pick.click(); await wait(420); continue; }
       }
-      if (s === 'stats') {
+      if (s === 'statsTake' || s === 'statsGive') {
         if (!document.querySelector('#tutorBody .sp-row')) {
           click('.tr-tab[data-t="stats"]'); await wait(300); continue;
         }
-        if (!statMoved) {
-          const hp = ranges.find((r) => r.dataset.s === 'hp');
-          const def = ranges.find((r) => r.dataset.s === 'def');
-          if (hp && def) {
+        if (!statMoved && s === 'statsTake') {
+          const take = ranges.find((r) => r.dataset.s === 'hp' && Number(r.value) > 0) ||
+            ranges.find((r) => Number(r.value) > 0);
+          if (take) {
             const ev = (el, v) => {
               el.value = String(v);
               el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
             };
-            ev(hp, 1); ev(def, 1);
+            ev(take, Math.max(0, Number(take.value) - 1));
+            await wait(360);
+            continue;
+          }
+        }
+        if (!statMoved && s === 'statsGive') {
+          const give = ranges.find((r) => r.dataset.s === 'def' && Number(r.value) < 32) ||
+            ranges.find((r) => Number(r.value) < 32);
+          if (give) {
+            give.value = String(Number(give.value) + 1);
+            give.dispatchEvent(new Event('input', { bubbles: true }));
             statMoved = true;
             await wait(360);
             continue;
@@ -894,6 +915,12 @@ try {
     check('the guided run buys the Rare Candy',
       await page.evaluate(() => (window.Game.run.bag.rarecandy || 0) > 0));
 
+    await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 8000 }).catch(() => null);
+    check('the tutorial names the one team card that will use the candy',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent) === 'Open your starter',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent));
+    await page.click('#screenCoach [data-coach-ok]');
+    await page.waitForTimeout(300);
     const starterIdx = await page.evaluate(() =>
       window.Game.run.party.findIndex((m) => String(m.uid) === String(window.Game.run.tutorialStarterUid)));
     await page.click(`#xTeam .tslot[data-i="${starterIdx}"]`);
@@ -909,6 +936,12 @@ try {
     await page.click('#xTeamDetail .evo-btn.ready');
     await page.waitForSelector('#screenEvolve:not([hidden])', { timeout: 8000 });
     await page.waitForSelector('#btnEvoDone:not([hidden])', { timeout: 15000 });
+    await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 8000 }).catch(() => null);
+    check('the evolution result explains the one Continue action',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent) === 'See the result',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent));
+    await page.click('#screenCoach [data-coach-ok]');
+    await page.waitForTimeout(250);
     await page.click('#btnEvoDone');
     await page.waitForTimeout(600);
     check('the starter really evolved (not just told to)',
@@ -922,10 +955,21 @@ try {
     await page.click('#screenCoach [data-coach-ok]');
     await page.waitForTimeout(400);
 
+    await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 9000 }).catch(() => null);
+    check('the tutorial names the one Pokemon to train',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent) === 'Time to train',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent));
+    await page.click('#screenCoach [data-coach-ok]');
+    await page.waitForTimeout(300);
     const trainIdx = await page.evaluate(() =>
-      window.Game.run.party.findIndex((m) => String(m.uid) === String(window.Game.run._tutCatchUid)));
+      window.Game.run.party.findIndex((m) => String(m.uid) === String(window.Game.run.tutorialStarterUid)));
     await page.click(`#xTeam .tslot[data-i="${trainIdx}"]`);
     await page.waitForSelector('#xTeamDetail:not([hidden])', { timeout: 8000 });
+    await page.waitForSelector('.coach-bubble.on', { timeout: 8000 }).catch(() => null);
+    check('the party sheet points at the one Train Pokemon button',
+      await page.evaluate(() => (document.querySelector('.coach-bubble.on .cb-title') || {}).textContent) === 'Open Training');
+    await page.evaluate(() => document.querySelector('.coach-bubble [data-coach-ok]')?.click());
+    await page.waitForTimeout(250);
     await page.click('#xTeamDetail .pd-train');
     await page.waitForSelector('#screenTutor:not([hidden])', { timeout: 8000 });
     const tr = await driveTraining(page);
