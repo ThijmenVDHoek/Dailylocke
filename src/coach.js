@@ -84,6 +84,9 @@
   function badgesOn() { var c = state(); return !c.off && c.badges !== false; }
   function seen(id) { return !!state().seen[id]; }
   function markSeen(id) { state().seen[id] = 1; persist(); }
+  // Put a lesson back in the syllabus. Used when a card was dismissed by the
+  // UI rather than by the player, so it is not silently written off as read.
+  function unsee(id) { delete state().seen[id]; persist(); }
   function setOff(v) { state().off = !!v; persist(); }
   function setBadges(v) { state().badges = !!v; persist(); }
   function isOnboarded() { return !!state().onboarded; }
@@ -589,6 +592,15 @@
   var COOLDOWN_MS = 550;
   var host = null;           // the coach-mark layer
 
+  // `busy` gates every lesson, so anything that can set it and then fail to
+  // clear it silences the coach for the rest of the session -- the player
+  // simply stops being taught, with no visible cause. Route both edges
+  // through one place so "released" is impossible to forget.
+  function setBusy(on) {
+    busy = !!on;
+    if (!busy) cooldownUntil = Date.now() + COOLDOWN_MS;
+  }
+
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -604,6 +616,9 @@
       host.className = 'coach-layer';
       document.body.appendChild(host);
     }
+    // This layer floats above dialogs rather than behind them, so the modal
+    // controller must not inert it along with the rest of the page.
+    host.setAttribute('data-modal-overlay', '');
     return host;
   }
 
@@ -628,11 +643,16 @@
         (opts.noSkip ? '' : '<button type="button" class="coach-skip" data-coach-skip>Skip all tips</button>') +
       '</div>';
 
-    busy = true;
+    // Modal.open() is a no-op when the dialog is ALREADY on the stack, and it
+    // is the onClose it registers that clears `busy`. Opening a second sheet
+    // over a live one would therefore latch `busy` on forever. Close the
+    // stale one first so the fresh open really does register a handler.
+    if (window.Modal.isOpen(el)) window.Modal.close(el);
+
+    setBusy(true);
     window.Modal.open(el, {
       onClose: function () {
-        busy = false;
-        cooldownUntil = Date.now() + COOLDOWN_MS;
+        setBusy(false);
         if (opts.onDone) { try { opts.onDone(); } catch (e) {} }
       }
     });
@@ -653,13 +673,27 @@
   var activeMark = null;
 
   function clearMark() {
-    if (!activeMark) return;
+    if (!activeMark) {
+      // No pill, but `busy` may still be set by a sheet whose dialog is gone
+      // (a screen change can hide an overlay without routing through
+      // Modal.close, and then onClose never runs). Releasing here keeps a
+      // vanished card from silencing every later lesson.
+      if (busy && !(window.Modal && window.Modal.isOpen('screenCoach'))) setBusy(false);
+      // A halo can outlive its pill when the anchor is re-rendered; sweep.
+      var orphans = document.querySelectorAll('.coach-spot');
+      for (var o = 0; o < orphans.length; o++) orphans[o].classList.remove('coach-spot');
+      return;
+    }
     var m = activeMark;
     activeMark = null;
     if (m.poll) clearInterval(m.poll);
     if (m.reflow) {
       window.removeEventListener('scroll', m.reflow, true);
       window.removeEventListener('resize', m.reflow);
+    }
+    if (m.onModal) {
+      document.removeEventListener('modal:open', m.onModal);
+      document.removeEventListener('modal:close', m.onModal);
     }
     if (m.el && m.el.parentNode) {
       m.el.classList.remove('on');
@@ -670,9 +704,17 @@
     // The halo may have moved to a re-rendered clone; sweep any stragglers.
     var stray = document.querySelectorAll('.coach-spot');
     for (var i = 0; i < stray.length; i++) stray[i].classList.remove('coach-spot');
-    busy = false;
-    cooldownUntil = Date.now() + COOLDOWN_MS;
+    setBusy(false);
     if (m.onDone) { try { m.onDone(); } catch (e) {} }
+  }
+
+  // Is the thing a mark points at still really on screen? A node inside a
+  // just-closed overlay is still `isConnected` -- the overlay is only
+  // `hidden` -- so connectedness alone is not enough.
+  function targetVisible(m) {
+    var t = m && m.target;
+    if (!t || !t.isConnected) return false;
+    return !t.closest('[hidden]');
   }
 
   function showMark(lesson, target, opts) {
@@ -743,7 +785,26 @@
     var poll = setInterval(place, 400);
     activeMark.reflow = reflow;
     activeMark.poll = poll;
-    busy = true;
+    // A mark only makes sense while the thing it points at is on screen.
+    // Two ways that stops being true, both of which used to strand the pill
+    // and latch `busy` -- which silently ended the teaching for the rest of
+    // the session:
+    //   * a dialog OPENS over it, burying the subject behind a scrim;
+    //   * the dialog it was anchored INTO closes (the evolve lesson lives on
+    //     the party sheet), taking the subject with it.
+    // Either way the hint has lost its anchor, so retire it. It was never
+    // actually read, so hand it back to the syllabus instead of counting it
+    // as taught.
+    activeMark.onModal = function (ev) {
+      // On close, only give up if the subject really did go away -- closing
+      // some unrelated dialog must not cancel a hint that is still valid.
+      if (ev && ev.type === 'modal:close' && targetVisible(activeMark)) return;
+      if (opts.markedSeen && lesson && lesson.id) unsee(lesson.id);
+      clearMark();
+    };
+    document.addEventListener('modal:open', activeMark.onModal);
+    document.addEventListener('modal:close', activeMark.onModal);
+    setBusy(true);
     el.querySelector('[data-cm-ok]').addEventListener('click', clearMark);
 
     // Interacting with the thing being pointed at also dismisses the mark:
@@ -770,8 +831,16 @@
       if (Date.now() < cooldownUntil) return false;
     }
     if (!opts.force) markSeen(id);
-    if (opts.anchor || opts.anchorSel) showMark(l, opts.anchor || null, opts);
-    else showSheet(l, opts);
+    if (opts.anchor || opts.anchorSel) {
+      // Tell showMark whether this counts against the syllabus, so a hint the
+      // UI retires unread can be handed back rather than written off.
+      var markOpts = {};
+      for (var k in opts) if (Object.prototype.hasOwnProperty.call(opts, k)) markOpts[k] = opts[k];
+      markOpts.markedSeen = !opts.force;
+      showMark(l, opts.anchor || null, markOpts);
+    } else {
+      showSheet(l, opts);
+    }
     return true;
   }
 

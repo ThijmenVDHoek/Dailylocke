@@ -40,7 +40,9 @@
 </head>
 <body>
 
-<div id="toast"></div>
+<!-- Toasts float above every dialog, so they are exempt from the inertness
+     the modal controller applies to the rest of the page. -->
+<div id="toast" data-modal-overlay></div>
 
 <main>
   <!-- ===================== TITLE ===================== -->

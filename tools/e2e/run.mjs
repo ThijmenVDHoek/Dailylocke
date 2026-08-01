@@ -608,6 +608,8 @@ try {
           for (const sib of node.parentElement.children) {
             if (sib === node) continue;
             if (sib.tagName === 'SCRIPT' || sib.tagName === 'TEMPLATE') continue;
+            // Toast + coach-mark layer float ABOVE dialogs by design.
+            if (sib.hasAttribute('data-modal-overlay')) continue;
             if (sib.inert !== true && sib.getAttribute('aria-hidden') !== 'true') ok = false;
           }
           node = node.parentElement;
@@ -657,6 +659,70 @@ try {
         return others.every((n) => !n.inert && n.getAttribute('aria-hidden') !== 'true');
       }, id);
       check(`${id}: background is released on close`, released);
+    }
+
+    // ---- STACKED DIALOGS (REGRESSION) ------------------------------------
+    // A dialog opened ON TOP of another one used to arrive dead. The first
+    // modal inerts every sibling on the path to <body>, and the game's
+    // overlays are siblings -- so the second dialog had already been inerted
+    // before it was ever shown, and nothing brought it back.
+    //
+    // Only a real browser enforces `inert`, so this is where it can be
+    // proven by actually clicking: JSDOM happily dispatches events into an
+    // inert subtree.
+    {
+      const stacked = await page.evaluate(async () => {
+        window.Modal.closeAll();
+        // The exact onboarding shape: a mandatory prompt (no Escape, no
+        // scrim dismiss) with a coach lesson fired over it on a timer.
+        window.Modal.open('screenNickname', { escape: false, dismissOnScrim: false });
+        await new Promise((r) => setTimeout(r, 60));
+        window.Coach.attach(window.Storage.blankProfile(), () => {});
+        window.Coach.lesson('caught');
+        await new Promise((r) => setTimeout(r, 120));
+        const sheet = document.getElementById('screenCoach');
+        const ok = sheet.querySelector('[data-coach-ok]');
+        if (!ok) return { reached: false };
+        // Does a real click actually land? `inert` swallows it silently.
+        const r = ok.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return {
+          reached: true,
+          visible: !sheet.hidden,
+          inert: sheet.inert === true,
+          hitTestReachesTheButton: !!hit && (hit === ok || ok.contains(hit)),
+        };
+      });
+
+      if (!stacked.reached) {
+        skip('a lesson stacked on the nickname prompt', 'coach sheet not built');
+      } else {
+        check('a lesson stacked over the mandatory nickname prompt is not inert',
+          stacked.visible && !stacked.inert);
+        check('its "Got it" button is actually hit-testable',
+          stacked.hitTestReachesTheButton,
+          'an inert button swallows taps: the player is frozen');
+      }
+
+      // And clicking it for real must dismiss the sheet and free the prompt.
+      const dismissed = await page.evaluate(async () => {
+        const ok = document.getElementById('screenCoach').querySelector('[data-coach-ok]');
+        if (ok) ok.click();
+        await new Promise((r) => setTimeout(r, 200));
+        const nick = document.getElementById('screenNickname');
+        const input = document.getElementById('nickInput');
+        input.focus();
+        return {
+          sheetClosed: document.getElementById('screenCoach').hidden,
+          promptLive: !nick.inert && document.activeElement === input,
+        };
+      });
+      check('clicking "Got it" really closes the stacked lesson', dismissed.sheetClosed);
+      check('the nickname prompt underneath becomes usable again',
+        dismissed.promptLive,
+        'this is the freeze: naming is mandatory, so a dead prompt is a dead run');
+
+      await page.evaluate(() => window.Modal.closeAll());
     }
 
     await context.close();

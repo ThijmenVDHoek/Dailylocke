@@ -170,6 +170,30 @@ with runs behind them is never demoted to the beginner title screen.
 The research behind these choices, and the mapping onto this codebase, is in
 [`docs/ONBOARDING-RESEARCH.md`](docs/ONBOARDING-RESEARCH.md).
 
+### Two rules a lesson must never break
+
+Both of these shipped broken once and stranded players mid-onboarding, so they
+are pinned by tests in `tools/smoke-test.mjs` and `tools/e2e/run.mjs`.
+
+**A lesson must never be able to appear on top of a dialog and be
+unclickable.** `Modal` makes the page behind a dialog `inert`, and the game's
+overlays are *siblings* of each other — so a dialog opened above another one
+had already been inerted before it was ever shown. The worst case was the
+catch flow: naming a Pokémon is mandatory (no Escape, no backdrop dismiss) and
+the coach fires a lesson over that prompt on a timer, so taking more than a
+moment to type a name left both layers dead with nothing on screen to tap.
+Inertness is therefore recomputed from the **top** of the modal stack on every
+open and close, and layers that intentionally float *above* dialogs — the
+toast, the coach-mark layer — opt out with `data-modal-overlay`.
+
+**A lesson must never be able to silence the coach.** One `busy` flag gates
+every lesson, so any path that sets it without clearing it ends the teaching
+for the rest of the session — invisibly, with nothing the player can do. All
+the edges route through `setBusy()`, and an anchored hint retires itself when a
+dialog covers its subject or the sheet it was pointing into closes. A hint
+retired that way was never actually read, so it goes **back** into the syllabus
+rather than being recorded as taught.
+
 ## Full-game backups
 
 The game autosaves active runs to browser storage. The Menu's **Transfer save**

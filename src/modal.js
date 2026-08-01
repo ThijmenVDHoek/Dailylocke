@@ -35,6 +35,14 @@
   // ancestor inert, and inert is inherited: the dialog itself would go dead
   // and become unclickable. Instead, walk from the dialog UP to <body> and at
   // each level mark only the SIBLINGS, never the ancestor on the path.
+  //
+  // A node can opt out with `data-modal-overlay`. That is for the few layers
+  // that deliberately float ABOVE every dialog rather than behind one -- the
+  // coach-mark layer and the toast. They are created lazily, so whether they
+  // existed at the moment the first dialog opened used to decide whether they
+  // came out alive: the same coach hint was clickable or dead depending on
+  // nothing the player did. Both are pointer-events:none when empty, so
+  // leaving them live costs nothing when there is nothing in them.
   function backgroundNodes(exceptEl) {
     var out = [];
     var body = document.body;
@@ -46,6 +54,7 @@
         var sib = parent.children[i];
         if (sib === node) continue;
         if (sib.tagName === 'SCRIPT' || sib.tagName === 'TEMPLATE') continue;
+        if (sib.hasAttribute && sib.hasAttribute('data-modal-overlay')) continue;
         out.push(sib);
       }
       node = parent;
@@ -72,6 +81,45 @@
         delete node.__mdlPrev;
       }
     });
+  }
+
+  // Which dialog the page's current inert arrangement was computed against.
+  var inertFor = null;
+
+  // Re-derive page inertness from whichever dialog is on TOP right now.
+  //
+  // THE BUG THIS EXISTS TO PREVENT
+  //   Opening the first modal marks every sibling on the path to <body>
+  //   inert -- and the game's other overlays are siblings. So a dialog opened
+  //   ON TOP of another one had already been inerted before it was ever
+  //   shown, and nothing un-inerted it: its buttons swallowed taps and its
+  //   scrim could not be dismissed. Every second-level dialog in the game was
+  //   affected. Where it actually stranded people was onboarding: the
+  //   nickname prompt is deliberately escape-proof and scrim-proof (naming is
+  //   mandatory), and the coach fires the "It joins you as-is" lesson over it
+  //   on a timer. Take longer than that to type a name and both layers were
+  //   inert at once -- nothing on screen was tappable, and on a touch device
+  //   there is no Escape key to fall back on.
+  //
+  //   Hence: inertness is a property of the TOP dialog, not of the first one.
+  function syncBackground() {
+    var entry = top();
+    var el = entry ? entry.el : null;
+    if (el === inertFor) return;
+    // Release the previous arrangement BEFORE recording the new one. The two
+    // sets overlap almost entirely, and the __mdlPrev bookkeeping only nests
+    // correctly when the old state is restored before the new one is taken.
+    if (inertFor) setBackgroundInert(inertFor, false);
+    inertFor = el;
+    if (el) setBackgroundInert(el, true);
+  }
+
+  // Let other modules react without importing anything. The coach listens for
+  // this to drop an anchored hint whose subject a dialog has just covered.
+  function emit(name, id) {
+    try {
+      document.dispatchEvent(new CustomEvent(name, { detail: { id: id } }));
+    } catch (e) {}
   }
 
   var FOCUSABLE = [
@@ -161,9 +209,7 @@
       dismissOnScrim: opts.dismissOnScrim !== false
     };
 
-    // Only the FIRST modal freezes the page; nested ones sit above it.
     if (!stack.length) {
-      setBackgroundInert(el, true);
       document.addEventListener('keydown', onKeydown, true);
       if (document.body) document.body.classList.add('modal-open');
     } else {
@@ -175,6 +221,10 @@
     stack.push(entry);
     el.hidden = false;
     el.addEventListener('click', onScrimClick);
+    // Unhide FIRST, then recompute: this dialog may itself have been inerted
+    // as a sibling of the one below it, and it has to come back to life.
+    syncBackground();
+    emit('modal:open', key);
 
     // Focus AFTER unhiding, and let layout settle first: an <input> inside a
     // freshly-shown overlay isn't focusable in the same frame on iOS.
@@ -205,13 +255,14 @@
     entry.card.removeAttribute('aria-modal');
 
     if (!stack.length) {
-      setBackgroundInert(entry.el, false);
       document.removeEventListener('keydown', onKeydown, true);
       if (document.body) document.body.classList.remove('modal-open');
     } else {
       var below = top();
       try { below.card.inert = false; } catch (e) {}
     }
+    // Hand the page back to whatever is on top now (or to the page itself).
+    syncBackground();
 
     // Restore focus to the control that opened the dialog, but never to
     // something that has since been hidden or removed.
@@ -223,6 +274,7 @@
       setTimeout(function () { try { t.card.focus({ preventScroll: true }); } catch (e) {} }, 0);
     }
 
+    emit('modal:close', key);
     if (entry.onClose) { try { entry.onClose(); } catch (e) { console.warn('[modal] onClose', e); } }
   }
 
