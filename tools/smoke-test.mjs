@@ -1191,39 +1191,49 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
 
   window.Game.startNextBattle();
 
-  // 1. The catch lesson pops as an anchored coach BUBBLE inside the battle --
-  //    never as a modal sheet freezing the fight -- and the ball rail it
-  //    describes keeps glowing until a ball is actually thrown.
+  // 1. The tutorial damage lesson pops as an anchored coach BUBBLE inside the battle
   const catchBubble = await until3(() => {
     const cl = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
     return cl && cl.textContent;
   }, 30000);
   check('the capture encounter pops the catch bubble in battle',
-    !!catchBubble && catchBubble === 'Catch your first!',
+    !!catchBubble && catchBubble === 'Weaken it first!',
     catchBubble || 'NO BUBBLE');
   check('no modal sheet freezes the battle for a battle beat',
     !window.Modal.isOpen('screenCoach'));
-  check('the ball rail glows while the bubble explains it',
-    !!window.document.querySelector('#battleHost .ballrail.coach-spot'));
+  check('the move buttons glow while the bubble explains it',
+    !!window.document.querySelector('#battleHost .mb.coach-spot'));
   if (catchBubble) {
     const okBtn = window.document.querySelector('.coach-bubble [data-coach-ok]');
     if (okBtn) okBtn.click();
   }
-  // The glow is the actual teaching: it must OUTLIVE the bubble so the
-  // taught action stays "press the glowing thing" after the card is gone.
+  // We check that the capture battle offers move buttons on Turn 1 (before clicking)
+  const moveBtn = await until3(() =>
+    [...window.document.querySelectorAll('#battleHost .mb[data-i]')].find((b) => !b.disabled), 20000);
+  check('the capture battle offers move buttons', !!moveBtn);
+
+  // Click the enabled move button (Tackle)
+  const tackleBtn = window.document.querySelector('#battleHost .mb:not([disabled])');
+  if (tackleBtn) {
+    tackleBtn.click();
+  }
+
+  // 2. Now the second turn starts, and the "Throw a Poke Ball!" lesson pops up as an anchored coach BUBBLE.
+  const catchBubble2 = await until3(() => {
+    const cl = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return cl && cl.textContent === 'Throw a Poke Ball!' && cl;
+  }, 30000);
+  check('the second turn pops the catch bubble', !!catchBubble2);
+  check('the ball rail glows while the bubble explains it',
+    !!window.document.querySelector('#battleHost .ballrail.coach-spot'));
+  if (catchBubble2) {
+    const okBtn = window.document.querySelector('.coach-bubble [data-coach-ok]');
+    if (okBtn) okBtn.click();
+  }
   await new Promise((r) => setTimeout(r, 300));
   check('the rail keeps glowing after the bubble is dismissed',
     !!window.document.querySelector('#battleHost .ballrail.coach-spot'));
 
-  // 2. Moves render on the scripted battle, but none is clicked: the bag
-  //    holds only Master Balls and the throw goes FIRST, on the opening
-  //    decision. One guaranteed throw means the wild never acts at all -- a
-  //    test must not depend on the flakiness of the lead surviving a
-  //    counterattack from whatever level-100 wild the seed rolled (a Yungoos
-  //    Double-Edge legitimately one-shots a Rattata).
-  const moveBtn = await until3(() =>
-    [...window.document.querySelectorAll('#battleHost .mb[data-i]')].find((b) => !b.disabled), 20000);
-  check('the capture battle offers move buttons', !!moveBtn);
   let ballClicks = 0;
   const ballLabelsSeen = [];
   const diary = [];

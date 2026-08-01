@@ -298,6 +298,9 @@
   function pickWild(run, opts) {
     opts = opts || {};
     if (isPrologueSection(run)) {
+      if (run.battleInSection === 0) {
+        return 'pikachu';
+      }
       // The capture encounter is a gentle one; the two cash battles that
       // follow are drawn from the same friendly pool so the first section
       // cannot end the run before the player knows what a Poke Ball is.
@@ -355,20 +358,28 @@
   }
 
   async function makeWild(run, speciesId) {
+    var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
+    if (isTutorialCapture) {
+      speciesId = 'pikachu';
+    }
     var tr = tier(run, false);
     // Wilds get a role too from ascension 1, so late-game encounters stop
     // being four-attack punching bags.
     var role = null;
-    if (ascension(run) >= 1) {
+    if (ascension(run) >= 1 && !isTutorialCapture) {
       var rr = drand(run.seed + '|wildrole|' + run.section + '|' + run.battleInSection + '|' + speciesId);
       role = pickRoleFor({ roles: ['sweeper', 'wall', 'disruptor', 'pivot'] }, speciesId,
                          Math.floor(rr() * 4));
     }
-    var mon = await C.makeMon(speciesId, { role: role });
+    var mon = await C.makeMon(speciesId, { role: role, moves: isTutorialCapture ? ['tickle'] : null });
     applyTraining(run, mon, tr, false, speciesId);
-    if (rollShinyDeterministic(run, speciesId)) mon.shiny = true;
+    if (isTutorialCapture) {
+      mon.shiny = false;
+    } else {
+      if (rollShinyDeterministic(run, speciesId)) mon.shiny = true;
+    }
     var elite = eliteModFor(run, mon, 0, false);
-    if (elite) mon.elite = elite;
+    if (elite && !isTutorialCapture) mon.elite = elite;
     return mon;
   }
 
