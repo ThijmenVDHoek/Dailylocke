@@ -295,19 +295,24 @@
         // enemy persistent HP
         for (var k = 0; b.p2 && k < b.p2.pokemon.length; k++) {
           var el = b.p2.pokemon[k], em = monOf(el);
-          if (cfg.isTutorialCapture && el.id === 'pikachu') {
-            if (!el.__origDamage) {
-              el.__origDamage = el.damage;
-              el.damage = function (damage, source, effect) {
-                var result = el.__origDamage.call(this, damage, source, effect);
-                if (this.hp <= 0) {
-                  this.hp = Math.max(1, Math.round(this.maxhp * 0.15));
-                  this.fainted = false;
-                  this.status = '';
-                }
-                return result;
-              };
-            }
+          // The first tutorial encounter is a teaching encounter: the player
+          // must be able to weaken this Pikachu, but it must never be possible
+          // for a move (including an OHKO or a critical hit) to end it. Cap
+          // damage at 85% of its max HP rather than repairing a faint after
+          // the simulator has already queued one. Repairing afterwards is too
+          // late: the battle engine may process `faintQueued` before the next
+          // request is emitted.
+          if (cfg.isTutorialCapture && el.id === 'pikachu' && !el.__tutorialCaptureGuard) {
+            el.__tutorialCaptureGuard = true;
+            var originalDamage = el.damage;
+            el.damage = function (damage, source, effect) {
+              var floor = Math.max(1, Math.round(this.maxhp * 0.15));
+              var incoming = Number(damage);
+              var safeDamage = Number.isFinite(incoming)
+                ? Math.min(Math.max(0, incoming), Math.max(0, this.hp - floor))
+                : 0;
+              return originalDamage.call(this, safeDamage, source, effect);
+            };
           }
           if (!em) continue;
           if (em.hpPct < 1) el.hp = Math.max(1, Math.round(el.maxhp * em.hpPct));

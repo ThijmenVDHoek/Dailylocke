@@ -530,7 +530,7 @@
     { id: 'catch', where: 'catching', title: 'Catch your first!',
       body: 'Weaken the wild Pokemon with attacks first \u2014 the lower its HP, the better your odds. Then tap a <b>Poke Ball</b> on the rail to catch it.' },
     { id: 'caught', where: 'catching', title: 'New friend!',
-      body: 'It joins your team with the HP and status it had when caught \u2014 not at full health. Give it a name!' },
+      body: 'It joins your team with the HP and status it had when caught \u2014 not at full health. Give it a name, then open its team card and use a <b>Potion</b> to heal it before the next battle.' },
     { id: 'effect', where: 'battle', title: 'Super effective!',
       body: 'Moves marked <b>\u00d72</b> hit a weakness and deal double damage. This wild Pokemon is weak to one of your moves \u2014 look for the \u00d72 tag and press it!' },
     { id: 'switch', where: 'battle', title: 'How to Switch',
