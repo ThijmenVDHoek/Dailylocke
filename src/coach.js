@@ -523,8 +523,8 @@
       body: 'Each section is a short route: a <b>Capture Encounter</b>, two wild battles for prize money, then the <b>Trainer</b>. Beat the Trainer to move on.' },
     { id: 'battleBag', where: 'battle', title: 'Bag: heal mid-battle',
       body: 'Tap <b>Bag</b> and use a <b>Super Potion</b> to heal your active Pokemon. It costs your turn, so heal before a big hit lands — not after!' },
-    { id: 'tutorialDamage', where: 'battle', title: 'Weaken it first!',
-      body: 'To catch a wild Pokemon, you should weaken it first. Use a damaging move to lower Pikachu\'s HP!' },
+    { id: 'tutorialDamage', where: 'battle', title: 'Weaken Pikachu first',
+      body: 'Choose a damaging move to lower Pikachu\'s HP. Status moves will not weaken it, and Pikachu cannot be knocked out during this tutorial encounter. Once its HP is lower, throw a Poke Ball.' },
     { id: 'tutorialCatch', where: 'battle', title: 'Throw a Poke Ball!',
       body: 'Pikachu is weakened! Now tap a <b>Poke Ball</b> on the rail to catch it.' },
     { id: 'catch', where: 'catching', title: 'Catch your first!',
@@ -681,7 +681,10 @@
     if (busy || Date.now() < cooldownUntil) { schedulePump(); return; }
     while (pending.length && !busy) {
       var next = pending.shift();
-      if (!tipsOn() || seen(next.id)) continue;
+      // bypassSeen beats (scripted tutorial beats scoped to the active run by
+      // the caller) deliberately ignore the profile's seen state: their
+      // de-dup is the caller's responsibility, not the profile's.
+      if (!tipsOn() || (!next.opts || !next.opts.bypassSeen) && seen(next.id)) continue;
       if (next.opts && typeof next.opts.stillValid === 'function') {
         var ok = false;
         try { ok = !!next.opts.stillValid(); } catch (e) {}
@@ -1015,13 +1018,22 @@
   // on screen / just closed. That last rule is what stops chains -- EXCEPT
   // for `vital` tutorial beats, which queue instead of dropping so the
   // scripted onboarding can never lose a step to a race.
+  //
+  // `bypassSeen` is for scripted tutorial beats that must fire for THIS guided
+  // run even when the profile already marks them seen (a returning player who
+  // finished a prior tutorial). It skips the seen() check and does NOT mark
+  // the lesson seen -- the caller owns the de-dup (typically a run-scoped
+  // flag set in onShow, so the lesson is never marked "done" until it has
+  // actually been displayed). It keeps the busy/cooldown + vital-queue
+  // behaviour, so a bypassSeen beat still never stacks and still survives a
+  // cooldown / first-render race.
   function lesson(id, opts) {
     opts = opts || {};
     var l = lessonById(id);
     if (!l) return false;
     if (!opts.force) {
       if (!tipsOn()) return false;
-      if (seen(id)) return false;
+      if (!opts.bypassSeen && seen(id)) return false;
       // The caller knows when a beat belongs: a capture lesson is only
       // meaningful during the capture battle, a shop lesson only while the
       // Mart is on screen. If that moment has ALREADY passed, drop quietly --
@@ -1036,7 +1048,10 @@
         return false;
       }
     }
-    if (!opts.force) markSeen(id);
+    // A bypassSeen beat is NOT marked seen on the profile: its dedup is the
+    // caller's run-scoped responsibility, and marking it seen here would
+    // suppress it again on the next guided run.
+    if (!opts.force && !opts.bypassSeen) markSeen(id);
     if (opts.surface === 'bubble') showBubble(l, opts);
     else showSheet(l, opts);
     return true;

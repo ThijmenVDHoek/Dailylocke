@@ -745,7 +745,8 @@ try {
     // The whole guided run, end to end, exactly as scripted -- this is the
     // regression suite for "many steps of the onboarding tutorial never
     // showed up":
-    //   1. capture encounter   -> 'Catch your first!' (instantly) / 'New friend!'
+    //   1. capture encounter   -> 'Weaken Pikachu first' (move buttons) ->
+    //                             'Throw a Poke Ball!' (ball rail) / 'New friend!'
     //   2. wild battle         -> 'Super effective!' (weak vs the STARTER)
     //   3. route               -> 'Your new lead' (make the catch the lead)
     //   4. wild battle         -> 'How to Switch'
@@ -756,28 +757,37 @@ try {
 
     // -- stop 1: the capture encounter ----
     await page.click('#btnGoBattle');
-    // The capture tutorial must pop INSTANTLY at the start of the battle —
-    // not after the first turn. The bubble appears within the settle beat
-    // (80ms) after the HUD renders; give it a short, strict window.
+    // The first lesson pops INSTANTLY at the start of the battle -- not after
+    // the first turn. It is the WEAKENING bubble, anchored to a glowing
+    // DAMAGING move button (Pikachu must be weakened before it can be caught,
+    // and it can never be knocked out during this teaching encounter). The
+    // bubble appears within the settle beat (80ms) after the HUD renders.
     await page.waitForSelector('.coach-bubble.on', { timeout: 6000 }).catch(() => null);
     const capProbe = await page.evaluate(() => ({
       title: (document.querySelector('.coach-bubble .cb-title') || {}).textContent || '',
+      body: (document.querySelector('.coach-bubble .cb-body') || {}).textContent || '',
       modal: window.Modal.isOpen('screenCoach'),
+      // The weakening glow sits on a LEGAL DAMAGING move button, never a
+      // status move (status moves are disabled on the tutorial turn 1).
+      moveGlow: !!document.querySelector('.battle-hud .mb.coach-spot'),
       railGlow: !!document.querySelector('.battle-hud .ballrail.coach-spot'),
     }));
-    check('the capture lesson is a bubble anchored to the glowing ball rail',
-      capProbe.title === 'Catch your first!' && !capProbe.modal && capProbe.railGlow,
+    check('the capture lesson is the weakening bubble on a glowing move button',
+      capProbe.title === 'Weaken Pikachu first' && !capProbe.modal && capProbe.moveGlow,
       JSON.stringify(capProbe));
+    check('the weakening lesson says to pick a damaging move and throw a ball',
+      /damaging move/i.test(capProbe.body) && /poke ball/i.test(capProbe.body),
+      capProbe.body.slice(0, 90));
     await page.evaluate(() => {
       const bok = document.querySelector('.coach-bubble [data-coach-ok]');
       if (bok) bok.click();
     });
     await page.waitForTimeout(300);
-    check('the ball rail keeps glowing after the bubble is dismissed',
-      await page.evaluate(() => !!document.querySelector('.battle-hud .ballrail.coach-spot')));
+    check('the move button keeps glowing after the bubble is dismissed',
+      await page.evaluate(() => !!document.querySelector('.battle-hud .mb.coach-spot')));
     const b1 = await driveGuided(page, { catchIt: true });
-    check('the capture encounter teaches catching',
-      b1.seen.includes('Catch your first!'), b1.seen.join(' | '));
+    check('the capture encounter teaches throwing a ball once weakened',
+      b1.seen.includes('Throw a Poke Ball!'), b1.seen.join(' | '));
     check('catching works and the result is explained',
       b1.seen.includes('New friend!'), b1.seen.join(' | '));
     check('the caught Pokemon joined the team as a second member',
