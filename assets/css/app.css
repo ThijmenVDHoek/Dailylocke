@@ -490,6 +490,8 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .starter-card .sprite-box {
   height:118px; display:flex; align-items:flex-end; justify-content:center; margin-bottom:6px;
 }
+.starter-card.simple { padding:16px 12px 12px; }
+.starter-card.simple .sprite-box { height:108px; }
 .sc-name { font-size:1.45rem; color:#fff; }
 .starter-card .types { justify-content:center; }
 .statline { color:var(--ink-2); font-size:.9rem; }
@@ -1110,6 +1112,14 @@ textarea.search.save-code {
 }
 
 /* ===== SECTION SUMMARY ===== */
+
+/* Tutorial linear onboarding helpers: darken non-essential UI */
+.prologue-dim .x-shop, .prologue-dim .x-bag, .prologue-dim #xTeamDetail .pd-sec:has(.pd-held) {
+  opacity: 0.35;
+  pointer-events: none;
+  filter: grayscale(0.6);
+}
+.prologue-dim .x-ascension, .prologue-dim .x-bag-note { display:none !important; }
 .sum-wrap { padding:26px 2px 10px; text-align:center; }
 .sum-crest {
   width:74px; height:74px; margin:0 auto 14px; border-radius:50%;
@@ -1967,6 +1977,15 @@ body.modal-open { overflow:hidden; }
 .coach-inline .coach-portrait { padding:2px; }
 .coach-inline p { margin:0; color:var(--ink-2); font-size:.88rem; line-height:1.5; }
 .coach-inline b { color:#fff; }
+
+/* Immersive professor dialogue for onboarding */
+.coach-head.immersive { gap:16px; margin-bottom:20px; }
+.coach-head.immersive .coach-portrait { padding:6px; box-shadow:0 0 0 4px rgba(192,124,232,.3); }
+.coach-head.immersive .coach-portrait img { width:88px; height:88px; }
+.coach-head.immersive .coach-who b { font-size:1.25rem; }
+.coach-head.immersive .coach-who em { font-size:.7rem; }
+.text-reveal { font-size:1.05rem; line-height:1.5; min-height:80px; }
+.coach-body.text-reveal { color:#f0e6ff; }
 
 /* ---- the anchored coach mark ---- */
 .coach-layer { position:fixed; inset:0; z-index:1300; pointer-events:none; }

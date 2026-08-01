@@ -53,6 +53,34 @@
     sprite: 'https://play.pokemonshowdown.com/sprites/trainers/sycamore.png'
   };
 
+  // Immersive dialogue: bigger portrait + typewriter + sound for tutorial
+  function playTextSound() {
+    try {
+      if (window.GameAudio && window.GameAudio.playSfx) {
+        window.GameAudio.playSfx('https://play.pokemonshowdown.com/audio/cries/pikachu.mp3', 0.05);
+      } else {
+        var a = new Audio('https://play.pokemonshowdown.com/audio/cries/pikachu.mp3');
+        a.volume = 0.06; a.play().catch(()=>{});
+      }
+    } catch(e){}
+  }
+
+  function typeText(el, text, speed, onDone) {
+    el.textContent = '';
+    var i = 0;
+    var timer = setInterval(function () {
+      if (i >= text.length) {
+        clearInterval(timer);
+        if (onDone) onDone();
+        return;
+      }
+      el.textContent += text[i];
+      if (i % 2 === 0) playTextSound();
+      i++;
+    }, speed || 28);
+    return function skip() { clearInterval(timer); el.textContent = text; if (onDone) onDone(); };
+  }
+
   function advisorImg(px) {
     return '<img class="coach-face" src="' + ADVISOR.sprite + '" alt="" width="' + px + '" ' +
       'height="' + px + '" loading="lazy" decoding="async" ' +
@@ -136,10 +164,7 @@
     var beefy = bulk >= 1.2;
     var frail = bulk <= 0.85;
 
-    if (hitsHard && frail && fast) {
-      return { key: 'glass', label: 'Glass cannon',
-               note: 'Hits extremely hard and moves first, but folds to almost anything.' };
-    }
+    // Removed glass cannon - adds no useful info for new players. Just use fast attacker.
     if (hitsHard && fast) {
       return { key: 'fast', label: 'Fast attacker',
                note: 'Usually moves first and hits hard. Great for finishing things off.' };
@@ -452,96 +477,15 @@
   // Copy rules: one idea, ~2 short sentences, no jargon that has not just
   // been defined, and always phrased as something to DO.
   var LESSONS = [
-    {
-      id: 'welcome', where: 'basics', title: 'One life each',
-      body: 'This is a <b>nuzlocke</b>: if one of your Pokemon faints, it is gone for the rest of the run. ' +
-            'No revives, no second chances. That one rule is what makes every other decision matter.'
-    },
-    {
-      id: 'starter', where: 'basics', title: 'Pick on the stats, not the sprite',
-      body: 'Each card shows what that Pokemon is <b>good at</b> and whether it prefers <b>physical</b> or <b>special</b> moves. ' +
-            'A fast attacker finishes fights quickly; a wall survives them. Both work \u2014 just know which one you took.'
-    },
-    {
-      id: 'battleBar', where: 'battle', title: 'Your five options',
-      body: '<b>Moves</b> attack. <b>Bag</b> uses an item. <b>Party</b> switches Pokemon \u2014 switching costs a turn but ' +
-            'can save a life. <b>Run</b> leaves a wild fight for free, minus the prize money.'
-    },
-    {
-      id: 'effect', where: 'battle', title: 'Read the \u00d7 numbers',
-      body: 'Every move button shows how well it lands: <b>\u00d72</b> is super effective, <b>\u00d70.5</b> is resisted, <b>\u2014</b> means no effect at all. ' +
-            'A weak super-effective move usually beats a strong resisted one.'
-    },
-    {
-      id: 'stab', where: 'battle', title: 'The STAB bonus',
-      body: 'A move marked <b>STAB</b> matches your Pokemon\u2019s own type and deals <b>50% more damage</b>. ' +
-            'It is free power \u2014 which is why most good movesets keep one or two.'
-    },
-    {
-      id: 'catch', where: 'catching', title: 'This is your one catch',
-      body: 'Only the <b>first</b> wild Pokemon of each section can be caught. Knock its HP down first \u2014 ' +
-            'and a status like <b>sleep</b> or <b>paralysis</b> makes the ball far more likely to hold.'
-    },
-    {
-      id: 'caught', where: 'catching', title: 'It joins you as-is',
-      body: 'A caught Pokemon keeps the HP, PP and status it had when you caught it. ' +
-            'Give it a name you will recognise \u2014 you only get one of it.'
-    },
-    {
-      id: 'route', where: 'basics', title: 'How a section works',
-      body: 'Four stops: a <b>capture</b> encounter, two <b>cash</b> battles you may skip, then the <b>trainer</b>. ' +
-            'HP and move uses never reset in between \u2014 only beating the trainer heals you.'
-    },
-    {
-      id: 'skipping', where: 'basics', title: 'Those two fights are your budget',
-      body: 'The middle battles pay the money you spend on balls, potions and held items. ' +
-            'Skip them and you reach the trainer poorer \u2014 that is the trade, and it is a real one.'
-    },
-    {
-      id: 'mart', where: 'items', title: 'Spend it, do not hoard it',
-      body: 'Money does nothing at the end of a run. Balls first, then something to heal with. ' +
-            'Anything marked <b>\u2726 Tip</b> is worth a look for the team you actually have.'
-    },
-    {
-      id: 'fullheal', where: 'items', title: 'Careful: Full Heal is not a full heal',
-      body: '<b>Full Heal</b> cures status and restores <b>no HP whatsoever</b>. ' +
-            'The one that does both is <b>Full Restore</b>. Read the grey line under every item \u2014 it says what the item really does.'
-    },
-    {
-      id: 'trainer', where: 'basics', title: 'The trainer is the boss',
-      body: 'A full team, better items and smarter tactics. <b>Heal up before you press it</b> \u2014 ' +
-            'and if you win, every survivor is restored to full for free.'
-    },
-    {
-      id: 'save', where: 'saving', title: 'Your run lives in this browser',
-      body: 'It saves automatically, but clearing your browser data or switching device will lose it. ' +
-            '<b>Download a backup</b> from the menu to keep it safe \u2014 that same file loads your run on any other device.'
-    },
-    {
-      id: 'train', where: 'training', title: 'Training changes everything but the species',
-      body: 'One payment lets you rewrite <b>moves</b>, <b>ability</b>, <b>nature</b> and <b>stat points</b> as much as you like. ' +
-            'It is the strongest thing money can buy, and most players never open it.'
-    },
-    {
-      id: 'moveChoice', where: 'training', title: 'Picking moves that actually work',
-      body: 'Prefer <b>STAB</b> moves that use your Pokemon\u2019s stronger attack stat, and keep two different types for coverage. ' +
-            'Watch the red badges: <b>must rest after</b> and <b>charges first</b> mean you give the enemy a free turn.'
-    },
-    {
-      id: 'held', where: 'items', title: 'Held items are free power',
-      body: 'One item per Pokemon, active in every battle, and it never runs out. ' +
-            '<b>Leftovers</b> heals each turn, <b>Focus Sash</b> survives one lethal hit. Most runs are lost holding nothing.'
-    },
-    {
-      id: 'evolve', where: 'training', title: 'Evolving',
-      body: 'Nothing levels up here \u2014 evolution comes from an <b>item</b> instead, sold in the Mart when someone in your party can use it. ' +
-            'It is a big, permanent stat jump.'
-    },
-    {
-      id: 'evoBranch', where: 'training', title: 'This one has a choice',
-      body: 'Some Pokemon can evolve into more than one thing, and you only get to pick once. ' +
-            'Check the stats and typing of each before you commit \u2014 there is no going back.'
-    }
+    { id: 'welcome', where: 'basics', title: 'One life each', body: 'If a Pokemon faints, it is gone forever. No revives.' },
+    { id: 'starter', where: 'basics', title: 'Choose your starter!', body: 'Pick one. It fights with you. Name it!' },
+    { id: 'battleBar', where: 'battle', title: 'Battle buttons', body: 'Tap Moves to attack. Use a Ball to catch. Bag for items. Party to switch.' },
+    { id: 'effect', where: 'battle', title: 'Super effective!', body: 'Look for \u00d72 on moves. That hurts the enemy a lot!' },
+    { id: 'catch', where: 'catching', title: 'Catch your first!', body: 'Weaken the wild Pokemon first. Then throw a Ball!' },
+    { id: 'caught', where: 'catching', title: 'New friend!', body: 'It joins with the HP it had. Name it!' },
+    { id: 'route', where: 'basics', title: 'The path', body: 'Capture one, fight two wilds for money, then the Trainer boss.' },
+    { id: 'trainer', where: 'basics', title: 'Heal first!', body: 'Heal your team before the Trainer fight!' },
+    { id: 'mart', where: 'items', title: 'Buy balls!', body: 'Use money on Poke Balls and Potions.' }
   ];
 
   var LESSON_BY_ID = {};
@@ -628,25 +572,27 @@
     var el = document.getElementById('screenCoach');
     if (!el || !window.Modal) { if (opts.onDone) opts.onDone(); return; }
 
+    var isImmersive = !!opts.immersive || (window.Coach && window.Coach.inPrologue && window.Coach.inPrologue());
     var card = el.querySelector('.overlay-card');
-    card.innerHTML =
-      '<div class="coach-head">' +
-        '<span class="coach-portrait">' + advisorImg(52) + '</span>' +
+
+    var portraitSize = isImmersive ? 88 : 52;
+    var head = '<div class="coach-head' + (isImmersive ? ' immersive' : '') + '">' +
+        '<span class="coach-portrait">' + advisorImg(portraitSize) + '</span>' +
         '<div class="coach-who"><b>' + esc(ADVISOR.name) + '</b>' +
-          '<em>' + esc(opts.eyebrow || 'Tip') + '</em></div>' +
-      '</div>' +
+          '<em>' + esc(opts.eyebrow || (isImmersive ? 'Professor Elm' : 'Tip')) + '</em></div>' +
+      '</div>';
+
+    var bodyId = 'coachBodyReveal';
+    card.innerHTML =
+      head +
       '<h3 class="coach-title" id="coachTitle">' + esc(lesson.title) + '</h3>' +
-      '<div class="coach-body">' + lesson.body + '</div>' +
+      '<div class="coach-body" id="' + bodyId + '"></div>' +
       (opts.extra || '') +
       '<div class="coach-actions">' +
         '<button type="button" class="btn-primary wide" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>' +
-        (opts.noSkip ? '' : '<button type="button" class="coach-skip" data-coach-skip>Skip all tips</button>') +
+        (opts.noSkip ? '' : '<button type="button" class="coach-skip" data-coach-skip>Skip tips</button>') +
       '</div>';
 
-    // Modal.open() is a no-op when the dialog is ALREADY on the stack, and it
-    // is the onClose it registers that clears `busy`. Opening a second sheet
-    // over a live one would therefore latch `busy` on forever. Close the
-    // stale one first so the fresh open really does register a handler.
     if (window.Modal.isOpen(el)) window.Modal.close(el);
 
     setBusy(true);
@@ -656,6 +602,17 @@
         if (opts.onDone) { try { opts.onDone(); } catch (e) {} }
       }
     });
+
+    var bodyDiv = card.querySelector('#' + bodyId);
+    var raw = lesson.body.replace(/<[^>]*>/g, '');
+    if (isImmersive) {
+      bodyDiv.classList.add('text-reveal');
+      var skip = typeText(bodyDiv, raw, 26, null);
+      bodyDiv.onclick = function() { skip(); bodyDiv.innerHTML = lesson.body; bodyDiv.onclick = null; };
+    } else {
+      bodyDiv.innerHTML = lesson.body;
+    }
+
     card.querySelector('[data-coach-ok]').addEventListener('click', function () {
       window.Modal.close(el);
     });

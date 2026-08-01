@@ -847,24 +847,33 @@
     g.innerHTML = '';
     starterChoices.forEach(function (mon) {
       var card = document.createElement('div');
-      card.className = 'card starter-card';
-      card.innerHTML =
-        '<div class="sprite-box">' + bigSprite(mon.id, '', 112, 150, 1, mon.shiny) + '</div>' +
-        '<div class="sc-name">' + escapeHtml(mon.name) + '</div>' +
-        '<div class="types">' + typeChips(mon.types) + '</div>' +
-        monRoleHtml(mon) +
-        '<div class="statline">HP ' + C.maxHP(mon) + ' \u00b7 BST ' + C.bst(mon.id) + '</div>' +
-        '<div class="ability" data-tip="ability:' + mon.ability + '">' + mon.ability + '</div>' +
-        '<div class="movelist">' + mon.moves.map(function (m) {
-          var d = Dex.moves.get(m);
-          var pw = d.category === 'Status' ? 'Status' : (d.basePower ? 'Pow ' + d.basePower : '');
-          return '<div class="move-card-inline" data-tip="move:' + d.id + '" tabindex="0">' +
-            '<div class="mci-top"><span class="mv-chip type-' + d.type + '">' + d.type + '</span>' +
-            '<span class="mci-pw">' + pw + '</span></div>' +
-            '<span class="mci-name">' + d.name + '</span>' +
-            badgesHtml(m, mon, { compact: true }) + '</div>';
-        }).join('') + '</div>' +
-        '<button class="btn-primary pick-btn">Choose</button>';
+      var isPro = run && run.prologue;
+      card.className = 'card starter-card' + (isPro ? ' simple' : '');
+      if (isPro) {
+        card.innerHTML =
+          '<div class="sprite-box">' + bigSprite(mon.id, '', 112, 150, 1, mon.shiny) + '</div>' +
+          '<div class="sc-name">' + escapeHtml(mon.name) + '</div>' +
+          '<div class="types" style="justify-content:center;margin:6px 0">' + typeChips(mon.types) + '</div>' +
+          '<button class="btn-primary pick-btn">Choose</button>';
+      } else {
+        card.innerHTML =
+          '<div class="sprite-box">' + bigSprite(mon.id, '', 112, 150, 1, mon.shiny) + '</div>' +
+          '<div class="sc-name">' + escapeHtml(mon.name) + '</div>' +
+          '<div class="types">' + typeChips(mon.types) + '</div>' +
+          monRoleHtml(mon) +
+          '<div class="statline">HP ' + C.maxHP(mon) + ' \u00b7 BST ' + C.bst(mon.id) + '</div>' +
+          '<div class="ability" data-tip="ability:' + mon.ability + '">' + mon.ability + '</div>' +
+          '<div class="movelist">' + mon.moves.map(function (m) {
+            var d = Dex.moves.get(m);
+            var pw = d.category === 'Status' ? 'Status' : (d.basePower ? 'Pow ' + d.basePower : '');
+            return '<div class="move-card-inline" data-tip="move:' + d.id + '" tabindex="0">' +
+              '<div class="mci-top"><span class="mv-chip type-' + d.type + '">' + d.type + '</span>' +
+              '<span class="mci-pw">' + pw + '</span></div>' +
+              '<span class="mci-name">' + d.name + '</span>' +
+              badgesHtml(m, mon, { compact: true }) + '</div>';
+          }).join('') + '</div>' +
+          '<button class="btn-primary pick-btn">Choose</button>';
+      }
       card.querySelector('.pick-btn').addEventListener('click', function () {
         askNickname(mon, function (nick) {
           mon.species = C.cleanName(mon.id);   // remember what it really is
@@ -1343,6 +1352,9 @@
     // while the player is still on the route — battle then paints instantly.
     try { prefetchParty(run.party); } catch (e) {}
     renderHud();
+    // Tutorial mode: dim shop and bag, hide extra complexity
+    var cr = $('screenCrossroads');
+    if (cr) cr.classList.toggle('prologue-dim', !!(run && run.prologue));
     var isG = N.isGauntlet(run);
     var trainerNext = N.nextIsTrainer(run);   // always true in a Gauntlet
     var gTrainer = isG ? N.trainerFor(run) : null;
@@ -1574,7 +1586,11 @@
   function drawMart() {
     var grid = $('martGrid');
     grid.innerHTML = '';
-    var groups = { ball: 'Poke Balls', heal: 'Medicine', evo: 'Evolution Items', forme: 'Forme Change', mega: 'Mega Stones', held: 'Held Items', service: 'Services' };
+    var isPro = run && run.prologue;
+    // In tutorial: only balls + basic heals, no held items yet
+    var groups = isPro 
+      ? { ball: 'Poke Balls', heal: 'Medicine' }
+      : { ball: 'Poke Balls', heal: 'Medicine', evo: 'Evolution Items', forme: 'Forme Change', mega: 'Mega Stones', held: 'Held Items', service: 'Services' };
     Object.keys(groups).forEach(function (k) {
       var items = martStock.filter(function (e) {
         if (e.kind !== k) return false;
@@ -3946,45 +3962,26 @@
   function battleCoach(catchOpen) {
     var CO = window.Coach;
     if (!CO || !CO.tipsOn()) return;
-    // BattleUI rebuilds its entire HUD on every render, so these are passed
-    // as SELECTORS rather than captured nodes: the coach re-resolves them on
-    // each reflow and keeps the halo attached across re-renders.
     setTimeout(function () {
       if ($('screenBattle').hidden || !ui) return;
       if (!document.querySelector('.battle-hud')) return;
 
-      // 1. What the buttons are. Always first -- nothing else can be
-      //    understood before this.
+      var pro = run && run.prologue;
+
       if (!CO.seen('battleBar')) {
-        CO.lesson('battleBar', { anchorSel: '.battle-hud .actbar' });
+        CO.lesson('battleBar', { anchorSel: '.battle-hud .actbar', immersive: pro });
         return;
       }
 
-      // 2. How to read the x2 / x0.5 / -- markers on the move buttons.
       if (!CO.seen('effect')) {
-        CO.lesson('effect', { anchorSel: '.battle-hud .mv' });
+        CO.lesson('effect', { anchorSel: '.battle-hud .mv', immersive: pro });
         return;
       }
 
-      // 3. STAB, once effectiveness has been introduced. Only fires when the
-      //    active Pokemon actually HAS a STAB move to look at, so the lesson
-      //    always has a concrete example on screen.
-      if (!CO.seen('stab')) {
-        var act = battle.activeMon();
-        var hasStab = act && act.moves && act.moves.some(function (mv) {
-          var f = CO.moveFacts(mv, act);
-          return f && f.stab;
-        });
-        if (hasStab) { CO.lesson('stab', { anchorSel: '.battle-hud .mv' }); return; }
-      }
-
-      // 4. The catch window, held back until the target is actually weak
-      //    enough for a ball to be worth throwing -- teaching "weaken it
-      //    first" while it is at full HP teaches the wrong reflex.
       if (catchOpen && !CO.seen('catch')) {
         var info = battle.enemyInfo();
-        if (info && info.hpPct <= 0.55) {
-          CO.lesson('catch', { anchorSel: '.battle-hud .ballrail' });
+        if (info && info.hpPct <= 0.7) {
+          CO.lesson('catch', { anchorSel: '.battle-hud .ballrail', immersive: true });
         }
       }
     }, 620);
