@@ -295,6 +295,20 @@
         // enemy persistent HP
         for (var k = 0; b.p2 && k < b.p2.pokemon.length; k++) {
           var el = b.p2.pokemon[k], em = monOf(el);
+          if (cfg.isTutorialCapture && el.id === 'pikachu') {
+            if (!el.__origDamage) {
+              el.__origDamage = el.damage;
+              el.damage = function (damage, source, effect) {
+                var result = el.__origDamage.call(this, damage, source, effect);
+                if (this.hp <= 0) {
+                  this.hp = Math.max(1, Math.round(this.maxhp * 0.15));
+                  this.fainted = false;
+                  this.status = '';
+                }
+                return result;
+              };
+            }
+          }
           if (!em) continue;
           if (em.hpPct < 1) el.hp = Math.max(1, Math.round(el.maxhp * em.hpPct));
           if (em.status) { try { el.setStatus(em.status, null, null, true); } catch (e) { el.status = em.status; } }

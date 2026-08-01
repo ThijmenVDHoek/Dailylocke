@@ -528,6 +528,27 @@
     if (nameIn) nameIn.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); beginFreshGame(); }
     });
+
+    // ---- skip tutorial overlay buttons ----
+    var sDaily = $('btnSkipChooseDaily');
+    if (sDaily) sDaily.addEventListener('click', function () {
+      window.Modal.close('screenSkipTutorialChoice');
+      onDailyClick();
+    });
+    var sFree = $('btnSkipChooseFree');
+    if (sFree) sFree.addEventListener('click', function () {
+      window.Modal.close('screenSkipTutorialChoice');
+      startFreeRun();
+    });
+    var sGauntlet = $('btnSkipChooseGauntlet');
+    if (sGauntlet) sGauntlet.addEventListener('click', function () {
+      window.Modal.close('screenSkipTutorialChoice');
+      onGauntletClick();
+    });
+    var sBack = $('btnSkipChooseBack');
+    if (sBack) sBack.addEventListener('click', function () {
+      window.Modal.close('screenSkipTutorialChoice');
+    });
   }
 
   // Commit the trainer, then start the guided first run.
@@ -547,7 +568,16 @@
       window.Coach.setPrologue(setupWantsTips);
       window.Coach.setOnboarded(true);
     }
-    startFreeRun({ prologue: true });
+
+    if (!setupWantsTips) {
+      if (window.Coach) {
+        var face = $('skipChooseFace');
+        if (face) face.innerHTML = window.Coach.advisorImg(46);
+      }
+      window.Modal.open('screenSkipTutorialChoice');
+    } else {
+      startFreeRun({ prologue: true });
+    }
   }
 
   // ---------------------------------------------------- MODE EXPLAINERS ----
@@ -795,6 +825,8 @@
     // does not open with a species that can end the run before the tutorial
     // about catching has happened.
     run.prologue = !!opts.prologue;
+    var backBtn = $('btnStarterBack');
+    if (backBtn) backBtn.hidden = !!run.prologue;
     var rand = C.mulberry32(seed ^ 0x1234);
     // Starters use the same complete National Dex pool as wild encounters and
     // the gauntlet.  No mode-specific species whitelist: all 1025 species are
@@ -3630,13 +3662,15 @@
                       fieldEffect: N.fieldEffectFor(run, true), clause: t.clause || null });
       } else {
         var isFirst = run.battleInSection === 0;
+        var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
+        var isTutorialSE = !!(run && run.prologue && run.section === 1 && run.battleInSection === 1);
         var wildKey = run.section + ':' + run.battleInSection;
         var id = (run._nextWild && run._nextWild.key === wildKey) ? run._nextWild.id : N.pickWild(run, { dupesClause: isFirst });
         delete run._nextWild;
         var mon = await N.makeWild(run, id);
         run.encounterSeen = run.encounterSeen || isFirst;
         beginBattle({ enemies: [mon], isWild: true, catchable: isFirst && !run.catchUsedThisSection,
-                      fieldEffect: N.fieldEffectFor(run, false) });
+                      fieldEffect: N.fieldEffectFor(run, false), isTutorialCapture: isTutorialCapture, isTutorialSE: isTutorialSE });
       }
     } catch (err) {
       // Anything in here (a bad species roll, the learnsets chunk failing to
@@ -3702,6 +3736,8 @@
       enemies: cfg.enemies.map(function (e) { return { id: e.id, name: e.name, species: e.species, types: e.types.slice(), moves: e.moves.slice(), ability: e.ability, nature: e.nature, shiny: !!e.shiny, hpPct: e.hpPct, status: e.status, pp: e.pp ? JSON.parse(JSON.stringify(e.pp)) : {}, item: e.item || '', elite: e.elite || null }; }),
       isWild: cfg.isWild,
       catchable: cfg.catchable,
+      isTutorialCapture: !!cfg.isTutorialCapture,
+      isTutorialSE: !!cfg.isTutorialSE,
       trainer: cfg.trainer ? { name: cfg.trainer.name, tag: cfg.trainer.tag, sprite: cfg.trainer.sprite, boss: cfg.trainer.boss } : null,
       clause: cfg.clause || null
     };
@@ -3799,6 +3835,8 @@
       playerMons: run.party,
       enemyMons: cfg.enemies,
       isWild: cfg.isWild,
+      isTutorialCapture: !!cfg.isTutorialCapture,
+      isTutorialSE: !!cfg.isTutorialSE,
       trainerName: cfg.isWild ? 'Wild' : cfg.trainer.name,
       // Ascension: how far ahead the AI is allowed to look, and what is
       // already on the field when the fight starts.
@@ -4331,10 +4369,29 @@
     if (!req.active) return;
     var info = battle.enemyInfo();
     var foeTypes = info.types || ['Normal'];
+    var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
+    var isTurn1 = isTutorialCapture && (!info || info.hpPct > 0.9);
+    var isTutorialSE = !!(run && run.prologue && run.section === 1 && run.battleInSection === 1);
+    var isTurn1SE = isTutorialSE && (!info || info.hpPct > 0.9);
+
     var moves = (req.active[0].moves || []).map(function (mv, idx) {
       var d = Dex.moves.get(mv.id || mv.move);
+      var disabled = !!mv.disabled;
+      if (isTutorialCapture) {
+        if (isTurn1) {
+          if (d.category === 'Status') disabled = true;
+        } else {
+          disabled = true;
+        }
+      }
+      if (isTutorialSE && isTurn1SE) {
+        var eff = d.category === 'Status' ? 1 : C.typeMod(d.type, foeTypes);
+        if (eff < 2) {
+          disabled = true;
+        }
+      }
       return { id: d.id, name: d.name, type: d.type, power: d.basePower || 0,
-               pp: mv.pp, max: mv.maxpp, disabled: !!mv.disabled,
+               pp: mv.pp, max: mv.maxpp, disabled: disabled,
                eff: d.category === 'Status' ? 1 : C.typeMod(d.type, foeTypes),
                _origIdx: idx };
     }).filter(function (m) { return m.id !== RB.IDLE_MOVE; });
@@ -4375,16 +4432,41 @@
     var wildShiny = bctx.cfg.isWild && (activeShinyMonR ? activeShinyMonR.shiny : (bctx.enemies[0] && bctx.enemies[0].shiny));
     var canCatch = wildShiny || (bctx.cfg.catchable && !run.catchUsedThisSection);
 
+    var actCanSwitch = canSwitch;
+    var actCanRun = bctx.cfg.isWild;
+    var actNoBag = N.isGauntlet(run);
+    var actNoRun = N.isGauntlet(run);
+
+    if (isTutorialCapture) {
+      actCanSwitch = false;
+      actCanRun = false;
+      actNoBag = true;
+      actNoRun = true;
+      if (isTurn1) {
+        canCatch = false;
+      } else {
+        canCatch = true;
+      }
+    }
+
+    if (isTutorialSE && isTurn1SE) {
+      actCanSwitch = false;
+      actCanRun = false;
+      actNoBag = true;
+      actNoRun = true;
+      canCatch = false;
+    }
+
     ui.setActions({
       itemCount: itemCount,
-      canSwitch: canSwitch,
+      canSwitch: actCanSwitch,
       // Fleeing always works, but only from a WILD battle -- a trainer will
       // not let you walk away. It costs you the battle's prize money.
-      canRun: bctx.cfg.isWild,
+      canRun: actCanRun,
       // The Gauntlet is pure battle: no bag items to spend, ever, and no
       // running from a trainer -- so those buttons are not offered at all.
-      noBag: N.isGauntlet(run),
-      noRun: N.isGauntlet(run),
+      noBag: actNoBag,
+      noRun: actNoRun,
       onBag: function () { clearTutBeat('bag'); showBagPanel(); },
       onSwitch: function () { clearTutBeat('switch'); showPartyPanel(false); },
       onRun: function () { clearTutBeat('run'); fleeBattle(); }
@@ -4421,11 +4503,11 @@
   // The next move during the tutorial is therefore always, literally,
   // "press the glowing thing".
   var BEAT_CLEARS = {
-    move:     { battleBag: 1, effect: 1 },
-    ball:     { catch: 1 },
+    move:     { battleBag: 1, effect: 1, tutorialDamage: 1 },
+    ball:     { catch: 1, tutorialCatch: 1 },
     bag:      { battleBag: 1 },
     'switch': { 'switch': 1 },
-    run:      { battleBag: 1, catch: 1, effect: 1, 'switch': 1 }
+    run:      { battleBag: 1, catch: 1, effect: 1, 'switch': 1, tutorialDamage: 1, tutorialCatch: 1 }
   };
 
   // The super-effective move button right now, if one is offered. Disabled
@@ -4447,6 +4529,29 @@
                     var rail = document.querySelector('.battle-hud .ballrail');
                     return (rail && rail.querySelector('.br-btn')) ? rail : null;
                   } },
+    tutorialDamage: {
+      resolve: function () {
+        var mbs = document.querySelectorAll('.battle-hud .mb');
+        for (var i = 0; i < mbs.length; i++) {
+          var moveName = mbs[i].querySelector('.m-name');
+          if (moveName) {
+            var moveId = moveName.textContent.toLowerCase().replace(/[^a-z0-9]/g, '');
+            var d = Dex.moves.get(moveId);
+            if (d && d.exists && d.category !== 'Status') {
+              return mbs[i];
+            }
+          }
+        }
+        return document.querySelector('.battle-hud .mb');
+      }
+    },
+    tutorialCatch: {
+      side: 'right',
+      resolve: function () {
+        var rail = document.querySelector('.battle-hud .ballrail');
+        return (rail && rail.querySelector('.br-btn')) ? rail : null;
+      }
+    },
     effect:     { resolve: function () {
                     var se = seMoveBtn();
                     if (se) return se;
@@ -4530,10 +4635,20 @@
       return !$('screenBattle').hidden && run && run.battleInSection === n;
     };
 
+    var info = battle.enemyInfo();
     var requested = false;
     if (pro && run.section === 1) {
-      if (n === 0 && isWild && !CO.seen('catch')) {
-        requested = teachInBattle('catch', { vital: true, stillValid: stillHere });
+      if (n === 0 && isWild) {
+        if (info && info.hpPct > 0.9) {
+          if (!CO.seen('tutorialDamage')) {
+            requested = teachInBattle('tutorialDamage', { vital: true, stillValid: stillHere });
+          }
+        } else {
+          if (!CO.seen('tutorialCatch')) {
+            requested = teachInBattle('tutorialCatch', { vital: true, stillValid: stillHere });
+            CO.markSeen('catch');
+          }
+        }
       } else if (n === 1 && isWild && !CO.seen('effect')) {
         requested = teachInBattle('effect', { vital: true, stillValid: stillHere });
       } else if (n === 2 && isWild && !CO.seen('switch')) {
@@ -4557,14 +4672,14 @@
     }
 
     if (!requested && catchOpen && !CO.seen('catch')) {
-      var info = battle.enemyInfo();
+      info = battle.enemyInfo();
       if (info && info.hpPct <= 0.7) requested = teachInBattle('catch', {});
     }
 
     // The subject was not in the DOM yet (first frames of a battle). Retry a
     // few times so a scripted beat still lands the moment it can — this is
     // the "instant catch lesson" guarantee.
-    if (pro && run.section === 1 && !requested && n === 0 && isWild && !CO.seen('catch')) {
+    if (pro && run.section === 1 && !requested && n === 0 && isWild) {
       var tries = 0;
       var retry = setInterval(function () {
         tries++;
@@ -4572,7 +4687,31 @@
           clearInterval(retry);
           return;
         }
-        if (teachInBattle('catch', { vital: true, stillValid: stillHere })) clearInterval(retry);
+        info = battle.enemyInfo();
+        if (info && info.hpPct > 0.9) {
+          if (!CO.seen('tutorialDamage')) {
+            if (teachInBattle('tutorialDamage', { vital: true, stillValid: stillHere })) clearInterval(retry);
+          }
+        } else {
+          if (!CO.seen('tutorialCatch')) {
+            if (teachInBattle('tutorialCatch', { vital: true, stillValid: stillHere })) {
+              CO.markSeen('catch');
+              clearInterval(retry);
+            }
+          }
+        }
+      }, 250);
+    }
+
+    if (pro && run.section === 1 && !requested && n === 1 && isWild && !CO.seen('effect')) {
+      var tries1 = 0;
+      var retry1 = setInterval(function () {
+        tries1++;
+        if ($('screenBattle').hidden || !bctx || bctx.ended || tries1 > 12) {
+          clearInterval(retry1);
+          return;
+        }
+        if (teachInBattle('effect', { vital: true, stillValid: stillHere })) clearInterval(retry1);
       }, 250);
     }
   }
@@ -4901,7 +5040,8 @@
     // Use the active enemy mon, not hard-coded enemies[0], so a shiny that
     // appears mid-battle (wild only has one, but future-proof) is respected.
     var tgt = (battle.activeEnemyMon ? battle.activeEnemyMon() : null) || bctx.enemies[0];
-    var res = (tgt && tgt.shiny)
+    var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
+    var res = (isTutorialCapture || (tgt && tgt.shiny))
       ? { caught: true, shakes: 4 }
       : C.rollCatch(ballId, info.id, info.hpPct, info.status,
           { turn: battle.state.turn, targetTypes: info.types }, run.rand);
@@ -4917,7 +5057,7 @@
     });
   }
 
-  function onCaught() {
+  async function onCaught() {
     battle.sync();
     // A break-free keeps the rail lit for the retry; the catch itself is
     // what the beat was teaching, so its glow ends here.
@@ -4925,6 +5065,31 @@
     var caught = (battle.activeEnemyMon ? battle.activeEnemyMon() : null) || bctx.enemies[0];
     var clone = JSON.parse(JSON.stringify(caught));
     clone.uid = 'c' + Date.now();
+
+    var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
+    if (isTutorialCapture && clone.id === 'pikachu') {
+      try {
+        var autoMoves = await C.autoMoveset('pikachu');
+        var extraMoves = autoMoves.filter(function (m) {
+          return m !== 'tickle' && clone.moves.indexOf(m) < 0;
+        });
+        for (var mi = 0; mi < extraMoves.length && clone.moves.length < 4; mi++) {
+          clone.moves.push(extraMoves[mi]);
+        }
+        clone.pp = clone.pp || {};
+        clone.moves.forEach(function (mId) {
+          if (clone.pp[mId] == null) {
+            var mv = Dex.moves.get(mId);
+            if (mv && mv.exists) {
+              clone.pp[mv.id] = Math.floor(mv.pp * 1.6);
+            }
+          }
+        });
+      } catch (e) {
+        console.error('[catch] failed to generate additional Pikachu moves', e);
+      }
+    }
+
     // Keep EXACTLY the HP / PP / status it had at capture. Only guard against
     // a literal 0 (it was caught, so it can't join the party already fainted).
     if (clone.hpPct <= 0) clone.hpPct = 1 / Math.max(1, C.maxHP(clone));
@@ -6155,6 +6320,8 @@
             enemies: enemies,
             isWild: cfg.isWild,
             catchable: cfg.catchable,
+            isTutorialCapture: !!cfg.isTutorialCapture,
+            isTutorialSE: !!cfg.isTutorialSE,
             trainer: cfg.trainer || null,
             clause: cfg.clause || null,
             // The field effect is deterministic per seed/section/battle, so it

@@ -523,6 +523,10 @@
       body: 'Each section is a short route: a <b>Capture Encounter</b>, two wild battles for prize money, then the <b>Trainer</b>. Beat the Trainer to move on.' },
     { id: 'battleBag', where: 'battle', title: 'Bag: heal mid-battle',
       body: 'Tap <b>Bag</b> and use a <b>Super Potion</b> to heal your active Pokemon. It costs your turn, so heal before a big hit lands — not after!' },
+    { id: 'tutorialDamage', where: 'battle', title: 'Weaken it first!',
+      body: 'To catch a wild Pokemon, you should weaken it first. Use a damaging move to lower Pikachu\'s HP!' },
+    { id: 'tutorialCatch', where: 'battle', title: 'Throw a Poke Ball!',
+      body: 'Pikachu is weakened! Now tap a <b>Poke Ball</b> on the rail to catch it.' },
     { id: 'catch', where: 'catching', title: 'Catch your first!',
       body: 'Weaken the wild Pokemon with attacks first \u2014 the lower its HP, the better your odds. Then tap a <b>Poke Ball</b> on the rail to catch it.' },
     { id: 'caught', where: 'catching', title: 'New friend!',
@@ -792,7 +796,7 @@
       (opts.extra || '') +
       '<div class="coach-actions">' +
         '<button type="button" class="btn-primary wide" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>' +
-        (opts.noSkip ? '' : '<button type="button" class="coach-skip" data-coach-skip>Skip tips</button>') +
+        ((opts.noSkip || inPrologue()) ? '' : '<button type="button" class="coach-skip" data-coach-skip>Skip tips</button>') +
       '</div>';
 
     if (window.Modal.isOpen(el)) window.Modal.close(el);
