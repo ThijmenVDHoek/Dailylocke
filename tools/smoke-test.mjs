@@ -1121,7 +1121,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     const evoSheet = await waitFor(() => window.Modal.isOpen('screenCoach'), 4000);
     check('inspecting an evolution opens its professor sheet',
       !!evoSheet &&
-      window.document.getElementById('coachTitle').textContent === 'Evolution');
+      window.document.getElementById('coachTitle').textContent === 'Evolve your starter');
     if (evoSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
     await new Promise((r) => setTimeout(r, 140));
     const evoButton = window.document.querySelector('#xTeamDetail .evo-btn.ready');
@@ -1324,16 +1324,19 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // A fresh profile entering section 2 of the guided run: tips on, still
   // mid-prologue, and the section-1 lessons legitimately behind them.
   window.Modal.closeAll();   // no stale card from an earlier block
+  await waitMs(700);         // let the coach cooldown pass, as a player would
   CO2.attach(window.Storage.blankProfile(), () => {});
   CO2.setOnboarded(true);
   CO2.setPrologue(true);
-  ['route', 'trainer', 'save', 'catch', 'effect', 'switch', 'battleItem', 'caught']
+  ['route', 'trainer', 'save', 'catch', 'effect', 'switch', 'battleBag', 'caught']
     .forEach((id) => CO2.markSeen(id));
   // A live run parked at the start of section 2.
   const g = window.Game.run;
   g.mode = 'free'; g.over = false; g.prologue = true;
   g.section = 2; g.battleInSection = 0; g.money = 5000;
   g.party.forEach((m) => { m.hpPct = 1; });
+  g.tutorialEvolved = false; g.tutorialTrained = false;
+  if (!g.tutorialStarterUid && g.party[0]) g.tutorialStarterUid = g.party[0].uid;
   window.document.getElementById('screenDailyResult').hidden = true;
   window.document.getElementById('screenCrossroads').hidden = false;
   window.Game.redrawRoute();
@@ -1341,24 +1344,23 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('the section-2 Mart is not dimmed during the shop tutorial',
     !window.document.getElementById('screenCrossroads').classList.contains('prologue-dim'));
 
-  const titles = [];
-  for (let k = 0; k < 4; k++) {
-    const up = await until2(() => !window.document.getElementById('screenCoach').hidden);
-    if (!up) break;
-    titles.push(window.document.getElementById('coachTitle').textContent);
-    window.document.querySelector('#screenCoach [data-coach-ok]').click();
-    await waitMs(760);                 // cooldown (550) + queue pump
-  }
-  const shopExpect = ['Poke Mart: Balls', 'Poke Mart: Medicine', 'Poke Mart: Held items', 'Evolution'];
-  check('the shop teaches balls, then medicine, then held items, then evolution',
-    JSON.stringify(titles) === JSON.stringify(shopExpect),
-    titles.join(' | ') + (JSON.stringify(titles) === JSON.stringify(shopExpect) ? '' :
-      ' || dbg=' + JSON.stringify({
-        busy: CO2.busy, pend: CO2.pendingCount, tips: CO2.tipsOn(), pro: CO2.inPrologue(),
-        gpro: g.prologue, sec: g.section, seenB: CO2.seen('shopBalls'),
-        coachHidden: window.document.getElementById('screenCoach').hidden,
-        xrHidden: window.document.getElementById('screenCrossroads').hidden })));
-  check('the evolution sheet concludes the guided run',
+  const up = await until2(() => !window.document.getElementById('screenCoach').hidden);
+  const evoT = up ? window.document.getElementById('coachTitle').textContent : null;
+  check('section 2 opens with the forced evolution sheet, not shelf-by-shelf',
+    evoT === 'Evolve your starter', evoT);
+  check('the evolution sheet does NOT conclude the tutorial by itself',
+    CO2.inPrologue() === true && g.prologue === true);
+
+  // Dismiss it, then simulate the two things the tutorial demands: the
+  // starter actually evolves, and training is completed. Only then does the
+  // prologue end.
+  if (up) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  await waitMs(760);
+  g.tutorialEvolved = true;
+  g.tutorialTrained = true;
+  window.Game.redrawRoute();
+  await waitMs(900);
+  check('the tutorial concludes in section 2 once evolution AND training are done',
     CO2.inPrologue() === false && g.prologue === false);
   check('no tutorial beat was left dangling in the queue', CO2.pendingCount === 0);
 
@@ -2146,9 +2148,9 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
     holder.innerHTML = '<button class="probe-anchor">A</button>';
     window.document.body.appendChild(holder);
     // `force` bypasses the seen/cooldown gates: earlier blocks in this file
-    // drive a whole real run, so battleBar has legitimately already fired.
+    // drive a whole real run, so battleBag has legitimately already fired.
     check('an anchored lesson opens the professor sheet',
-      CO.lesson('battleBar', { anchorSel: '.probe-anchor', force: true }) === true &&
+      CO.lesson('battleBag', { anchorSel: '.probe-anchor', force: true }) === true &&
       !window.document.getElementById('screenCoach').hidden);
     await new Promise((r) => setTimeout(r, 60));
     const sheetCard = window.document.querySelector('#screenCoach .overlay-card');
@@ -2269,15 +2271,15 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
     await freshCoach();
     let onBattleStop = true;
     CO.lesson('route');
-    CO.lesson('battleItem', { vital: true, stillValid: () => onBattleStop });
+    CO.lesson('battleBag', { vital: true, stillValid: () => onBattleStop });
     check('a vital beat with a validity check is also held', CO.pendingCount === 1);
     onBattleStop = false;                      // the player left the battle
     window.Modal.close('screenCoach');
     await settle();
     check('a stale vital beat is dropped, not shown late',
-      !window.Modal.isOpen('screenCoach') && !CO.seen('battleItem'));
+      !window.Modal.isOpen('screenCoach') && !CO.seen('battleBag'));
     check('...and it can be re-requested at the right moment',
-      CO.lesson('battleItem') === true);
+      CO.lesson('battleBag') === true);
     window.Modal.closeAll();
 
     // 2e. ...and a beat queued while the surface is merely COOLING DOWN --

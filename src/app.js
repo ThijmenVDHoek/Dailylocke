@@ -826,20 +826,18 @@
     var g = $('starterGrid');
     var CO = window.Coach;
 
-    // The advice sits BESIDE the choice, not over it: a modal here would be a
-    // speed bump in front of the most exciting screen in the game.
-    var coachBox = $('starterCoach');
-    if (coachBox) {
-      var wantCoach = CO && CO.tipsOn() && run && run.prologue;
-      coachBox.hidden = !wantCoach;
-      if (wantCoach) {
-        coachBox.innerHTML =
-          '<span class="coach-portrait">' + CO.advisorImg(38) + '</span>' +
-          '<p><b>Pick on what it does, not how it looks.</b> Each card names what that Pokemon ' +
-          'is \u2014 a glass cannon trades safety for damage, a wall does the opposite. ' +
-          'And remember: if it faints, it is gone for the whole run.</p>';
-        CO.markSeen('starter');
-      }
+    // The advice is the professor's immersive dialog sheet with the typewriter
+    // reveal — the same surface the rest of the tutorial uses, so the very
+    // first lesson sets the register for everything that follows.
+    if (CO && CO.tipsOn() && run && run.prologue && !CO.seen('starter')) {
+      setTimeout(function () {
+        if ($('screenStarter').hidden) return;
+        CO.lesson('starter', {
+          anchor: $('starterGrid'),
+          vital: true,
+          stillValid: function () { return !$('screenStarter').hidden; }
+        });
+      }, 500);
     }
     var sub = $('starterSub');
     if (sub && run && run.prologue) sub.textContent = 'One life. No revives. Choose carefully.';
@@ -879,6 +877,9 @@
           mon.species = C.cleanName(mon.id);   // remember what it really is
           mon.name = nick;
           run.party.push(mon);
+          // The guided run tracks the starter by identity so the forced
+          // evolution and training steps can find it even after it evolves.
+          if (run && run.prologue) run.tutorialStarterUid = mon.uid;
           N.trackMon(run, mon);
           run.seenSpecies[mon.id] = 1;
           N.addItem(run, 'pokeball', 5);
@@ -1472,6 +1473,23 @@
       // 1. How a section is shaped. The very first thing after the starter.
       if (!CO.seen('route')) { CO.lesson('route', { anchor: $('xProgress'), vital: pro, stillValid: onRoute }); return; }
 
+      // 1b. After the capture (before battle 2 of section 1): teach the
+      //     player to make the new Pokemon their lead. It lands here, after
+      //     the super-effective battle, so battle 2 pairs a fresh lead with
+      //     the switch lesson that comes with it.
+      if (pro && run.section === 1 && run.battleInSection === 2 && !caughtIsLead() && !CO.seen('makeLead')) {
+        var caughtMon = caughtMonInParty();
+        CO.lesson('makeLead', {
+          anchor: $('xTeam'), vital: true,
+          stillValid: function () {
+            return onRoute() && run.section === 1 && run.battleInSection === 2 &&
+              !!caughtMonInParty() && !caughtIsLead() && !CO.seen('makeLeadTap');
+          },
+          template: caughtMon ? { NAME: caughtMon.name } : null
+        });
+        return;
+      }
+
       // 2. Before the boss: heal up. This is the highest-value warning in the
       //    game and it is the one casual players most often need.
       if (trainerNext && !CO.seen('trainer')) {
@@ -1512,6 +1530,30 @@
       return e.kind === 'held' && e.price <= run.money &&
         window.Coach && window.Coach.bestHolderFor(e.id, run.party);
     });
+  }
+
+  // ---- guided-run identity helpers -----------------------------------------
+  // The tutorial tracks the starter and the first catch by uid so the forced
+  // evolution / training / make-lead steps can find them after renames,
+  // evolutions and party reordering.
+  function starterMon() {
+    if (!run || !run.party) return null;
+    if (!run.tutorialStarterUid) return run.party[0] || null;
+    for (var i = 0; i < run.party.length; i++) {
+      if (String(run.party[i].uid) === String(run.tutorialStarterUid)) return run.party[i];
+    }
+    return null;
+  }
+  function caughtMonInParty() {
+    if (!run || !run.party || !run._tutCatchUid) return null;
+    for (var i = 0; i < run.party.length; i++) {
+      if (String(run.party[i].uid) === String(run._tutCatchUid)) return run.party[i];
+    }
+    return null;
+  }
+  function caughtIsLead() {
+    var c = caughtMonInParty();
+    return !!c && run.party[0] === c;
   }
 
   // ---- ASCENSION BANNER ----------------------------------------------------
@@ -1609,39 +1651,90 @@
   }
 
   // ---- the shop tutorial (guided run, section 2) ---------------------------
-  // The Mart's first real visit teaches its three shelves in order -- balls,
-  // then medicine, then held items -- and the evolution lesson closes the
-  // guided run. All four are `vital` beats: they queue behind each other
-  // rather than competing, so the sequence always plays out in order and
-  // never loses a step to a busy surface. If the player dashes into the next
-  // battle mid-series, the unplayed beats drop and re-request on the next
-  // visit, still in order.
+  // The Mart's shelf labels already explain what every item does, so the
+  // tutorial skips the "Balls / Medicine / Held items" speech entirely.
+  // What section 2 forces instead, in order, is the two things the shop
+  // unlocks that the player must DO:
+  //   1. EVOLUTION -- buy the Rare Candy and use it to evolve the starter.
+  //   2. TRAINING  -- the guided session through moves, ability, nature and
+  //                   Stat Points, hand-held bubble by bubble (tutorGuide).
+  // Only when both have actually happened does the tutorial conclude.
   function shopCoach() {
     var CO = window.Coach;
     if (!CO || !CO.tipsOn() || !CO.inPrologue() || !run || !run.prologue || run.section !== 2) return;
     // Same short beat as routeCoach: the crossroads is still hidden at render
     // time (show() runs right after), and beats requested into a hidden
-    // screen drop. The queue plays the series in order, one dismissal at a
-    // time; a player who dashes into the next battle mid-series invalidates
-    // the unplayed beats, and this function re-requests them on the next
-    // visit, still in order.
+    // screen drop. `vital` beats queue, and re-request on the next visit.
     setTimeout(function () {
       var onRoute = function () {
         return !$('screenCrossroads').hidden && run && run.prologue && run.section === 2;
       };
-      ['shopBalls', 'shopHeals', 'shopHeld'].forEach(function (id) {
-        if (!CO.seen(id)) CO.lesson(id, { anchor: $('xShopBlock'), vital: true, stillValid: onRoute });
-      });
-      if (!CO.seen('evolve')) {
-        CO.lesson('evolve', { anchor: $('xShopBlock'), vital: true, stillValid: onRoute, onDone: concludeTutorial });
-      } else {
-        // Every scripted beat has been taught, but the conclusion never ran
-        // (the app was closed while the final sheet was still open: the
-        // lesson is persisted as seen, its dismissal hook was not). End the
-        // prologue here, or it would linger half-armed forever.
-        concludeTutorial();
+      var starter = starterMon();
+      var evolved = !!run.tutorialEvolved || !starter;
+
+      if (!evolved) {
+        // Guarantee the forced evolution can actually be bought.
+        var rcPrice = (window.Evo && window.Evo.itemPrice('rarecandy')) || 3000;
+        if (!run.bag.rarecandy && run.money < rcPrice) {
+          run.money = rcPrice;
+          saveGame();
+          toast('Professor Elm spotted you the cash for a Rare Candy.');
+        }
+        // The step stays armed until the starter REALLY evolves: un-read it
+        // and re-request on every route visit. Deliberately NOT `vital` —
+        // a vital card would queue and instantly re-open the moment it was
+        // dismissed, trapping the player on the route; a plain request
+        // simply returns on the next visit if they walked into a battle.
+        if (CO.seen('evolve')) CO.unsee('evolve');
+        CO.lesson('evolve', {
+          anchor: martTileFor('rarecandy') || evoShelfEl() || $('xShopBlock'),
+          stillValid: onRoute,
+          template: starter ? { NAME: starter.name } : null
+        });
+        return;
       }
+
+      if (!run.tutorialTrained) {
+        // Keep the invitation armed until the guided session has actually
+        // happened (tutorGuide is only non-null while the tutor is open).
+        // Not vital either, for the same re-fire-loop reason.
+        if (!tutorGuideActive()) {
+          if (CO.seen('trainOpen')) CO.unsee('trainOpen');
+          var target = caughtMonInParty() || starter || run.party[0];
+          CO.lesson('trainOpen', {
+            anchor: $('xTeam'),
+            stillValid: onRoute,
+            template: target ? { NAME: target.name } : null
+          });
+        }
+        return;
+      }
+
+      // Evolution AND training are done: the tutorial concludes right here,
+      // in section 2. Nothing in section 3+ re-explains anything.
+      concludeTutorial();
     }, 80);
+  }
+
+  // The Rare Candy tile inside the Mart (Evolution Items shelf), or the
+  // shelf heading, so the sheet can scroll the real thing into view.
+  function martTileFor(itemId) {
+    var grid = $('martGrid');
+    if (!grid) return null;
+    var tile = grid.querySelector('.shop-item[data-tip="item:' + itemId + '"]');
+    if (tile) return tile;
+    // Fall back to the shelf heading that contains the item.
+    var head = grid.querySelector('.sub-title');
+    return head || null;
+  }
+  function evoShelfEl() {
+    var grid = $('martGrid');
+    if (!grid) return null;
+    var heads = grid.querySelectorAll('.sub-title');
+    for (var i = 0; i < heads.length; i++) {
+      if (/evolution items/i.test(heads[i].textContent || '')) return heads[i];
+    }
+    return null;
   }
 
   // The guided first run is over: the safety net and scripted beats stop, and
@@ -1653,7 +1746,19 @@
     opts = opts || {};
     var was = (window.Coach && window.Coach.inPrologue()) || (run && run.prologue);
     if (!was) return;
-    if (window.Coach && window.Coach.inPrologue()) window.Coach.setPrologue(false);
+    // The tutorial covered everything already (battles, catching, the lead,
+    // saving, the Mart, evolution, training). The just-in-time lessons that
+    // would otherwise start firing in section 3 are repetition for this
+    // player, so mark them read and let the run continue quietly. (The Bag
+    // battle beat is NOT here: it is the one lesson still owed — section 2's
+    // first wild battle teaches healing with a Super Potion after this.)
+    var CO = window.Coach;
+    if (CO) {
+      ['skipping', 'mart', 'train', 'held', 'moveChoice', 'evoBranch'].forEach(function (id) {
+        if (!CO.seen(id)) CO.markSeen(id);
+      });
+    }
+    if (CO && CO.inPrologue()) CO.setPrologue(false);
     if (run && run.prologue) { run.prologue = false; saveGame(); }
     if (!opts.silent) toast('Tutorial complete \u2014 the rest of the run is all yours.');
   }
@@ -1730,18 +1835,9 @@
       grid.appendChild(wrap);
     });
 
-    // The name trap, called out once, anchored to the actual item. This is
-    // the single most-misread thing in the game: Full Heal cures status and
-    // restores zero HP, and it sits next to Full Restore, which does both.
-    // NOT during the guided run: the scripted shop series is playing there,
-    // and this would jostle with it for the same screen.
-    var CO = window.Coach;
-    if (CO && CO.tipsOn() && !CO.seen('fullheal') && run.money >= 600 && !(run && run.prologue)) {
-      var fhTile = grid.querySelector('[data-tip="item:fullheal"]');
-      if (fhTile) setTimeout(function () {
-        if (!$('screenCrossroads').hidden) CO.lesson('fullheal', { anchor: fhTile });
-      }, 900);
-    }
+    // The Full Heal name-trap needs no lesson: the gold label under the item
+    // ("Status only — no HP") already says it, and the guided run used to
+    // add a redundant card on top of it.
 
     // sell
     var sell = $('martSell');
@@ -1794,6 +1890,43 @@
   var gbTraining = false;   // true when training a gauntlet team-builder mon
   var SERVICE_PRICE = 2000;
 
+  // ---- the guided training choreography (tutorial, section 2) --------------
+  // The tutorial does not just describe the Train service: it walks the
+  // player through it, one glowing element at a time — replace a move, pick
+  // an ability, pick a nature, move a Stat Point, press Done. Each step is a
+  // coach BUBBLE anchored to the exact control, fired when the previous step
+  // actually happened, so there is nothing to figure out along the way.
+  var tutorGuide = null;   // { step: 'slot'|'pick'|'ability'|'nature'|'stats'|'done' }
+
+  function tutorGuideActive() {
+    return !!(tutorGuide && run && run.prologue && run.section === 2 && !run.tutorialTrained &&
+      !$('screenTutor').hidden);
+  }
+  function tutorBubble(id, anchor, template) {
+    var CO = window.Coach;
+    if (!CO || !anchor || !anchor.isConnected) return false;
+    return CO.lesson(id, {
+      surface: 'bubble',
+      anchor: anchor,
+      vital: true,
+      keepHalo: true,
+      template: template,
+      stillValid: function () {
+        return !$('screenTutor').hidden && run && run.prologue && run.section === 2 && !run.tutorialTrained;
+      }
+    });
+  }
+  function tutorTabBtn(tab) {
+    return document.querySelector('#screenTutor .tr-tab[data-t="' + tab + '"]');
+  }
+  // Which stat the guided stats step moves where. The starter spread is
+  // always {hp:2, spe:32, atk|spa:32}, so HP is the safe stat to give up a
+  // point from and Defense is always open to receive one.
+  function tutorStatTargets(mon) {
+    C.ensureSP(mon);
+    return { take: 'HP', give: 'Def' };
+  }
+
   var NATURES = [
     ['Hardy','\u2014','\u2014'],  ['Lonely','Atk','Def'],  ['Brave','Atk','Spe'],
     ['Adamant','Atk','SpA'],    ['Naughty','Atk','SpD'],
@@ -1811,13 +1944,28 @@
   function openTrainer(mon, free) {
     if (!free) {
       if (!run.trainingPaidThisRound) {
-        if (run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
+        // The tutorial must never dead-end on the price: if the Rare Candy
+        // purchase left them short, Elm covers the fee so the guided
+        // training always goes ahead.
+        if (run.money < SERVICE_PRICE) {
+          if (run && run.prologue && run.section === 2 && !run.tutorialTrained) {
+            run.money = SERVICE_PRICE;
+            saveGame();
+            toast('Professor Elm spotted you the training fee.');
+          } else {
+            toast('Not enough money.'); return;
+          }
+        }
         run.money -= SERVICE_PRICE;
         run.trainingPaidThisRound = true;
       }
     }
     svc = { mon: mon, tab: 'moves', replaceSlot: null, all: null, free: !!free };
     if (!free) { renderHud(); saveGame(); }
+    // Arm the hand-held training walkthrough when the tutorial asks for it.
+    if (run && run.prologue && run.section === 2 && !run.tutorialTrained) {
+      tutorGuide = { step: 'slot' };
+    }
     $('btnTutorBack').textContent = 'Done';
     drawTrainer();
     show('Tutor');
@@ -1837,7 +1985,13 @@
 
     box.innerHTML = tabHtml + '<div id="trBody" class="tr-body"></div>';
     box.querySelectorAll('.tr-tab').forEach(function (b) {
-      b.addEventListener('click', function () { svc.tab = b.dataset.t; drawTrainer(); });
+      b.addEventListener('click', function () {
+        svc.tab = b.dataset.t;
+        drawTrainer();
+        // The guided walkthrough advances tab by tab; each tab body fires
+        // its own bubble once it is on screen (see the drawTrain* fns).
+        if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
+      });
     });
 
     var body = $('trBody');
@@ -1891,6 +2045,13 @@
           var i = +b.dataset.slot;
           svc.replaceSlot = (svc.replaceSlot === i) ? null : i;
           drawCurrent();
+          // Guided training: a slot is now armed — point at a move to learn.
+          if (tutorGuideActive() && tutorGuide.step === 'slot') {
+            if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
+            tutorGuide.step = 'pick';
+            var first = listEl ? listEl.querySelector('.move-card') : null;
+            if (first) setTimeout(function () { tutorBubble('trainPickMove', first); }, 120);
+          }
         });
       });
     }
@@ -1946,11 +2107,31 @@
       drawCurrent();
       drawList($('tutorSearch') ? $('tutorSearch').value : '');
       if (run && !svc.free) saveGame();
+      // Guided training: the move is changed — move on to the Ability tab.
+      if (tutorGuideActive() && tutorGuide.step === 'pick') {
+        if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
+        tutorGuide.step = 'ability';
+        setTimeout(function () { tutorBubble('trainAbilityTab', tutorTabBtn('ability')); }, 150);
+      }
     }
 
     drawCurrent();
     drawList('');
     $('tutorSearch').addEventListener('input', function () { drawList(this.value); });
+
+    // Guided training, first step: pick the slot to replace.
+    if (tutorGuideActive() && tutorGuide.step === 'slot') {
+      var firstSlot = $('trCurrent') ? $('trCurrent').querySelector('.tc-slot') : null;
+      // A mon with fewer than four moves has an open slot — skip straight to
+      // choosing which move to learn.
+      if (!firstSlot || (mon.moves && mon.moves.length < 4)) {
+        tutorGuide.step = 'pick';
+        var firstMove = listEl ? listEl.querySelector('.move-card') : null;
+        if (firstMove) setTimeout(function () { tutorBubble('trainPickMove', firstMove); }, 150);
+      } else if (firstSlot) {
+        setTimeout(function () { tutorBubble('trainMovesSlot', firstSlot); }, 150);
+      }
+    }
 
     // How to actually pick a move. Fires once, on the list itself, the first
     // time someone opens the move tab.
@@ -1977,8 +2158,40 @@
         mon.ability = b.dataset.a;
         toast(mon.name + '\u2019s ability is now ' + b.dataset.a + '.');
         drawTrainer(); if (run && !svc.free) saveGame();
+        // Guided training: the ability is set — move on to Nature.
+        if (tutorGuideActive() && tutorGuide.step === 'ability') {
+          if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
+          tutorGuide.step = 'nature';
+          setTimeout(function () { tutorBubble('trainNatureTab', tutorTabBtn('nature')); }, 150);
+        }
       });
     });
+
+    // Guided training, ability step: point at the ability to pick. A species
+    // with only one legal ability gets a short sheet instead of a dead tap.
+    if (tutorGuideActive() && tutorGuide.step === 'ability') {
+      var pick = body.querySelector('.opt-row:not(.sel)');
+      if (pick) {
+        setTimeout(function () { tutorBubble('trainAbilityPick', pick); }, 150);
+      } else {
+        var CO = window.Coach;
+        if (CO) {
+          tutorGuide.step = 'nature';
+          setTimeout(function () {
+            CO.lesson('trainAbilityOnly', {
+              vital: true,
+              template: { NAME: mon.name, ABILITY: Dex.abilities.get(mon.ability).name },
+              stillValid: function () { return !$('screenTutor').hidden && run && run.prologue && run.section === 2 && !run.tutorialTrained; },
+              onDone: function () {
+                if (tutorGuideActive() && tutorGuide.step === 'nature') {
+                  tutorBubble('trainNatureTab', tutorTabBtn('nature'));
+                }
+              }
+            });
+          }, 150);
+        }
+      }
+    }
   }
 
   function drawTrainNature(body, mon) {
@@ -1994,8 +2207,36 @@
         mon.nature = b.dataset.n;
         toast(mon.name + ' is now ' + b.dataset.n + '.');
         drawTrainer(); if (run && !svc.free) saveGame();
+        // Guided training: the nature is set — move on to Stat Points.
+        if (tutorGuideActive() && tutorGuide.step === 'nature') {
+          if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
+          tutorGuide.step = 'stats';
+          setTimeout(function () { tutorBubble('trainStatsTab', tutorTabBtn('stats')); }, 150);
+        }
       });
     });
+
+    // Guided training, nature step: point at a nature that boosts the stat
+    // this Pokemon already loves, skipping the one it currently has.
+    if (tutorGuideActive() && tutorGuide.step === 'nature') {
+      var want = 'Atk';
+      try {
+        var style = window.Coach ? window.Coach.attackStyle(mon.id) : null;
+        if (style && style.key === 'Special') want = 'SpA';
+      } catch (e) {}
+      var cur = mon.nature || 'Serious';
+      var pick = null;
+      for (var i = 0; i < NATURES.length; i++) {
+        if (NATURES[i][1] === want && NATURES[i][0] !== cur) { pick = NATURES[i][0]; break; }
+      }
+      if (!pick) {
+        for (var j = 0; j < NATURES.length; j++) {
+          if (NATURES[j][0] !== cur && NATURES[j][1] !== '\u2014') { pick = NATURES[j][0]; break; }
+        }
+      }
+      var natBtn = pick ? body.querySelector('.nat[data-n="' + pick + '"]') : null;
+      if (natBtn) setTimeout(function () { tutorBubble('trainNaturePick', natBtn); }, 150);
+    }
   }
 
   function drawTrainStats(body, mon) {
@@ -2095,9 +2336,32 @@
         C.syncEVs(mon);
         paint();
       });
-      r.addEventListener('change', function () { if (run && !svc.free) saveGame(); });
+      r.addEventListener('change', function () {
+        if (run && !svc.free) saveGame();
+        // Guided training: a Stat Point moved — the walkthrough is done,
+        // only "Done" is left.
+        if (tutorGuideActive() && tutorGuide.step === 'stats') {
+          if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
+          tutorGuide.step = 'done';
+          setTimeout(function () {
+            var done = $('btnTutorBack');
+            if (done) tutorBubble('trainDone', done);
+          }, 150);
+        }
+      });
     });
     paint();
+
+    // Guided training, stats step: point at the stat to move a point out of.
+    if (tutorGuideActive() && tutorGuide.step === 'stats') {
+      var tt = tutorStatTargets(mon);
+      var takeRow = body.querySelector('.sp-row[data-s="hp"]');
+      if (takeRow) {
+        setTimeout(function () {
+          tutorBubble('trainStatsPick', takeRow, { TAKE: tt.take, GIVE: tt.give });
+        }, 150);
+      }
+    }
   }
 
   // ---- TEAM (inline on the route screen) ----------------------------------
@@ -2384,11 +2648,22 @@
     if (lead) lead.addEventListener('click', function () {
       run.party.unshift(run.party.splice(partySel, 1)[0]);
       partySel = 0;
+      // The guided "make it your lead" step is complete the moment the
+      // mechanic is used, whichever Pokemon it was applied to.
+      var COl = window.Coach;
+      if (COl && run && run.prologue && run.section === 1 && run.battleInSection === 2) {
+        if (!COl.seen('makeLead')) COl.markSeen('makeLead');
+        if (!COl.seen('makeLeadTap')) COl.markSeen('makeLeadTap');
+        try { COl.clearMark(); } catch (e) {}
+      }
       window.Modal.close('xTeamDetail');
       renderCrossroads(); saveGame();
     });
     host.querySelectorAll('.evo-btn').forEach(function (b) {
       b.addEventListener('click', function () {
+        // An armed evo-use bubble/halo has done its job the moment the
+        // player commits to the evolution.
+        if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
         if (b.dataset.gbRunForme) {   // gauntlet free forme change
           gbRunFormeChange(mon, b.dataset.gbRunFormeItem, b.dataset.gbRunForme);
           return;
@@ -2420,11 +2695,11 @@
         var branching = evoBox.querySelectorAll('.evo-btn').length > 1;
         var pro = !!(run && run.prologue && CO.inPrologue());
         // During the guided run this is a FALLBACK for the scripted evolution
-        // lesson (the shop chain normally teaches it first): if the player
+        // lesson (the Mart sheet normally teaches it first): if the player
         // opens a party member's evolution box before the chain reaches it,
-        // the lesson fires here instead and concludes the tutorial. The
-        // Coach queue dedupes by lesson id, so the two paths can never both
-        // show it.
+        // the lesson fires here instead. The tutorial itself only concludes
+        // once the starter has ACTUALLY evolved and training is done, so
+        // dismissing this card never ends the prologue on its own.
         var which = pro
           ? (!CO.seen('evolve') ? 'evolve' : null)
           : ((branching && !CO.seen('evoBranch')) ? 'evoBranch'
@@ -2435,11 +2710,59 @@
             CO.lesson(which, {
               anchor: evoBox,
               vital: pro,
-              stillValid: function () { return window.Modal.isOpen('xTeamDetail'); },
-              onDone: (pro && which === 'evolve') ? concludeTutorial : null
+              stillValid: function () { return window.Modal.isOpen('xTeamDetail'); }
             });
           }, 480);
         }
+      }
+    }
+
+    // Guided-run coaching anchored inside the party sheet: the make-lead tap
+    // (section 1) and the use-the-evolution-item tap (section 2).
+    tutorialPartyDetailCoach(mon);
+  }
+
+  // Coach beats that live on the party sheet itself, fired when the sheet
+  // opens on the right Pokemon at the right moment of the guided run.
+  function tutorialPartyDetailCoach(mon) {
+    var CO = window.Coach;
+    if (!CO || !CO.tipsOn() || !run || !run.prologue) return;
+
+    // Section 1, before battle 2: the "make it your lead" bubble on the
+    // actual Make lead button.
+    if (run.section === 1 && run.battleInSection === 2 && !caughtIsLead() && !!caughtMonInParty() &&
+        CO.seen('makeLead') && !CO.seen('makeLeadTap') && partySel > 0) {
+      var leadBtn = document.querySelector('#xTeamDetail .pd-lead');
+      if (leadBtn) {
+        setTimeout(function () {
+          if (!window.Modal.isOpen('xTeamDetail')) return;
+          CO.lesson('makeLeadTap', {
+            surface: 'bubble',
+            anchor: leadBtn,
+            vital: true,
+            keepHalo: true,
+            stillValid: function () { return window.Modal.isOpen('xTeamDetail') && run && run.prologue; }
+          });
+        }, 350);
+      }
+      return;
+    }
+
+    // Section 2: the starter's evolution is armed — point at the ready
+    // Evolve button so the player actually uses the item.
+    if (run.section === 2 && !run.tutorialEvolved && mon && starterMon() === mon) {
+      var readyBtn = document.querySelector('#xTeamDetail .evo-btn.ready');
+      if (readyBtn && !CO.seen('evoUse')) {
+        setTimeout(function () {
+          if (!window.Modal.isOpen('xTeamDetail')) return;
+          CO.lesson('evoUse', {
+            surface: 'bubble',
+            anchor: readyBtn,
+            vital: true,
+            keepHalo: true,
+            stillValid: function () { return window.Modal.isOpen('xTeamDetail') && run && run.prologue && run.section === 2 && !run.tutorialEvolved; }
+          });
+        }, 350);
       }
     }
   }
@@ -4083,8 +4406,12 @@
   //   section 1, battle 0 (capture encounter) -> 'catch'      (ball rail)
   //   section 1, battle 1 (wild)              -> 'effect'     (the x2 move)
   //   section 1, battle 2 (wild)              -> 'switch'     (Party button)
-  //   section 1, battle 3 (trainer)           -> 'battleItem' (Bag button)
-  // All four are `vital`: if the surface is busy when they fire, they queue
+  //   section 1, battle 3 (trainer)           -> (no beat: the bag lesson
+  //                                               was removed; the route's
+  //                                               "Heal first!" covers it)
+  //   section 2, battle 0                     -> 'battleBag'  (Bag button —
+  //                                               heal with a Super Potion)
+  // All are `vital`: if the surface is busy when they fire, they queue
   // and still appear instead of being silently dropped.
   //
   // THE ARMED GLOW. `bctx.tutBeat` remembers which control the live beat
@@ -4094,11 +4421,11 @@
   // The next move during the tutorial is therefore always, literally,
   // "press the glowing thing".
   var BEAT_CLEARS = {
-    move:     { battleBar: 1, effect: 1 },
+    move:     { battleBag: 1, effect: 1 },
     ball:     { catch: 1 },
-    bag:      { battleBar: 1, battleItem: 1 },
-    'switch': { battleBar: 1, 'switch': 1 },
-    run:      { battleBar: 1, catch: 1, effect: 1, 'switch': 1, battleItem: 1 }
+    bag:      { battleBag: 1 },
+    'switch': { 'switch': 1 },
+    run:      { battleBag: 1, catch: 1, effect: 1, 'switch': 1 }
   };
 
   // The super-effective move button right now, if one is offered. Disabled
@@ -4112,7 +4439,9 @@
   }
 
   var BEAT_TARGETS = {
-    battleBar:  { resolve: function () { return document.querySelector('.battle-hud .actbar'); } },
+    // The whole-bar lesson is gone: the bag beat points ONLY at the Bag
+    // button, and the player heals with a Super Potion from inside.
+    battleBag:  { resolve: function () { return document.querySelector('.battle-hud [data-a="bag"]'); } },
     catch:      { side: 'right',
                   resolve: function () {
                     var rail = document.querySelector('.battle-hud .ballrail');
@@ -4127,8 +4456,7 @@
                     return document.querySelector('.battle-hud .mb')
                       ? document.querySelector('.battle-hud .mv') : null;
                   } },
-    'switch':   { resolve: function () { return document.querySelector('.battle-hud [data-a="switch"]'); } },
-    battleItem: { resolve: function () { return document.querySelector('.battle-hud [data-a="bag"]'); } }
+    'switch':   { resolve: function () { return document.querySelector('.battle-hud [data-a="switch"]'); } }
   };
 
   function armTutBeat(id) {
@@ -4175,57 +4503,78 @@
   function battleCoach(catchOpen) {
     var CO = window.Coach;
     if (!CO || !CO.tipsOn()) return;
-    setTimeout(function () {
-      if ($('screenBattle').hidden || !ui) return;
-      if (!document.querySelector('.battle-hud')) return;
+    // Short settle beat only: the capture-encounter tutorial must pop the
+    // moment the battle is on screen, not wait for the first turn to finish.
+    setTimeout(function () { runBattleCoach(catchOpen); }, 80);
+  }
 
-      // The HUD re-rendered for this request: re-pin the armed beat's glow
-      // on the fresh node and keep any open bubble glued to it.
-      repinTutGlow();
+  // The coach work itself, factored out so a prologue beat can RETRY if its
+  // subject (the ball rail, the move buttons) is not in the DOM yet — that is
+  // what makes the capture lesson appear instantly instead of a turn late.
+  function runBattleCoach(catchOpen) {
+    if ($('screenBattle').hidden || !ui) return;
+    if (!document.querySelector('.battle-hud')) return;
+    var CO = window.Coach;
+    if (!CO || !CO.tipsOn()) return;
 
-      var pro = run && run.prologue;
-      var n = run.battleInSection;
-      var isWild = bctx && bctx.cfg && bctx.cfg.isWild;
-      // A queued beat goes stale the moment the fight moves on or ends; the
-      // next natural beat re-requests it (turn requests re-run battleCoach).
-      var stillHere = function () {
-        return !$('screenBattle').hidden && run && run.battleInSection === n;
-      };
+    // The HUD re-rendered for this request: re-pin the armed beat's glow
+    // on the fresh node and keep any open bubble glued to it.
+    repinTutGlow();
 
-      if (pro && run.section === 1) {
-        if (n === 0 && isWild && !CO.seen('catch')) {
-          teachInBattle('catch', { vital: true, stillValid: stillHere });
+    var pro = run && run.prologue;
+    var n = run.battleInSection;
+    var isWild = bctx && bctx.cfg && bctx.cfg.isWild;
+    // A queued beat goes stale the moment the fight moves on or ends; the
+    // next natural beat re-requests it (turn requests re-run battleCoach).
+    var stillHere = function () {
+      return !$('screenBattle').hidden && run && run.battleInSection === n;
+    };
+
+    var requested = false;
+    if (pro && run.section === 1) {
+      if (n === 0 && isWild && !CO.seen('catch')) {
+        requested = teachInBattle('catch', { vital: true, stillValid: stillHere });
+      } else if (n === 1 && isWild && !CO.seen('effect')) {
+        requested = teachInBattle('effect', { vital: true, stillValid: stillHere });
+      } else if (n === 2 && isWild && !CO.seen('switch')) {
+        requested = teachInBattle('switch', { vital: true, stillValid: stillHere });
+      }
+      // Battle 3 (the Trainer) deliberately has NO in-battle beat: the route
+      // already warned to heal first, and the Bag was removed from the
+      // trainer lesson so the trainer fight stays about the fight.
+    }
+
+    // The Bag beat is deliberately NOT fired in any TRAINER battle while the
+    // guided run is still on (its trainer fight must stay free of it); it
+    // lands in section 2's first (wild) battle instead, and in every
+    // ordinary run's first battle whatever it is.
+    if (!requested && !CO.seen('battleBag') && !(pro && !isWild)) {
+      requested = teachInBattle('battleBag', {});
+    }
+
+    if (!requested && !CO.seen('effect')) {
+      requested = teachInBattle('effect', {});
+    }
+
+    if (!requested && catchOpen && !CO.seen('catch')) {
+      var info = battle.enemyInfo();
+      if (info && info.hpPct <= 0.7) requested = teachInBattle('catch', {});
+    }
+
+    // The subject was not in the DOM yet (first frames of a battle). Retry a
+    // few times so a scripted beat still lands the moment it can — this is
+    // the "instant catch lesson" guarantee.
+    if (pro && run.section === 1 && !requested && n === 0 && isWild && !CO.seen('catch')) {
+      var tries = 0;
+      var retry = setInterval(function () {
+        tries++;
+        if ($('screenBattle').hidden || !bctx || bctx.ended || tries > 12) {
+          clearInterval(retry);
           return;
         }
-        if (n === 1 && isWild && !CO.seen('effect')) {
-          teachInBattle('effect', { vital: true, stillValid: stillHere });
-          return;
-        }
-        if (n === 2 && isWild && !CO.seen('switch')) {
-          teachInBattle('switch', { vital: true, stillValid: stillHere });
-          return;
-        }
-        if (n === 3 && !isWild && !CO.seen('battleItem')) {
-          teachInBattle('battleItem', { vital: true, stillValid: stillHere });
-          return;
-        }
-      }
-
-      if (!CO.seen('battleBar')) {
-        teachInBattle('battleBar', {});
-        return;
-      }
-
-      if (!CO.seen('effect')) {
-        teachInBattle('effect', {});
-        return;
-      }
-
-      if (catchOpen && !CO.seen('catch')) {
-        var info = battle.enemyInfo();
-        if (info && info.hpPct <= 0.7) teachInBattle('catch', {});
-      }
-    }, 500);
+        if (teachInBattle('catch', { vital: true, stillValid: stillHere })) clearInterval(retry);
+      }, 250);
+    }
   }
 
   // Running from a wild battle: it never fails, but you forfeit the reward.
@@ -4648,6 +4997,9 @@
     }
 
     var swap = $('catchSwap');
+    // The guided run's "make it your lead" step points at the Pokemon that
+    // was just caught, so remember which one that was.
+    if (run && run.prologue) run._tutCatchUid = clone.uid;
     if (run.party.length < N.MAX_PARTY) {
       swap.innerHTML = '';
       $('btnCatchDone').hidden = true;
@@ -5306,6 +5658,13 @@
       stage.classList.remove('morphing');
       stage.classList.add('done');
       if (res.ok) {
+        // The guided run's evolution step is satisfied the moment the
+        // starter actually evolves (party sheet OR bag path).
+        if (run && run.prologue && run.tutorialStarterUid &&
+            String(mon.uid) === String(run.tutorialStarterUid)) {
+          run.tutorialEvolved = true;
+          saveGame();
+        }
         $('evoText').innerHTML = res.renamed
           ? ('Congratulations! <b>' + res.to + '</b> evolved into a ' + res.species + '!')
           : ('Congratulations! Your ' + res.fromSpecies + ' evolved into <b>' + res.species + '</b>!');
@@ -5817,6 +6176,22 @@
       }
     } catch (e) { console.warn('[boot] auto-resume failed', e); }
     $('btnTutorBack').addEventListener('click', function () {
+      // The guided training is complete once the player presses Done: every
+      // tab was walked through, so this is where the tutorial concludes —
+      // provided the forced evolution happened too (train-first players are
+      // sent back to evolve the starter before the prologue ends).
+      if (tutorGuide) {
+        var wasGuided = tutorGuideActive();
+        tutorGuide = null;
+        if (run && !run.tutorialTrained) {
+          run.tutorialTrained = true;
+          saveGame();
+        }
+        if (wasGuided) {
+          if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
+          if (run.tutorialEvolved || !starterMon()) concludeTutorial();
+        }
+      }
       svc = null;
       if (gbTraining) {
         gbTraining = false;
@@ -5831,9 +6206,9 @@
         renderCrossroads(); show('Crossroads');
       }
     });
-    // "Save progress" lives on every battle/section finish screen.
-    $('btnRewardSave').addEventListener('click', openSaveExport);
-    $('btnCatchSave').addEventListener('click', openSaveExport);
+    // "Save progress" lives only on the section summary now: saving is
+    // taught at the one moment it matters (a section done), not after every
+    // battle. The backup itself stays reachable from the menu.
     $('btnSumSave').addEventListener('click', openSaveExport);
     // Encrypted backup export and restore modals.
     $('btnSaveExportClose').addEventListener('click', closeSaveExport);
@@ -5929,6 +6304,8 @@
 
   window.Game = { get run() { return run; }, show: show, startNextBattle: startNextBattle,
                   startGauntlet: startGauntlet,
+                  // The guided training walkthrough's current step (tests).
+                  get tutorGuide() { return tutorGuide; },
                   // Sprite helpers (tests + console debugging).
                   spriteUrls: spriteUrls, prefetchSpecies: prefetchSpecies,
                   redrawRoute: renderCrossroads, toast: toast,

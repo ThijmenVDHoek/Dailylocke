@@ -146,26 +146,37 @@ run cannot end before the lesson about catching has happened.
 The guided run is a **scripted tutorial**, and every step is a vital beat
 (queue-backed, so a busy surface or an unlucky race can never swallow it):
 
-1. **The path** — how a section is shaped, on the route screen.
-2. **Capture encounter** (stop 1) — weaken it, then throw a ball. The catch
+1. **Choose your starter** — the very first card is the professor's immersive
+   dialog sheet (big portrait, typewriter reveal), setting the register for
+   the whole tutorial.
+2. **The path** — how a section is shaped, on the route screen. During
+   section 1 the Mart is hidden entirely; the route is just your team, your
+   Bag and the battle button.
+3. **Capture encounter** (stop 1) — the lesson pops the moment the battle
+   opens (no waiting a turn): weaken it, then throw a ball. The catch
    success is explained too.
-3. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
-   move the player's lead actually carries, so the ×2 tag the lesson points
-   at is always there to press.
-4. **Switching** (stop 3).
-5. **Items in battle** (stop 4, the Trainer) — healing from the Bag, with a
-   *heal first!* warning on the route just before.
-6. **Saving** (the section summary).
-7. **The Mart** (section 2, in order): Balls → Medicine → Held items,
-   including how to give one to a Pokémon.
-8. **Evolution** — and with it the tutorial concludes: the prologue flags
-   clear, the safety net is already gone (it only ever covered section 1),
-   and the run continues as an ordinary one with normal randomness.
+4. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
+   move the *starter* carries, so the ×2 tag the lesson points at is always
+   there to press.
+5. **Your new lead** — a step teaches making the caught Pokémon the lead,
+   right before the switching lesson that pairs with it.
+6. **Switching** (stop 3). The Trainer battle itself has no Bag step — the
+   route's *heal first!* warning covers it.
+7. **Saving** (the section summary) — the only place the Save button appears,
+   and the lesson is honest: the run lives in this browser session, the
+   backup file is what survives a cleared browser.
+8. **Evolution** (section 2) — *forced*: buy the Rare Candy from the Mart and
+   actually use it to evolve your starter before the tutorial lets go.
+9. **Training** (section 2) — a hand-held walkthrough through the Train
+   service: replace a move, pick an ability, pick a nature, move a Stat
+   Point, press Done. With that, the tutorial concludes in section 2: the
+   prologue flags clear and the run continues as an ordinary one with normal
+   randomness, without any section-3 lesson repetition.
 
 (*"Skip tips"* from any card, or turning tips off in Profile mid-run, also
 ends the tutorial and hands over the ordinary game.)
 
-**3. Just-in-time lessons.** 22 lessons, each fired by an *interaction*,
+**3. Just-in-time lessons.** 17 lessons, each fired by an *interaction*,
 never a timer, and every one rendered on **one surface: the professor's
 dialog sheet** — modal, the big portrait, a typewriter reveal. When a lesson
 is *about* an element (the ball rail, the Party button, the Save progress

@@ -263,27 +263,30 @@
                             'wooper', 'marill', 'oddish', 'bellsprout', 'slugma',
                             'numel', 'vulpix'];
 
-  // The damaging STAB move types the player's lead can use right now. A
-  // wild is "teachable" for the super-effective lesson only when one of
-  // these hits it for 2x or more.
-  function leadStabTypes(run) {
-    var lead = run && run.party && run.party[0];
-    if (!lead) return [];
-    var types = lead.types && lead.types.length ? lead.types.slice() : [];
-    if (!types.length && lead.id) {
-      var sp0 = Dex.species.get(lead.id);
+  // The starter's STAB types. The guided run's super-effective battle must
+  // be weak to the STARTER's moves (that is the lesson being taught),
+  // regardless of who currently leads the party.
+  function starterStabTypes(run) {
+    var starter = null;
+    if (run && run.tutorialStarterUid && run.party) {
+      for (var i = 0; i < run.party.length; i++) {
+        if (String(run.party[i].uid) === String(run.tutorialStarterUid)) { starter = run.party[i]; break; }
+      }
+    }
+    if (!starter) starter = (run && run.party && run.party[0]) || null;
+    if (!starter) return [];
+    var types = starter.types && starter.types.length ? starter.types.slice() : [];
+    if (!types.length && starter.id) {
+      var sp0 = Dex.species.get(starter.id);
       if (sp0 && sp0.exists) types = (sp0.types || []).slice();
     }
     var out = [];
-    (lead.moves || []).forEach(function (mv) {
+    (starter.moves || []).forEach(function (mv) {
       var d = Dex.moves.get(mv);
       if (!d || !d.exists || d.category === 'Status') return;
       if (types.indexOf(d.type) < 0) return;
       if (out.indexOf(d.type) < 0) out.push(d.type);
     });
-    // Generated movesets always carry STAB, so this only matters for unusual
-    // saved data: fall back to the lead's own types, which is what a player
-    // reaches for first anyway.
     if (!out.length) types.forEach(function (t) { if (out.indexOf(t) < 0) out.push(t); });
     return out;
   }
@@ -300,10 +303,11 @@
       // cannot end the run before the player knows what a Poke Ball is.
       var pr = drand(run.seed + '|prologue|' + run.battleInSection);
       // The SECOND battle teaches super-effective damage on a live target:
-      // prefer a species the lead's STAB actually hits for 2x+, so the
-      // lesson and the battle describe the same move.
+      // prefer a species the STARTER's STAB actually hits for 2x+, so the
+      // lesson and the battle describe the same move even if the player has
+      // already reordered the party.
       if (run.battleInSection === 1) {
-        var weakTo = leadStabTypes(run);
+        var weakTo = starterStabTypes(run);
         if (weakTo.length) {
           var wpool = PROLOGUE_WILDS.concat(PROLOGUE_WEAK_POOL).filter(function (id) {
             var spw = Dex.species.get(id);
