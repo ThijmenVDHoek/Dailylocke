@@ -3236,6 +3236,16 @@
     // sprites, no moves).
     void host.offsetHeight;
     ui = new window.BattleUI(); ui.mount(host);
+    // Keep tutorial annotations glued across HUD re-renders: any redraw
+    // (sprites loading, HP bars settling, ...) replaces the exact nodes a
+    // coach glow or bubble points at. Re-pinning only per battle request
+    // would leave the taught control dark for the rest of the turn.
+    var baseRender = ui.render.bind(ui);
+    ui.render = function () {
+      var ret = baseRender.apply(null, arguments);
+      try { repinTutGlow(); } catch (e) {}
+      return ret;
+    };
     return ui;
   }
 
@@ -4020,6 +4030,7 @@
       a: null
     };
     ui.setMoves(moves, megaFlags, function (ch) {
+      clearTutBeat('move');
       ui.setMsg('...');
       // Use the original engine index, not the filtered array index
       var move = moves[ch.moveIndex];
@@ -4051,9 +4062,9 @@
       // running from a trainer -- so those buttons are not offered at all.
       noBag: N.isGauntlet(run),
       noRun: N.isGauntlet(run),
-      onBag: showBagPanel,
-      onSwitch: function () { showPartyPanel(false); },
-      onRun: fleeBattle
+      onBag: function () { clearTutBeat('bag'); showBagPanel(); },
+      onSwitch: function () { clearTutBeat('switch'); showPartyPanel(false); },
+      onRun: function () { clearTutBeat('run'); fleeBattle(); }
     });
 
     // Poke Balls are a floating rail on the right, only while the encounter
@@ -4065,17 +4076,112 @@
   }
 
   // ---- in-battle teaching --------------------------------------------------
-  // One lesson per request at most, ordered so the first thing a player is
-  // ever told is what the buttons do -- not what STAB is. The guided run's
-  // four battle beats (catch -> super effective -> switch -> battle item)
-  // are `vital`: if the surface is busy when they fire, they queue and still
-  // appear instead of being silently dropped.
+  // Battle beats are anchored coach BUBBLES, not modal sheets: the fight
+  // keeps running underneath them, they dismiss with one tap, and the
+  // control they explain KEEPS ITS GLOW until the player actually uses it.
+  // The guided run's battle beats, in the order the run makes them matter:
+  //   section 1, battle 0 (capture encounter) -> 'catch'      (ball rail)
+  //   section 1, battle 1 (wild)              -> 'effect'     (the x2 move)
+  //   section 1, battle 2 (wild)              -> 'switch'     (Party button)
+  //   section 1, battle 3 (trainer)           -> 'battleItem' (Bag button)
+  // All four are `vital`: if the surface is busy when they fire, they queue
+  // and still appear instead of being silently dropped.
+  //
+  // THE ARMED GLOW. `bctx.tutBeat` remembers which control the live beat
+  // teaches: every HUD re-render re-pins .coach-spot on the fresh node (the
+  // HUD replaces nodes as it redraws), and the beat only releases when the
+  // player performs the action it taught (BEAT_CLEARS) or the battle ends.
+  // The next move during the tutorial is therefore always, literally,
+  // "press the glowing thing".
+  var BEAT_CLEARS = {
+    move:     { battleBar: 1, effect: 1 },
+    ball:     { catch: 1 },
+    bag:      { battleBar: 1, battleItem: 1 },
+    'switch': { battleBar: 1, 'switch': 1 },
+    run:      { battleBar: 1, catch: 1, effect: 1, 'switch': 1, battleItem: 1 }
+  };
+
+  // The super-effective move button right now, if one is offered. Disabled
+  // (mid-animation) still counts: the button being explained is the same one.
+  function seMoveBtn() {
+    var mbs = document.querySelectorAll('.battle-hud .mb');
+    for (var i = 0; i < mbs.length; i++) {
+      if (mbs[i].querySelector('.ef.se')) return mbs[i];
+    }
+    return null;
+  }
+
+  var BEAT_TARGETS = {
+    battleBar:  { resolve: function () { return document.querySelector('.battle-hud .actbar'); } },
+    catch:      { side: 'right',
+                  resolve: function () {
+                    var rail = document.querySelector('.battle-hud .ballrail');
+                    return (rail && rail.querySelector('.br-btn')) ? rail : null;
+                  } },
+    effect:     { resolve: function () {
+                    var se = seMoveBtn();
+                    if (se) return se;
+                    // Fall back to the whole grid only while moves are on
+                    // offer -- during a forced switch the grid holds the
+                    // party panel, and glowing THAT teaches the wrong thing.
+                    return document.querySelector('.battle-hud .mb')
+                      ? document.querySelector('.battle-hud .mv') : null;
+                  } },
+    'switch':   { resolve: function () { return document.querySelector('.battle-hud [data-a="switch"]'); } },
+    battleItem: { resolve: function () { return document.querySelector('.battle-hud [data-a="bag"]'); } }
+  };
+
+  function armTutBeat(id) {
+    var tgt = BEAT_TARGETS[id];
+    if (bctx && tgt) bctx.tutBeat = { id: id, resolve: tgt.resolve };
+  }
+
+  function clearTutBeat(action) {
+    if (!bctx || !bctx.tutBeat || !BEAT_CLEARS[action] || !BEAT_CLEARS[action][bctx.tutBeat.id]) return;
+    bctx.tutBeat = null;
+    // The taught action just happened: the explanation has done its job, so
+    // bubble and glow both go.
+    if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
+  }
+
+  // Re-pin the armed beat's glow and re-glue any open bubble onto the living
+  // node. Called after every HUD re-render (see ensureUI) and on every
+  // battle request -- the taught control must stay lit for the whole beat.
+  function repinTutGlow() {
+    var CO = window.Coach;
+    if (!CO || !bctx || !bctx.tutBeat) return;
+    var lit = bctx.tutBeat.resolve();
+    if (lit && !lit.classList.contains('coach-spot')) CO.halo({ anchor: lit });
+    if (CO.reanchorBubble) CO.reanchorBubble();
+  }
+
+  function teachInBattle(id, opts) {
+    var CO = window.Coach;
+    var tgt = BEAT_TARGETS[id];
+    if (!CO || !tgt) return false;
+    if (!tgt.resolve()) return false;   // no live subject yet: next request retries
+    opts = opts || {};
+    return CO.lesson(id, {
+      surface: 'bubble',
+      resolve: tgt.resolve,
+      side: tgt.side,
+      vital: !!opts.vital,
+      stillValid: opts.stillValid,
+      keepHalo: true,
+      onShow: function () { armTutBeat(id); }
+    });
+  }
+
   function battleCoach(catchOpen) {
     var CO = window.Coach;
     if (!CO || !CO.tipsOn()) return;
     setTimeout(function () {
       if ($('screenBattle').hidden || !ui) return;
       if (!document.querySelector('.battle-hud')) return;
+
+      // The HUD re-rendered for this request: re-pin the armed beat's glow
+      // on the fresh node and keep any open bubble glued to it.
+      repinTutGlow();
 
       var pro = run && run.prologue;
       var n = run.battleInSection;
@@ -4088,40 +4194,38 @@
 
       if (pro && run.section === 1) {
         if (n === 0 && isWild && !CO.seen('catch')) {
-          CO.lesson('catch', { anchorSel: '.battle-hud .ballrail', vital: true, stillValid: stillHere });
+          teachInBattle('catch', { vital: true, stillValid: stillHere });
           return;
         }
         if (n === 1 && isWild && !CO.seen('effect')) {
-          CO.lesson('effect', { anchorSel: '.battle-hud .mv', vital: true, stillValid: stillHere });
+          teachInBattle('effect', { vital: true, stillValid: stillHere });
           return;
         }
         if (n === 2 && isWild && !CO.seen('switch')) {
-          CO.lesson('switch', { anchorSel: '.battle-hud [data-a="switch"], .battle-hud .actbar', vital: true, stillValid: stillHere });
+          teachInBattle('switch', { vital: true, stillValid: stillHere });
           return;
         }
         if (n === 3 && !isWild && !CO.seen('battleItem')) {
-          CO.lesson('battleItem', { anchorSel: '.battle-hud [data-a="bag"], .battle-hud .actbar', vital: true, stillValid: stillHere });
+          teachInBattle('battleItem', { vital: true, stillValid: stillHere });
           return;
         }
       }
 
       if (!CO.seen('battleBar')) {
-        CO.lesson('battleBar', { anchorSel: '.battle-hud .actbar' });
+        teachInBattle('battleBar', {});
         return;
       }
 
       if (!CO.seen('effect')) {
-        CO.lesson('effect', { anchorSel: '.battle-hud .mv' });
+        teachInBattle('effect', {});
         return;
       }
 
       if (catchOpen && !CO.seen('catch')) {
         var info = battle.enemyInfo();
-        if (info && info.hpPct <= 0.7) {
-          CO.lesson('catch', { anchorSel: '.battle-hud .ballrail' });
-        }
+        if (info && info.hpPct <= 0.7) teachInBattle('catch', {});
       }
-    }, 620);
+    }, 500);
   }
 
   // Running from a wild battle: it never fails, but you forfeit the reward.
@@ -4466,6 +4570,9 @@
 
   function onCaught() {
     battle.sync();
+    // A break-free keeps the rail lit for the retry; the catch itself is
+    // what the beat was teaching, so its glow ends here.
+    clearTutBeat('ball');
     var caught = (battle.activeEnemyMon ? battle.activeEnemyMon() : null) || bctx.enemies[0];
     var clone = JSON.parse(JSON.stringify(caught));
     clone.uid = 'c' + Date.now();

@@ -26,16 +26,19 @@
 //   5. Always skippable, always replayable. "Skip all tips" is permanent and
 //      reversible from Profile; every lesson can be re-read from the Guide.
 //
-// ONE SURFACE: THE PROFESSOR'S SHEET
-//   Every lesson renders the same way: a modal dialog sheet with the big
-//   professor portrait and the typewriter text reveal. The small anchored
-//   coach-mark pill was retired -- two visual registers for the same job kept
-//   confusing players about what was a lesson and what was a floating button,
-//   and every pill-specific bug class (anchor re-rendered away, anchored into
-//   a closed dialog, dropped below a scrim) vanished with it. When a caller
-//   names the element the lesson is ABOUT (anchor / anchorSel), the sheet
-//   still paints the violet halo on it for as long as the sheet is up, so the
-//   link between the words and the thing stays visible.
+// TWO SURFACES, ONE REGISTER
+//   Every lesson is the professor, the violet rail and the halo; which frame
+//   carries it depends on WHERE the player is:
+//     * OUT of battle -- the modal sheet (big portrait, typewriter reveal).
+//       The game is already paused on a menu screen, so the card can safely
+//       take the whole focus.
+//     * IN battle -- the anchored bubble. The fight stays live underneath:
+//       the bubble pops right beside the control it explains, dismisses with
+//       one tap, and the control keeps its violet halo until the player
+//       actually uses it. The taught action is always "press the glowing
+//       thing", so nothing has to be held in memory under fire.
+//   The small unattached coach-mark pill stays retired; a bubble is always
+//   ANCHORED to the element it is about (anchor / anchorSel / resolve).
 //
 // WHAT LIVES WHERE
 //   Coach.lesson(id, ...)   fire a lesson (deduped, queued, respects opt-out)
@@ -577,15 +580,18 @@
   function modeInfo(m) { return MODES[m] || null; }
 
   // ========================================================== PRESENTATION ==
-  // ONE surface: the modal lesson sheet, always with the big professor
-  // portrait and the typewriter reveal. The retired anchored pill carried its
-  // own whole bug class (anchor re-rendered away mid-hint, hint buried under
-  // a scrim, anchored into a dialog that then closed); the sheet has none of
-  // those states because the modal controller owns its lifecycle.
+  // Two surfaces sharing one visual register and one queue:
+  //   * the modal lesson sheet (everything outside battle) -- the modal
+  //     controller owns its lifecycle;
+  //   * the anchored bubble (inside battle) -- non-modal, dismissed by a tap,
+  //     anchored via `resolve` so it survives the HUD re-rendering the node
+  //     it points at.
   //
-  // When the caller names what the lesson is ABOUT (anchor / anchorSel), the
-  // sheet paints the violet halo on that element for as long as it is open,
-  // so "tap THIS button" stays literal.
+  // When the caller names what the lesson is ABOUT (anchor / anchorSel /
+  // resolve), the violet halo lands on that element. On the sheet it lasts
+  // for the sheet's lifetime. On the bubble it OUTLIVES the bubble (the
+  // `keepHalo` beats): the glow -- not the card -- is what carries "press
+  // THIS" after the player looks away. Screen transitions always sweep it.
 
   var busy = false;          // a card is on screen right now
   var cooldownUntil = 0;     // no second card for a moment after one closes
@@ -621,7 +627,14 @@
   }
 
   function pump() {
-    if (busy || Date.now() < cooldownUntil || !pending.length) return;
+    if (!pending.length) return;
+    // Too early for this beat: RE-ARM instead of dying. An armed pump timer
+    // can land inside a busy/cooldown window that only came into existence
+    // after the timer was set (a surface opened, or the previous surface
+    // closed and started a fresh cooldown, while the timer was in flight) —
+    // and a consumed timer used to leave queued tutorial beats stranded with
+    // nothing left to ever fire them again.
+    if (busy || Date.now() < cooldownUntil) { schedulePump(); return; }
     while (pending.length && !busy) {
       var next = pending.shift();
       if (!tipsOn() || seen(next.id)) continue;
@@ -653,24 +666,35 @@
   }
 
   // ---- the halo ------------------------------------------------------------
-  // The element a sheet is talking about glows violet for the sheet's whole
-  // lifetime. It re-resolves selector anchors once after opening, so a HUD
-  // re-render in the same beat doesn't drop the link.
+  // The element a lesson is talking about glows violet. `resolve` anchors are
+  // preferred over live nodes and selectors: the battle HUD re-renders after
+  // every action, replacing the exact node a lesson was pointed at, and only
+  // a resolver can find the fresh twin. It re-resolves once after opening, so
+  // a re-render in the same beat doesn't drop the link.
   var haloTimer = null;
   function sweepHalo() {
     var all = document.querySelectorAll('.coach-spot');
     for (var i = 0; i < all.length; i++) all[i].classList.remove('coach-spot');
     if (haloTimer) { clearTimeout(haloTimer); haloTimer = null; }
   }
+  function resolveTarget(opts) {
+    if (!opts) return null;
+    if (typeof opts.resolve === 'function') {
+      var r = null;
+      try { r = opts.resolve(); } catch (e) {}
+      if (r) return r;
+    }
+    return opts.anchor || (opts.anchorSel ? document.querySelector(opts.anchorSel) : null);
+  }
   function applyHalo(opts) {
     sweepHalo();
     if (!opts) return;
-    var t = opts.anchor || (opts.anchorSel ? document.querySelector(opts.anchorSel) : null);
+    var t = resolveTarget(opts);
     if (t && t.isConnected && !t.closest('[hidden]')) t.classList.add('coach-spot');
-    if (opts.anchorSel) {
+    if (opts.anchorSel || typeof opts.resolve === 'function') {
       haloTimer = setTimeout(function () {
         haloTimer = null;
-        var n = document.querySelector(opts.anchorSel);
+        var n = resolveTarget(opts);
         var lit = document.querySelector('.coach-spot');
         if (lit && !lit.isConnected) lit.classList.remove('coach-spot');
         if ((!lit || !lit.isConnected) && n && n.isConnected && !n.closest('[hidden]')) {
@@ -685,6 +709,8 @@
     opts = opts || {};
     var el = document.getElementById('screenCoach');
     if (!el || !window.Modal) { if (opts.onDone) opts.onDone(); return; }
+    // One coach surface at a time: a sheet wins over any open battle bubble.
+    dismissBubble({ quiet: true });
 
     var card = el.querySelector('.overlay-card');
 
@@ -716,6 +742,7 @@
         if (opts.onDone) { try { opts.onDone(); } catch (e) {} }
       }
     });
+    if (opts.onShow) { try { opts.onShow(); } catch (e) {} }
 
     // The typewriter reveal: text appears character by character with a soft
     // blip, and a tap finishes the line immediately.
@@ -739,17 +766,164 @@
     });
   }
 
+  // ---- the anchored battle bubble -----------------------------------------
+  // The in-battle surface. A modal sheet would freeze the fight behind it and
+  // turn every battle beat into an interruption; the bubble instead pops
+  // BESIDE the control it explains while the battle stays playable. One tap
+  // on it (or on the glowing control itself, which is the natural response)
+  // dismisses it -- and for `keepHalo` beats the control keeps glowing until
+  // the action actually happens, so the player never has to remember what
+  // the card said, only to press the thing that is lit up.
+  var bubbleEl = null;       // the popover node
+  var bubbleOpts = null;     // opts of the open bubble (null = none open)
+
+  function ensureBubble() {
+    if (bubbleEl) return bubbleEl;
+    bubbleEl = document.createElement('div');
+    bubbleEl.className = 'coach-bubble';
+    bubbleEl.setAttribute('role', 'note');
+    bubbleEl.hidden = true;
+    // Attached once, delegated: clicking anywhere on the bubble dismisses it,
+    // including the "Got it" button. Never re-bound on re-renders.
+    bubbleEl.addEventListener('click', function () { dismissBubble(); });
+    document.body.appendChild(bubbleEl);
+    return bubbleEl;
+  }
+
+  function bubbleKey(e) {
+    if (e.key === 'Escape' && bubbleOpts) dismissBubble();
+  }
+
+  function placeBubble(target, side) {
+    var b = ensureBubble();
+    var r = target.getBoundingClientRect();
+    b.hidden = false;                         // measure, then position
+    b.style.left = '0px'; b.style.top = '0px';
+    var bw = b.offsetWidth, bh = b.offsetHeight;
+    var pad = 8, gap = 12;
+    b.classList.remove('below', 'side-right', 'side-left');
+    var left, top;
+    if (side === 'right' && r.right + gap + bw + pad <= window.innerWidth) {
+      b.classList.add('side-right');
+      left = r.right + gap;
+      top = r.top + r.height / 2 - bh / 2;
+    } else if (side === 'left' && r.left - gap - bw - pad >= 0) {
+      b.classList.add('side-left');
+      left = r.left - gap - bw;
+      top = r.top + r.height / 2 - bh / 2;
+    } else {
+      // Default: above the target, flipping below when there is no room.
+      left = r.left + r.width / 2 - bw / 2;
+      top = r.top - bh - gap;
+      if (top < pad) { top = r.bottom + gap; b.classList.add('below'); }
+    }
+    left = Math.max(pad, Math.min(left, window.innerWidth - bw - pad));
+    top = Math.max(pad, Math.min(top, window.innerHeight - bh - pad));
+    b.style.left = Math.round(left) + 'px';
+    b.style.top = Math.round(top) + 'px';
+    // Keep the arrow aimed at the target's centre even when clamping dragged
+    // the bubble off axis.
+    var arrow = b.querySelector('.cb-arrow');
+    if (arrow) {
+      if (b.classList.contains('side-right') || b.classList.contains('side-left')) {
+        arrow.style.left = '';
+        arrow.style.top = Math.max(14, Math.min(bh - 14, Math.round(r.top + r.height / 2 - top))) + 'px';
+      } else {
+        arrow.style.top = '';
+        arrow.style.left = Math.max(14, Math.min(bw - 14, Math.round(r.left + r.width / 2 - left))) + 'px';
+      }
+    }
+  }
+
+  function showBubble(lesson, opts) {
+    opts = opts || {};
+    var t = resolveTarget(opts);
+    if (!t || !t.isConnected || t.closest('[hidden]')) {
+      // The thing the lesson points at is gone; drop quietly exactly like a
+      // stale sheet beat -- the natural call site re-requests at the next
+      // appropriate moment.
+      if (opts.onDone) { try { opts.onDone(); } catch (e) {} }
+      return;
+    }
+    dismissBubble({ quiet: true });   // one coach surface at a time
+    var b = ensureBubble();
+    b.innerHTML =
+      '<span class="coach-portrait">' + advisorImg(38) + '</span>' +
+      '<div class="cb-main">' +
+        '<b class="cb-title">' + esc(lesson.title) + '</b>' +
+        '<p class="cb-body">' + lesson.body + '</p>' +
+        '<button type="button" class="cb-ok" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>' +
+      '</div>' +
+      '<span class="cb-arrow" aria-hidden="true"></span>';
+    bubbleOpts = opts;
+    setBusy(true);
+    applyHalo(opts);
+    placeBubble(t, opts.side);
+    document.addEventListener('keydown', bubbleKey);
+    requestAnimationFrame(function () { b.classList.add('on'); });
+    // Re-glue once after opening: a HUD re-render in the same beat (entrance
+    // animations) can swap the anchored node for an identical fresh one.
+    setTimeout(function () {
+      if (!bubbleOpts || !bubbleEl || bubbleEl.hidden) return;
+      var n = resolveTarget(bubbleOpts);
+      if (n && n.isConnected && !n.closest('[hidden]')) placeBubble(n, bubbleOpts.side);
+    }, 340);
+    if (opts.onShow) { try { opts.onShow(); } catch (e) {} }
+  }
+
+  // `quiet`: a replacement surface is already opening -- leave `busy` alone
+  // and do not fire the caller's completion hook.
+  // `sweep`: take the halo down too (screen transitions); otherwise the
+  // element keeps glowing for keepHalo beats.
+  function dismissBubble(opts) {
+    opts = opts || {};
+    if (!bubbleOpts) return;
+    var o = bubbleOpts;
+    bubbleOpts = null;
+    if (bubbleEl) {
+      bubbleEl.classList.remove('on');
+      document.removeEventListener('keydown', bubbleKey);
+      setTimeout(function () { if (!bubbleOpts && bubbleEl) bubbleEl.hidden = true; }, 170);
+    }
+    if (!o.keepHalo || opts.sweep) sweepHalo();
+    if (opts.quiet) return;
+    setBusy(false);
+    if (o.onDone) { try { o.onDone(); } catch (e) {} }
+  }
+
+  // The battle HUD re-renders after every action, replacing the node a bubble
+  // points at. app.js calls this on each re-render so the bubble (and, via
+  // the resolve target, the halo) stays glued to the living control.
+  function reanchorBubble() {
+    if (!bubbleOpts || !bubbleEl || bubbleEl.hidden) return;
+    var t = resolveTarget(bubbleOpts);
+    if (t && t.isConnected && !t.closest('[hidden]')) placeBubble(t, bubbleOpts.side);
+    else dismissBubble();   // the thing it explained is gone: drop quietly
+  }
+
+  // A dialog (any dialog) wins the surface: the bubble yields rather than
+  // floating over a scrim. The armed glow stays behind -- the beat resumes
+  // meaning as soon as the dialog closes.
+  document.addEventListener('modal:open', function () { dismissBubble(); });
+
   // Release the surface. Called on every screen transition by app.js: a halo
   // must never survive the screen it described, and `busy` must self-heal if
   // a sheet vanished without routing through Modal.close (a screen change
   // can hide an overlay directly, and then onClose never runs).
   function clearMark() {
+    dismissBubble({ sweep: true });
     sweepHalo();
     if (busy && !(window.Modal && window.Modal.isOpen('screenCoach'))) setBusy(false);
   }
 
   // ---- the public entry point ---------------------------------------------
   // Coach.lesson('mart', { anchor: el, vital: true, stillValid: fn })
+  // Coach.lesson('catch', { surface:'bubble', resolve: fn, keepHalo: true })
+  //
+  // `surface: 'bubble'` picks the non-modal anchored bubble (battle beats);
+  // everything else renders as the modal sheet. For bubbles, `resolve` finds
+  // the subject fresh each time the HUD re-renders, and `keepHalo` leaves the
+  // glow standing after the bubble itself is dismissed.
   //
   // Silently does nothing when: tips are off, this lesson was already seen,
   // the beat's own context is gone (`stillValid` says so), or another card is
@@ -778,7 +952,8 @@
       }
     }
     if (!opts.force) markSeen(id);
-    showSheet(l, opts);
+    if (opts.surface === 'bubble') showBubble(l, opts);
+    else showSheet(l, opts);
     return true;
   }
 
@@ -821,6 +996,7 @@
     LESSONS: LESSONS, lessonById: lessonById, MODES: MODES, modeInfo: modeInfo,
     // presentation
     lesson: lesson, replay: replay, sheet: showSheet, clearMark: clearMark,
+    halo: applyHalo, reanchorBubble: reanchorBubble,
     tipBadge: tipBadge,
     get busy() { return busy; },
     get pendingCount() { return pending.length; }

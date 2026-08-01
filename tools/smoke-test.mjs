@@ -1191,14 +1191,29 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
 
   window.Game.startNextBattle();
 
-  // 1. The catch lesson opens in battle, over the rails it describes.
-  const catchSheet = await until3(() =>
-    window.Modal.isOpen('screenCoach') &&
-      window.document.getElementById('coachTitle').textContent, 30000);
-  check('the capture encounter opens the catch lesson in battle',
-    !!catchSheet && window.document.getElementById('coachTitle').textContent === 'Catch your first!',
-    catchSheet ? window.document.getElementById('coachTitle').textContent : 'NO SHEET');
-  if (catchSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  // 1. The catch lesson pops as an anchored coach BUBBLE inside the battle --
+  //    never as a modal sheet freezing the fight -- and the ball rail it
+  //    describes keeps glowing until a ball is actually thrown.
+  const catchBubble = await until3(() => {
+    const cl = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return cl && cl.textContent;
+  }, 30000);
+  check('the capture encounter pops the catch bubble in battle',
+    !!catchBubble && catchBubble === 'Catch your first!',
+    catchBubble || 'NO BUBBLE');
+  check('no modal sheet freezes the battle for a battle beat',
+    !window.Modal.isOpen('screenCoach'));
+  check('the ball rail glows while the bubble explains it',
+    !!window.document.querySelector('#battleHost .ballrail.coach-spot'));
+  if (catchBubble) {
+    const okBtn = window.document.querySelector('.coach-bubble [data-coach-ok]');
+    if (okBtn) okBtn.click();
+  }
+  // The glow is the actual teaching: it must OUTLIVE the bubble so the
+  // taught action stays "press the glowing thing" after the card is gone.
+  await new Promise((r) => setTimeout(r, 300));
+  check('the rail keeps glowing after the bubble is dismissed',
+    !!window.document.querySelector('#battleHost .ballrail.coach-spot'));
 
   // 2. Moves render on the scripted battle, but none is clicked: the bag
   //    holds only Master Balls and the throw goes FIRST, on the opening
@@ -1255,6 +1270,9 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     'leadLvl=' + (lead3.level),
     'DIARY: ' + diary.slice(-10).join(' /// '),
   ].join(' | '));
+
+  check('the taught glow clears once the ball has landed',
+    !window.document.querySelector('.coach-spot'));
 
   // 3. The "caught" lesson greets the new teammate on the Catch screen.
   const caughtSheet = await until3(() =>
@@ -2276,6 +2294,30 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
     check('...and it still plays without another sheet freeing the surface',
       window.Modal.isOpen('screenCoach') && CO.seen('mart'));
     window.Modal.closeAll();
+
+    // 2f. REGRESSION -- the pump was armed at +630ms when the beat queued;
+    //     the player then dismissed the live card quickly, starting a FRESH
+    //     550ms cooldown that outlasted the armed timer. The timer fired
+    //     inside that cooldown and was consumed with nothing ever re-armed:
+    //     every queued beat sat in the queue forever. (Found by driving the
+    //     whole guided run; it stranded the section-2 shop series.)
+    await freshCoach();
+    CO.lesson('route');                        // surface taken
+    CO.lesson('mart', { vital: true });        // queued; pump armed at +630
+    check('the vital beat queues behind the live card', CO.pendingCount === 1);
+    await new Promise((r) => setTimeout(r, 120));   // a fast reader dismisses
+    window.document.querySelector('#screenCoach [data-coach-ok]').click();
+    {
+      const t0 = Date.now();
+      let played = false;
+      while (Date.now() - t0 < 2600) {
+        if (window.Modal.isOpen('screenCoach') && CO.seen('mart')) { played = true; break; }
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      check('a pump landing inside a fresh cooldown re-arms instead of dying', played);
+    }
+    window.Modal.closeAll();
+    await settle();
 
     // 3. Two sheets in a row: Modal.open() is a no-op when the dialog is
     //    already on the stack, so the onClose that clears `busy` was never

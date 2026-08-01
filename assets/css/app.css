@@ -2004,6 +2004,45 @@ body.modal-open { overflow:hidden; }
   .coach-spot { animation:none; }
 }
 
+/* ---- the anchored battle bubble ---- */
+/* The in-battle teaching surface: same violet register as the modal sheet
+   (portrait + rail), but non-modal — the fight stays playable underneath it.
+   It dismisses with one tap, and the element it describes keeps the
+   .coach-spot halo until the player actually uses it. */
+.coach-bubble {
+  position:fixed; z-index:1300; max-width:274px;
+  display:flex; gap:10px; align-items:flex-start;
+  padding:11px 12px; border-radius:var(--r-md); border-left:3px solid var(--violet);
+  background:linear-gradient(180deg, rgba(30,20,44,.97), rgba(14,18,32,.98));
+  box-shadow:0 14px 40px rgba(0,0,0,.65);
+  color:var(--ink); font-size:.88rem; line-height:1.45; cursor:pointer;
+  opacity:0; transform:translateY(4px) scale(.97);
+  transition:opacity .16s ease-out, transform .16s ease-out;
+}
+.coach-bubble.on { opacity:1; transform:translateY(0) scale(1); }
+.coach-bubble[hidden] { display:none; }
+.coach-bubble .coach-portrait { padding:2px; }
+.cb-main { flex:1; min-width:0; }
+.cb-title { display:block; color:#fff; font-size:.95rem; margin-bottom:2px; }
+.cb-body { margin:0; color:var(--ink-2); font-size:.84rem; line-height:1.45; }
+.cb-body b { color:#fff; }
+.cb-ok {
+  margin-top:8px; padding:5px 16px; border:none; border-radius:var(--r-pill);
+  background:var(--violet); color:#fff; font-family:inherit; font-size:.78rem;
+  letter-spacing:.4px; cursor:pointer;
+}
+/* the arrow aims at the explained element; JS nudges it when clamped */
+.cb-arrow {
+  position:absolute; width:10px; height:10px; bottom:-5px;
+  background:rgba(14,18,32,.98); transform:rotate(45deg);
+}
+.coach-bubble.below .cb-arrow { bottom:auto; top:-5px; }
+.coach-bubble.side-right .cb-arrow { bottom:auto; top:50%; left:-5px; }
+.coach-bubble.side-left .cb-arrow { bottom:auto; top:50%; left:auto; right:-5px; }
+@media (prefers-reduced-motion:reduce) {
+  .coach-bubble { transition:none; }
+}
+
 /* ---- the ✦Tip badge ---- */
 /* Marks a thing worth choosing. Small, warm, and never on more than a couple
    of items at once — a badge on everything is a badge on nothing. */
