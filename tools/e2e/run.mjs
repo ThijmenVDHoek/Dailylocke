@@ -134,10 +134,11 @@ async function playBattle(page, { maxTurns = 40 } = {}) {
 }
 
 // Drive the guided first run hands-free: battles play themselves, every
-// professor sheet is read (titles recorded in order) and dismissed, nickname
-// prompts are answered, and post-battle screens are tapped through. This is
-// the scripted tutorial's regression harness — "steps never appeared" was a
-// shipped bug, so the e2e now plays the script the way a player would.
+// professor surface — modal sheets out of battle, anchored bubbles in it —
+// is read (titles recorded in order) and dismissed, nickname prompts are
+// answered, and post-battle screens are tapped through. This is the scripted
+// tutorial's regression harness — "steps never appeared" was a shipped bug,
+// so the e2e now plays the script the way a player would.
 // opts: { catchIt, useItem, switchOnce, stopAt:'crossroads'|'summary' }
 async function driveGuided(page, opts = {}) {
   return page.evaluate(async (o) => {
@@ -154,6 +155,17 @@ async function driveGuided(page, opts = {}) {
         if (t && seen[seen.length - 1] !== t) seen.push(t);
         const ok = coach.querySelector('[data-coach-ok]');
         if (ok) { ok.click(); await wait(420); }
+        continue;
+      }
+      // 1b. An in-battle coach bubble: non-modal, anchored to the control it
+      //     explains. Record its title, dismiss it, and act on the battle
+      //     beneath on the next pass.
+      const bubble = document.querySelector('.coach-bubble.on');
+      if (bubble) {
+        const t = (bubble.querySelector('.cb-title') || {}).textContent || '';
+        if (t && seen[seen.length - 1] !== t) seen.push(t);
+        const bok = bubble.querySelector('[data-coach-ok]');
+        if (bok) { bok.click(); await wait(200); }
         continue;
       }
       // 2. The mandatory nickname prompt (starter + catches).
@@ -636,6 +648,25 @@ try {
 
     // -- stop 1: the capture encounter ----
     await page.click('#btnGoBattle');
+    // Battle beats are anchored bubbles now: no modal freezes the fight, the
+    // explained control glows, and the glow outlives the bubble until the
+    // action is taken. Prove all three before driving the catch itself.
+    await page.waitForSelector('.coach-bubble.on', { timeout: 20000 }).catch(() => null);
+    const capProbe = await page.evaluate(() => ({
+      title: (document.querySelector('.coach-bubble .cb-title') || {}).textContent || '',
+      modal: window.Modal.isOpen('screenCoach'),
+      railGlow: !!document.querySelector('.battle-hud .ballrail.coach-spot'),
+    }));
+    check('the capture lesson is a bubble anchored to the glowing ball rail',
+      capProbe.title === 'Catch your first!' && !capProbe.modal && capProbe.railGlow,
+      JSON.stringify(capProbe));
+    await page.evaluate(() => {
+      const bok = document.querySelector('.coach-bubble [data-coach-ok]');
+      if (bok) bok.click();
+    });
+    await page.waitForTimeout(300);
+    check('the ball rail keeps glowing after the bubble is dismissed',
+      await page.evaluate(() => !!document.querySelector('.battle-hud .ballrail.coach-spot')));
     const b1 = await driveGuided(page, { catchIt: true });
     check('the capture encounter teaches catching',
       b1.seen.includes('Catch your first!'), b1.seen.join(' | '));
