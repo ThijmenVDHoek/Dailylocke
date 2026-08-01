@@ -1113,8 +1113,14 @@ textarea.search.save-code {
 
 /* ===== SECTION SUMMARY ===== */
 
-/* Tutorial linear onboarding helpers: darken non-essential UI */
-.prologue-dim .x-shop, .prologue-dim .x-bag, .prologue-dim #xTeamDetail .pd-sec:has(.pd-held) {
+/* Tutorial linear onboarding helpers (guided run, section 1):
+   the Mart is REMOVED from the route entirely — the team, the bag and the
+   battle button are the only things on screen, so the player cannot wander
+   into the shop before the tutorial is ready to explain it. The bag stays
+   fully visible and interactive. Held-item noise inside the team detail is
+   still tucked away until the game explains held items. */
+.prologue-dim .x-shop { display:none !important; }
+.prologue-dim #xTeamDetail .pd-sec:has(.pd-held) {
   opacity: 0.35;
   pointer-events: none;
   filter: grayscale(0.6);
@@ -1965,19 +1971,6 @@ body.modal-open { overflow:hidden; }
 }
 .coach-skip:hover { color:var(--ink-2); text-decoration:underline; }
 
-/* An inline variant for screens where a modal would be a speed bump
-   (the starter picker: the advice belongs beside the choice, not over it). */
-.coach-inline {
-  display:flex; gap:11px; align-items:flex-start;
-  margin:0 0 14px; padding:12px 14px;
-  border-radius:var(--r-md); border-left:3px solid var(--violet);
-  background:rgba(192,124,232,.10);
-}
-.coach-inline[hidden] { display:none; }
-.coach-inline .coach-portrait { padding:2px; }
-.coach-inline p { margin:0; color:var(--ink-2); font-size:.88rem; line-height:1.5; }
-.coach-inline b { color:#fff; }
-
 /* Immersive professor dialogue for onboarding */
 .coach-head.immersive { gap:16px; margin-bottom:20px; }
 .coach-head.immersive .coach-portrait { padding:6px; box-shadow:0 0 0 4px rgba(192,124,232,.3); }
@@ -1996,6 +1989,13 @@ body.modal-open { overflow:hidden; }
   border-radius:var(--r-md);
   animation:coachPulse 1.9s ease-in-out infinite;
 }
+/* A modal SHEET anchors to an element on the page behind it. The halo must
+   stay BEHIND the sheet's scrim (z-index 900) — popping the anchored element
+   up over the dialog (the old 1299) made the lesson card look glitched, with
+   the element it was explaining floating bright above it. The anchored
+   element is still visible, dimmed under the scrim, and JS scrolls it into
+   view so the connection stays obvious without the pop. */
+body.coach-sheet-open .coach-spot { z-index:850; }
 @keyframes coachPulse {
   0%,100% { box-shadow:0 0 0 3px rgba(192,124,232,.85), 0 0 22px rgba(192,124,232,.42); }
   50%     { box-shadow:0 0 0 3px rgba(192,124,232,.95), 0 0 34px rgba(192,124,232,.68); }

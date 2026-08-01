@@ -199,6 +199,39 @@
     return a;
   }
 
+  // --------------------------------------------------------------- blip ---
+  // The typewriter "text sound": a tiny synthesized click, Animal Crossing
+  // style — soft, short, and slightly pitched per character. Made in-house
+  // with Web Audio so it never depends on a network fetch and can't be
+  // mistaken for a Pokemon cry.
+  var blipCtx = null;
+
+  function synthBlip() {
+    var g = gain(settings.sfx) * 0.10;
+    if (g <= 0) return;
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!blipCtx) blipCtx = new AC();
+      var ctx = blipCtx;
+      if (ctx.state === 'suspended') { try { ctx.resume(); } catch (e) {} }
+      var t0 = ctx.currentTime;
+      var osc = ctx.createOscillator();
+      var gN = ctx.createGain();
+      // Animal Crossing blips wander a little in pitch; a triangle wave keeps
+      // them soft rather than beepy. Frequencies are kept out of the low bass
+      // so the ticks never rumble on phone speakers.
+      var freq = 640 + Math.random() * 280;
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t0);
+      gN.gain.setValueAtTime(0.0001, t0);
+      gN.gain.exponentialRampToValueAtTime(g, t0 + 0.008);
+      gN.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.07);
+      osc.connect(gN); gN.connect(ctx.destination);
+      osc.start(t0); osc.stop(t0 + 0.085);
+    } catch (e) { /* audio blocked or unsupported: text reveal still works */ }
+  }
+
   window.GameAudio = {
     DEFAULTS: DEFAULTS,
     TRACKS: TRACKS,
@@ -228,6 +261,7 @@
     startBattle: startBattle,
     stop: stop,
     playSfx: playSfx,
+    synthBlip: synthBlip,
     unlock: unlock,
     get currentTrack() { return currentTrack; }
   };

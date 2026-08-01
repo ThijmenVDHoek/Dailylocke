@@ -68,15 +68,29 @@
   };
 
   // Immersive dialogue: bigger portrait + typewriter + sound for tutorial
+  // The text sound is a tiny synthesized blip (Animal Crossing style) made in
+  // Web Audio — see GameAudio.synthBlip. Never a Pokemon cry, never a fetch.
   function playTextSound() {
     try {
-      if (window.GameAudio && window.GameAudio.playSfx) {
-        window.GameAudio.playSfx('https://play.pokemonshowdown.com/audio/cries/pikachu.mp3', 0.05);
-      } else {
-        var a = new Audio('https://play.pokemonshowdown.com/audio/cries/pikachu.mp3');
-        a.volume = 0.06; a.play().catch(()=>{});
+      if (window.GameAudio && window.GameAudio.synthBlip) {
+        window.GameAudio.synthBlip();
+        return;
       }
-    } catch(e){}
+      // Standalone fallback (no audio module loaded yet).
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      var ctx = new AC();
+      if (ctx.state === 'suspended') { try { ctx.resume(); } catch (e) {} }
+      var t0 = ctx.currentTime;
+      var osc = ctx.createOscillator(), gN = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(640 + Math.random() * 280, t0);
+      gN.gain.setValueAtTime(0.0001, t0);
+      gN.gain.exponentialRampToValueAtTime(0.02, t0 + 0.008);
+      gN.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.07);
+      osc.connect(gN); gN.connect(ctx.destination);
+      osc.start(t0); osc.stop(t0 + 0.085);
+    } catch (e) { /* audio blocked: text reveal still works */ }
   }
 
   function typeText(el, text, speed, onDone) {
@@ -89,9 +103,10 @@
         return;
       }
       el.textContent += text[i];
-      if (i % 2 === 0) playTextSound();
+      // One soft blip per character, quiet enough to sit under the words.
+      playTextSound();
       i++;
-    }, speed || 28);
+    }, speed || 34);
     return function skip() { clearInterval(timer); el.textContent = text; if (onDone) onDone(); };
   }
 
@@ -134,6 +149,10 @@
   function badgesOn() { var c = state(); return !c.off && c.badges !== false; }
   function seen(id) { return !!state().seen[id]; }
   function markSeen(id) { state().seen[id] = 1; persist(); }
+  // Forget a lesson was read. The guided run uses this to keep a FORCED step
+  // (evolve the starter, train the team) armed until the player has actually
+  // done it, not merely dismissed the card.
+  function unsee(id) { delete state().seen[id]; persist(); }
   function setOff(v) { state().off = !!v; persist(); }
   function setBadges(v) { state().badges = !!v; persist(); }
   function isOnboarded() { return !!state().onboarded; }
@@ -502,8 +521,8 @@
       body: 'Pick one. It fights with you. Name it!' },
     { id: 'route', where: 'basics', title: 'The path',
       body: 'Each section is a short route: a <b>Capture Encounter</b>, two wild battles for prize money, then the <b>Trainer</b>. Beat the Trainer to move on.' },
-    { id: 'battleBar', where: 'battle', title: 'Battle buttons',
-      body: 'Everything you do in battle runs along this bar: pick a <b>Move</b> to attack, <b>Bag</b> for items, <b>Party</b> to switch, <b>Run</b> to flee a wild battle.' },
+    { id: 'battleBag', where: 'battle', title: 'Bag: heal mid-battle',
+      body: 'Tap <b>Bag</b> and use a <b>Super Potion</b> to heal your active Pokemon. It costs your turn, so heal before a big hit lands — not after!' },
     { id: 'catch', where: 'catching', title: 'Catch your first!',
       body: 'Weaken the wild Pokemon with attacks first \u2014 the lower its HP, the better your odds. Then tap a <b>Poke Ball</b> on the rail to catch it.' },
     { id: 'caught', where: 'catching', title: 'New friend!',
@@ -512,34 +531,55 @@
       body: 'Moves marked <b>\u00d72</b> hit a weakness and deal double damage. This wild Pokemon is weak to one of your moves \u2014 look for the \u00d72 tag and press it!' },
     { id: 'switch', where: 'battle', title: 'How to Switch',
       body: 'Tap <b>Party</b> during battle to swap to a Pokemon with a better type matchup. Switching costs your turn \u2014 but the right switch can save a life.' },
-    { id: 'battleItem', where: 'battle', title: 'Items in battle',
-      body: 'Tap <b>Bag</b> during battle and use a <b>Potion</b> to heal your active Pokemon. It costs your turn, so heal before a big hit lands \u2014 not after!' },
     { id: 'trainer', where: 'basics', title: 'Heal first!',
       body: 'A Trainer battle is next: a full team, smarter moves, and no catching. Heal your team from the Bag before you go in!' },
     { id: 'skipping', where: 'basics', title: 'The middle stops are a budget',
       body: 'Every wild battle pays prize money, but costs HP and PP. If a fight goes badly, <b>Run</b> always works \u2014 it only costs you the reward.' },
     { id: 'save', where: 'saving', title: 'Save your game',
-      body: 'Your run saves itself after every battle. For real peace of mind, tap <b>Save progress</b>: it downloads a backup file you can restore anytime, even on another device.' },
+      body: 'Your run is saved only in <b>this browser</b> \u2014 nothing is stored online. Clear your browser data and the save is gone, so tap <b>Save progress</b> to download a backup file you can restore to continue your run.' },
     { id: 'mart', where: 'items', title: 'The Mart is open',
       body: 'Spend prize money here. Balls and Potions are always in stock; the held items and stones rotate every section.' },
-    { id: 'shopBalls', where: 'items', title: 'Poke Mart: Balls',
-      body: 'Balls catch wild Pokemon in Capture Encounters. Better balls catch easier \u2014 a <b>Great Ball</b> or <b>Ultra Ball</b> is worth it when the catch really matters.' },
-    { id: 'shopHeals', where: 'items', title: 'Poke Mart: Medicine',
-      body: 'Potions restore HP \u2014 usable between battles AND during one, from the Bag. Nothing here heals on its own: stock up before the Trainer.' },
-    { id: 'shopHeld', where: 'items', title: 'Poke Mart: Held items',
-      body: 'Held items give a Pokemon a passive boost every single turn. Buy one, then tap a Pokemon on your <b>team strip</b> and give it the item to hold.' },
     { id: 'train', where: 'training', title: 'Train your Pokemon',
       body: 'The Train service rewrites moves, ability, nature and Stat Points for one fee. A few Stat Points in Speed often decides who moves first.' },
     { id: 'held', where: 'training', title: 'Free power, every turn',
       body: 'A held item works every turn without spending a move. If a \u2726Tip badge says one fits your Pokemon, it genuinely does.' },
-    { id: 'fullheal', where: 'items', title: 'Read the label',
-      body: '<b>Full Heal</b> cures status and restores <b>no HP at all</b>. For HP you want a Potion; for both at once, a Full Restore.' },
-    { id: 'evolve', where: 'training', title: 'Evolution',
-      body: 'Nothing levels up here. Use a <b>Rare Candy</b> for a level-up evolution, or a stone from the Mart \u2014 from the Bag or your party sheet. Evolving is a huge permanent power spike.' },
+    { id: 'evolve', where: 'training', title: 'Evolve your starter',
+      body: 'Nothing levels up here \u2014 evolution needs an item. Buy a <b>Rare Candy</b> from the Mart, then use it on your starter from your team sheet. Evolving is a huge permanent power spike.' },
     { id: 'evoBranch', where: 'training', title: 'It can become more than one thing',
       body: 'This evolution branches, and the choice is permanent. Check what each form does before you commit.' },
     { id: 'moveChoice', where: 'training', title: 'Four moves, no take-backs',
-      body: 'Replacing a move forgets the old one for good. Prefer moves that match a type this Pokemon has (STAB) and its stronger attack stat.' }
+      body: 'Replacing a move forgets the old one for good. Prefer moves that match a type this Pokemon has (STAB) and its stronger attack stat.' },
+    // ---- scripted tutorial steps (hidden from the Guide) -------------------
+    // These are the guided run's choreography, not reference material, so
+    // they carry a where-group the Guide never renders.
+    { id: 'makeLead', where: '_tutorial', title: 'Your new lead',
+      body: 'Your new Pokemon is at the back of the party. Tap <b>its card</b> on the team strip, then tap <b>Make lead</b> \u2014 the leader opens every battle.' },
+    { id: 'makeLeadTap', where: '_tutorial', title: 'Make lead',
+      body: 'Tap <b>Make lead</b> to put this Pokemon at the front of your team.' },
+    { id: 'evoUse', where: '_tutorial', title: 'Use the Rare Candy',
+      body: 'Tap <b>Ready to evolve</b> \u2014 your starter is holding the evolution in its hands.' },
+    { id: 'trainOpen', where: '_tutorial', title: 'Time to train',
+      body: 'Tap <b>{NAME}</b> on your team, then tap <b>Train Pokemon</b>. Follow me \u2014 we are changing everything.' },
+    { id: 'trainMovesSlot', where: '_tutorial', title: 'Pick a move slot',
+      body: 'Tap a move you are willing to give up \u2014 you can only keep four.' },
+    { id: 'trainPickMove', where: '_tutorial', title: 'Learn this move',
+      body: 'Tap this move to learn it. STAB matches and big power are the ones to grab.' },
+    { id: 'trainAbilityTab', where: '_tutorial', title: 'Now your ability',
+      body: 'Tap <b>Ability</b> to see and change your Pokemon\u2019s ability.' },
+    { id: 'trainAbilityPick', where: '_tutorial', title: 'Pick this ability',
+      body: 'Tap this ability \u2014 it changes how your Pokemon plays.' },
+    { id: 'trainAbilityOnly', where: '_tutorial', title: 'Its only ability',
+      body: '{NAME} can only have <b>{ABILITY}</b>, so there is nothing to change here \u2014 now you know where to look. On to Nature!' },
+    { id: 'trainNatureTab', where: '_tutorial', title: 'Now your nature',
+      body: 'Tap <b>Nature</b> \u2014 a nature boosts one stat and lowers another.' },
+    { id: 'trainNaturePick', where: '_tutorial', title: 'Pick this nature',
+      body: 'Tap this nature \u2014 it boosts the stat this Pokemon already loves.' },
+    { id: 'trainStatsTab', where: '_tutorial', title: 'Now Stat Points',
+      body: 'Tap <b>Stats</b> to spend the training points that shape its stats.' },
+    { id: 'trainStatsPick', where: '_tutorial', title: 'Move a point',
+      body: 'Drag <b>{TAKE}</b> down one notch, then drag <b>{GIVE}</b> up \u2014 that point moves between them.' },
+    { id: 'trainDone', where: '_tutorial', title: 'All trained!',
+      body: 'Tap <b>Done</b> to lock in your training. That is everything the service does.' }
   ];
 
   var LESSON_BY_ID = {};
@@ -665,6 +705,15 @@
     });
   }
 
+  // Scripted tutorial lessons can carry placeholders ({NAME}, {ABILITY} ...)
+  // that the call site fills in with the live names it knows about.
+  function fillTemplate(body, vals) {
+    if (!vals) return body;
+    return String(body).replace(/\{([A-Z_]+)\}/g, function (m, k) {
+      return (vals[k] != null) ? esc(vals[k]) : m;
+    });
+  }
+
   // ---- the halo ------------------------------------------------------------
   // The element a lesson is talking about glows violet. `resolve` anchors are
   // preferred over live nodes and selectors: the battle HUD re-renders after
@@ -685,6 +734,21 @@
       if (r) return r;
     }
     return opts.anchor || (opts.anchorSel ? document.querySelector(opts.anchorSel) : null);
+  }
+
+  // Scroll an anchored element into the band of the viewport that stays
+  // visible above a bottom-sheet dialog. Runs while the page can still
+  // scroll (a modal locks it), so it is reliable on every browser.
+  function scrollAnchorIntoView(el) {
+    try {
+      var r = el.getBoundingClientRect();
+      var vh = window.innerHeight || document.documentElement.clientHeight || 800;
+      // Already comfortably inside the visible band? Leave it alone.
+      if (r.top >= vh * 0.12 && r.bottom <= vh * 0.58) return;
+      var y = window.scrollY + r.top - vh * 0.18;
+      y = Math.max(0, Math.min(y, (document.documentElement.scrollHeight || 0) - vh + 80));
+      window.scrollTo(0, y);
+    } catch (e) {}
   }
   function applyHalo(opts) {
     sweepHalo();
@@ -733,10 +797,20 @@
 
     if (window.Modal.isOpen(el)) window.Modal.close(el);
 
+    var filled = fillTemplate(lesson.body, opts.template);
+
+    // A sheet anchors to an element on the page behind it: scroll that
+    // element into the visible band above the sheet BEFORE the modal opens
+    // (modal-open locks background scrolling), and let the halo point at it
+    // dimly through the scrim instead of popping above the dialog.
+    var anchor = resolveTarget(opts);
+    if (anchor && anchor.isConnected) scrollAnchorIntoView(anchor);
     setBusy(true);
     applyHalo(opts);
+    document.body.classList.add('coach-sheet-open');
     window.Modal.open(el, {
       onClose: function () {
+        document.body.classList.remove('coach-sheet-open');
         sweepHalo();
         setBusy(false);
         if (opts.onDone) { try { opts.onDone(); } catch (e) {} }
@@ -747,10 +821,10 @@
     // The typewriter reveal: text appears character by character with a soft
     // blip, and a tap finishes the line immediately.
     var bodyDiv = card.querySelector('#' + bodyId);
-    var raw = lesson.body.replace(/<[^>]*>/g, '');
+    var raw = filled.replace(/<[^>]*>/g, '');
     bodyDiv.classList.add('text-reveal');
-    var skip = typeText(bodyDiv, raw, 26, null);
-    bodyDiv.onclick = function () { skip(); bodyDiv.innerHTML = lesson.body; bodyDiv.onclick = null; };
+    var skip = typeText(bodyDiv, raw, 34, null);
+    bodyDiv.onclick = function () { skip(); bodyDiv.innerHTML = filled; bodyDiv.onclick = null; };
 
     card.querySelector('[data-coach-ok]').addEventListener('click', function () {
       window.Modal.close(el);
@@ -782,6 +856,10 @@
     bubbleEl = document.createElement('div');
     bubbleEl.className = 'coach-bubble';
     bubbleEl.setAttribute('role', 'note');
+    // The coach-mark layer floats ABOVE dialogs on purpose (e.g. a guide
+    // bubble over the party sheet), so it opts out of the inertness the
+    // modal controller applies to everything behind a dialog.
+    bubbleEl.setAttribute('data-modal-overlay', '');
     bubbleEl.hidden = true;
     // Attached once, delegated: clicking anywhere on the bubble dismisses it,
     // including the "Got it" button. Never re-bound on re-renders.
@@ -851,7 +929,7 @@
       '<span class="coach-portrait">' + advisorImg(38) + '</span>' +
       '<div class="cb-main">' +
         '<b class="cb-title">' + esc(lesson.title) + '</b>' +
-        '<p class="cb-body">' + lesson.body + '</p>' +
+        '<p class="cb-body">' + fillTemplate(lesson.body, opts.template) + '</p>' +
         '<button type="button" class="cb-ok" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>' +
       '</div>' +
       '<span class="cb-arrow" aria-hidden="true"></span>';
@@ -913,6 +991,9 @@
   function clearMark() {
     dismissBubble({ sweep: true });
     sweepHalo();
+    // A screen transition can hide the sheet without routing through
+    // Modal.close, so the halo z-index class must be released here too.
+    document.body.classList.remove('coach-sheet-open');
     if (busy && !(window.Modal && window.Modal.isOpen('screenCoach'))) setBusy(false);
   }
 
@@ -981,7 +1062,7 @@
     ADVISOR: ADVISOR, advisorImg: advisorImg,
     attach: attach,
     // state
-    tipsOn: tipsOn, badgesOn: badgesOn, seen: seen, markSeen: markSeen,
+    tipsOn: tipsOn, badgesOn: badgesOn, seen: seen, markSeen: markSeen, unsee: unsee,
     setOff: setOff, setBadges: setBadges, resetAll: resetAll,
     isOnboarded: isOnboarded, setOnboarded: setOnboarded,
     inPrologue: inPrologue, setPrologue: setPrologue,

@@ -234,6 +234,105 @@ async function driveGuided(page, opts = {}) {
   }, opts);
 }
 
+// Walk the guided TRAINING session (section 2 of the tutorial): dismiss
+// every coach bubble/sheet, then perform the step each one points at —
+// replace a move, pick an ability, pick a nature, move a Stat Point, Done.
+// The walkthrough exposes its current step as Game.tutorGuide.step, so the
+// driver always knows which tab to be on and which element to press.
+async function driveTraining(page) {
+  return page.evaluate(async () => {
+    const seen = [];
+    const wait = (ms = 300) => new Promise((r) => setTimeout(r, ms));
+    const click = (sel) => {
+      const el = document.querySelector(sel);
+      if (el && !el.disabled) { el.click(); return true; }
+      return false;
+    };
+    const tutorOpen = () => {
+      const t = document.getElementById('screenTutor');
+      return t && !t.hidden;
+    };
+    const step = () => (window.Game.tutorGuide && window.Game.tutorGuide.step) || null;
+    let slotPicked = false, didMove = false, statMoved = false;
+    for (let i = 0; i < 250; i++) {
+      // 1. Coach surfaces (the walkthrough's bubbles + the single-ability sheet).
+      const coach = document.getElementById('screenCoach');
+      if (coach && !coach.hidden) {
+        const t = (document.getElementById('coachTitle') || {}).textContent || '';
+        if (t && seen[seen.length - 1] !== t) seen.push(t);
+        const ok = coach.querySelector('[data-coach-ok]');
+        if (ok) { ok.click(); await wait(420); }
+        continue;
+      }
+      const bubble = document.querySelector('.coach-bubble.on');
+      if (bubble) {
+        const t = (bubble.querySelector('.cb-title') || {}).textContent || '';
+        if (t && seen[seen.length - 1] !== t) seen.push(t);
+        const bok = bubble.querySelector('[data-coach-ok]');
+        if (bok) { bok.click(); await wait(240); }
+        continue;
+      }
+      if (!tutorOpen()) return { seen, stop: 'tutor-closed' };
+
+      // 2. Perform the guided action for the current walkthrough step.
+      const s = step();
+      const slots = [...document.querySelectorAll('#tutorBody .tc-slot')];
+      const cards = [...document.querySelectorAll('#tutorBody .move-card')];
+      const abRows = [...document.querySelectorAll('#tutorBody .opt-row')];
+      const nats = [...document.querySelectorAll('#tutorBody .nat')];
+      const ranges = [...document.querySelectorAll('#tutorBody .sp-range')];
+
+      if (s === 'slot' || s === 'pick') {
+        if (!document.querySelector('#tutorBody .tc-slots')) {
+          click('.tr-tab[data-t="moves"]'); await wait(300); continue;
+        }
+        if (!slotPicked && slots.length) { slots[0].click(); slotPicked = true; await wait(260); continue; }
+        if (slotPicked && !didMove && cards.length) { cards[0].click(); didMove = true; await wait(420); continue; }
+      }
+      if (s === 'ability') {
+        if (!document.querySelector('#tutorBody .opt-list')) {
+          click('.tr-tab[data-t="ability"]'); await wait(300); continue;
+        }
+        const pick = abRows.find((r) => !r.classList.contains('sel'));
+        if (pick) { pick.click(); await wait(420); continue; }
+      }
+      if (s === 'nature') {
+        if (!document.querySelector('#tutorBody .nat-grid')) {
+          click('.tr-tab[data-t="nature"]'); await wait(300); continue;
+        }
+        const pick = nats.find((n) => !n.classList.contains('sel'));
+        if (pick) { pick.click(); await wait(420); continue; }
+      }
+      if (s === 'stats') {
+        if (!document.querySelector('#tutorBody .sp-row')) {
+          click('.tr-tab[data-t="stats"]'); await wait(300); continue;
+        }
+        if (!statMoved) {
+          const hp = ranges.find((r) => r.dataset.s === 'hp');
+          const def = ranges.find((r) => r.dataset.s === 'def');
+          if (hp && def) {
+            const ev = (el, v) => {
+              el.value = String(v);
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+            };
+            ev(hp, 1); ev(def, 1);
+            statMoved = true;
+            await wait(360);
+            continue;
+          }
+        }
+      }
+      if (s === 'done') {
+        const done = document.getElementById('btnTutorBack');
+        if (done && done.textContent.trim() === 'Done') { done.click(); await wait(500); continue; }
+      }
+      await wait(250);
+    }
+    return { seen, stop: 'loop-cap' };
+  });
+}
+
 // ---------------------------------------------------------------- main ----
 const found = findBrowser();
 if (!found) {
@@ -568,14 +667,21 @@ try {
       [...document.querySelectorAll('#starterGrid .sc-name')].map((n) => n.textContent.trim()));
     check('the guided run offers the fixed grass/fire/water trio',
       ['Treecko', 'Charmander', 'Froakie'].every((n) => trio.includes(n)), trio.join(', '));
-    check('the professor advises on the starter screen',
-      await page.isVisible('#starterCoach'));
-    const roles = await page.evaluate(() =>
-      [...document.querySelectorAll('#starterGrid .mr-label')].map((n) => n.textContent.trim()));
-    check('each starter card names what that Pokemon is for',
-      roles.length === 3 && roles.every(Boolean), roles.join(' / '));
-    check('the starters are not all given the same label',
-      new Set(roles).size > 1, roles.join(' / '));
+    // The very first lesson of the tutorial is the immersive professor
+    // sheet (big portrait + typewriter), the same surface as everything
+    // that follows — not the retired inline advice box.
+    await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 10000 });
+    const starterSheet = await page.evaluate(() => ({
+      title: (document.getElementById('coachTitle') || {}).textContent || '',
+      portrait: !!document.querySelector('#screenCoach .coach-head.immersive img[width="88"]'),
+      reveal: !!document.querySelector('#screenCoach .coach-body.text-reveal'),
+      inlineBox: !!document.querySelector('.coach-inline'),
+    }));
+    check('choosing the starter is taught by the immersive sheet',
+      starterSheet.title === 'Choose your starter!' && starterSheet.portrait &&
+      starterSheet.reveal && !starterSheet.inlineBox, JSON.stringify(starterSheet));
+    await page.click('#screenCoach [data-coach-ok]');
+    await page.waitForTimeout(400);
 
     // ---- into the run ----
     await page.locator('#starterGrid .pick-btn').first().click();
@@ -639,19 +745,21 @@ try {
     // The whole guided run, end to end, exactly as scripted -- this is the
     // regression suite for "many steps of the onboarding tutorial never
     // showed up":
-    //   1. capture encounter   -> 'Catch your first!' / 'New friend!'
-    //   2. wild battle         -> 'Super effective!' (on a real weakness)
-    //   3. wild battle         -> 'How to Switch'
-    //   4. trainer battle      -> 'Heal first!' on the route, 'Items in battle' inside
-    //   5. section summary     -> 'Save your game'
-    //   6. section 2           -> Balls, Medicine, Held items, Evolution -- done.
+    //   1. capture encounter   -> 'Catch your first!' (instantly) / 'New friend!'
+    //   2. wild battle         -> 'Super effective!' (weak vs the STARTER)
+    //   3. route               -> 'Your new lead' (make the catch the lead)
+    //   4. wild battle         -> 'How to Switch'
+    //   5. trainer battle      -> 'Heal first!' on the route; NO bag step inside
+    //   6. section summary     -> 'Save your game'
+    //   7. section 2           -> forced evolution (Rare Candy), then the
+    //                             hand-held training walkthrough -- done.
 
     // -- stop 1: the capture encounter ----
     await page.click('#btnGoBattle');
-    // Battle beats are anchored bubbles now: no modal freezes the fight, the
-    // explained control glows, and the glow outlives the bubble until the
-    // action is taken. Prove all three before driving the catch itself.
-    await page.waitForSelector('.coach-bubble.on', { timeout: 20000 }).catch(() => null);
+    // The capture tutorial must pop INSTANTLY at the start of the battle —
+    // not after the first turn. The bubble appears within the settle beat
+    // (80ms) after the HUD renders; give it a short, strict window.
+    await page.waitForSelector('.coach-bubble.on', { timeout: 6000 }).catch(() => null);
     const capProbe = await page.evaluate(() => ({
       title: (document.querySelector('.coach-bubble .cb-title') || {}).textContent || '',
       modal: window.Modal.isOpen('screenCoach'),
@@ -676,22 +784,52 @@ try {
       await page.evaluate(() => window.Game.run.party.length === 2));
     check('the run is back on the route after the capture', b1.stop === 'crossroads', b1.stop);
 
-    // -- stop 2: super-effective damage, on a guaranteed live weakness ----
+    // -- stop 2: super-effective damage, on a guaranteed live weakness.
+    //    The wild must be weak to the STARTER's STAB, whoever leads. ----
     const weakInfo = await page.evaluate(() => {
-      const lead = window.Game.run.party[0];
-      const id = window.Game.run._nextWild && window.Game.run._nextWild.id;
+      const run = window.Game.run;
+      const starter = run.party.find((m) => String(m.uid) === String(run.tutorialStarterUid)) || run.party[0];
+      const id = run._nextWild && run._nextWild.id;
       const sp = id && window.PS.Dex.species.get(id);
-      const stab = lead.moves.map((m) => window.PS.Dex.moves.get(m))
-        .filter((d) => d.category !== 'Status' && lead.types.includes(d.type))
+      const stab = starter.moves.map((m) => window.PS.Dex.moves.get(m))
+        .filter((d) => d.category !== 'Status' && starter.types.includes(d.type))
         .map((d) => d.type);
       return { id, stab, mult: sp ? Math.max(...stab.map((t) => window.Core.typeMod(t, sp.types))) : 0 };
     });
-    check('the second battle pairs a wild the lead actually hits for 2x+',
+    check('the second battle pairs a wild the STARTER hits for 2x+',
       weakInfo.mult >= 2, JSON.stringify(weakInfo));
     const b2 = await driveGuided(page, {});
     check('the second wild battle teaches super-effective damage',
       b2.seen.includes('Super effective!'), b2.seen.join(' | '));
     check('...and resolves back on the route', b2.stop === 'crossroads', b2.stop);
+
+    // -- stop 2b: make the new Pokemon the lead. The sheet fires on the
+    //    route before battle 2; actually performing it is the point. ----
+    await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 8000 }).catch(() => null);
+    check('the tutorial teaches making the catch the lead',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent) === 'Your new lead',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent));
+    await page.click('#screenCoach [data-coach-ok]');
+    await page.waitForTimeout(400);
+    const caughtIdx = await page.evaluate(() =>
+      window.Game.run.party.findIndex((m) => String(m.uid) === String(window.Game.run._tutCatchUid)));
+    await page.click(`#xTeam .tslot[data-i="${caughtIdx}"]`);
+    await page.waitForSelector('#xTeamDetail:not([hidden])', { timeout: 8000 });
+    await page.waitForSelector('.coach-bubble.on', { timeout: 8000 }).catch(() => null);
+    check('the party sheet points at the Make lead button',
+      await page.evaluate(() => {
+        const b = document.querySelector('.coach-bubble.on .cb-title');
+        return b ? b.textContent === 'Make lead' : false;
+      }));
+    await page.evaluate(() => document.querySelector('.coach-bubble [data-coach-ok]')?.click());
+    await page.waitForTimeout(300);
+    await page.click('#xTeamDetail .pd-lead');
+    await page.waitForTimeout(500);
+    check('the caught Pokemon is now the lead',
+      await page.evaluate(() => {
+        const run = window.Game.run;
+        return String(run.party[0].uid) === String(run._tutCatchUid);
+      }));
 
     // -- stop 3: switching ----
     const b3 = await driveGuided(page, { switchOnce: true });
@@ -699,21 +837,25 @@ try {
       b3.seen.includes('How to Switch'), b3.seen.join(' | '));
 
     // -- stop 4: the Trainer. The pre-boss warning fires on the route; the
-    //    heal lesson fires inside the fight. ----
+    //    bag step inside the trainer battle is GONE. ----
     const b4 = await driveGuided(page, { useItem: true, stopAt: 'summary' });
     check('the route warns to heal first before the Trainer',
       b4.seen.includes('Heal first!'), b4.seen.join(' | '));
-    check('the Trainer battle teaches using items in battle',
-      b4.seen.includes('Items in battle'), b4.seen.join(' | '));
+    check('the Trainer battle no longer teaches the bag',
+      !b4.seen.includes('Bag: heal mid-battle') && !b4.seen.includes('Items in battle'),
+      b4.seen.join(' | '));
     check('beating the Trainer reaches the section summary', b4.stop === 'summary', b4.stop);
 
-    // -- the summary teaches saving ----
+    // -- the summary teaches saving (the ONLY save button now) ----
     await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 8000 });
     check('the section summary teaches saving',
       await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent) === 'Save your game',
       await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent));
     check('the save button is haloed on the summary screen',
       await page.evaluate(() => !!document.querySelector('#btnSumSave.coach-spot')));
+    const saveCopy = await page.evaluate(() => document.getElementById('coachBodyReveal').textContent);
+    check('the save lesson is honest about browser-only saving',
+      /browser session/i.test(saveCopy) && !/saves itself/i.test(saveCopy), saveCopy.slice(0, 90));
     await page.click('#screenCoach [data-coach-ok]');
     await page.waitForTimeout(500);
     check('the tutorial is still armed going into section 2',
@@ -721,26 +863,71 @@ try {
     await page.click('#btnSumNext');
     await page.waitForSelector('#screenCrossroads:not([hidden])', { timeout: 10000 });
 
-    // -- section 2: the Mart, shelf by shelf, then evolution, then done ----
-    const expected = ['Poke Mart: Balls', 'Poke Mart: Medicine', 'Poke Mart: Held items', 'Evolution'];
-    const chain = [];
-    for (let k = 0; k < expected.length; k++) {
-      await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 9000 }).catch(() => null);
-      const got = await page.evaluate(() =>
-        document.getElementById('screenCoach').hidden
-          ? null : (document.getElementById('coachTitle') || {}).textContent);
-      chain.push(got);
-      if (got) await page.click('#screenCoach [data-coach-ok]');
-      await page.waitForTimeout(950);  // cooldown + queue pump between beats
-    }
-    check('the shop is taught in order: balls, medicine, held items, evolution',
-      JSON.stringify(chain) === JSON.stringify(expected), chain.join(' | '));
-    check('the Mart is fully interactive during the section-2 shop tutorial',
+    // -- section 2: forced EVOLUTION first (buy the Rare Candy, use it) ----
+    await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 9000 }).catch(() => null);
+    check('section 2 opens with the forced evolution sheet (no shelf-by-shelf)',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent) === 'Evolve your starter',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent));
+    check('the Mart is fully interactive during the section-2 tutorial',
       await page.evaluate(() =>
         !document.getElementById('screenCrossroads').classList.contains('prologue-dim') &&
         document.querySelectorAll('#martGrid .shop-item').length > 0));
-    check('the evolution lesson CONCLUDES the tutorial',
-      await page.evaluate(() => !window.Coach.inPrologue() && !window.Game.run.prologue));
+    await page.click('#screenCoach [data-coach-ok]');
+    await page.waitForTimeout(400);
+
+    await page.evaluate(() => {
+      const tile = [...document.querySelectorAll('#martGrid .shop-item')]
+        .find((t) => /Rare Candy/i.test(t.querySelector('.si-name')?.textContent || ''));
+      if (tile) tile.click();
+    });
+    await page.waitForTimeout(400);
+    check('the guided run buys the Rare Candy',
+      await page.evaluate(() => (window.Game.run.bag.rarecandy || 0) > 0));
+
+    const starterIdx = await page.evaluate(() =>
+      window.Game.run.party.findIndex((m) => String(m.uid) === String(window.Game.run.tutorialStarterUid)));
+    await page.click(`#xTeam .tslot[data-i="${starterIdx}"]`);
+    await page.waitForSelector('#xTeamDetail:not([hidden])', { timeout: 8000 });
+    await page.waitForSelector('.coach-bubble.on', { timeout: 8000 }).catch(() => null);
+    check('the party sheet points at the Ready to evolve button',
+      await page.evaluate(() => {
+        const b = document.querySelector('.coach-bubble.on .cb-title');
+        return b ? b.textContent === 'Use the Rare Candy' : false;
+      }));
+    await page.evaluate(() => document.querySelector('.coach-bubble [data-coach-ok]')?.click());
+    await page.waitForTimeout(300);
+    await page.click('#xTeamDetail .evo-btn.ready');
+    await page.waitForSelector('#screenEvolve:not([hidden])', { timeout: 8000 });
+    await page.waitForSelector('#btnEvoDone:not([hidden])', { timeout: 15000 });
+    await page.click('#btnEvoDone');
+    await page.waitForTimeout(600);
+    check('the starter really evolved (not just told to)',
+      await page.evaluate(() => window.Game.run.tutorialEvolved === true));
+
+    // -- section 2, part 2: the hand-held TRAINING walkthrough -----------
+    await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 9000 }).catch(() => null);
+    check('the tutorial now invites the guided training',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent) === 'Time to train',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent));
+    await page.click('#screenCoach [data-coach-ok]');
+    await page.waitForTimeout(400);
+
+    const trainIdx = await page.evaluate(() =>
+      window.Game.run.party.findIndex((m) => String(m.uid) === String(window.Game.run._tutCatchUid)));
+    await page.click(`#xTeam .tslot[data-i="${trainIdx}"]`);
+    await page.waitForSelector('#xTeamDetail:not([hidden])', { timeout: 8000 });
+    await page.click('#xTeamDetail .pd-train');
+    await page.waitForSelector('#screenTutor:not([hidden])', { timeout: 8000 });
+    const tr = await driveTraining(page);
+    check('the training walkthrough covers moves, ability, nature and stats',
+      ['Pick a move slot', 'Learn this move', 'Now your ability', 'Now your nature', 'Now Stat Points', 'All trained!']
+        .every((t) => tr.seen.includes(t)), tr.seen.join(' | '));
+    check('training walked through with the tutor closed at the end',
+      tr.stop === 'tutor-closed', tr.stop);
+    await page.waitForSelector('#screenCrossroads:not([hidden])', { timeout: 10000 });
+    check('the guided training concluded the tutorial IN section 2',
+      await page.evaluate(() => !window.Coach.inPrologue() && !window.Game.run.prologue &&
+        window.Game.run.tutorialTrained === true));
 
     // ---- honest item copy where it matters ----
     await page.evaluate(() => { window.Game.run.money = 12000; window.Game.redrawRoute(); });
@@ -775,7 +962,7 @@ try {
     await page.click('#btnMenuGuide');
     await page.waitForSelector('#screenGuide:not([hidden])', { timeout: 8000 });
     const cards = await page.locator('.guide-card').count();
-    check('the guide lists every lesson for re-reading', cards >= 18, `${cards} cards`);
+    check('the guide lists every lesson for re-reading', cards >= 15, `${cards} cards`);
     await page.locator('.guide-card').first().click();
     await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 8000 });
     check('a lesson can be replayed from the guide even with tips off',
