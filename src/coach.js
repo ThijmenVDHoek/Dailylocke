@@ -26,6 +26,17 @@
 //   5. Always skippable, always replayable. "Skip all tips" is permanent and
 //      reversible from Profile; every lesson can be re-read from the Guide.
 //
+// ONE SURFACE: THE PROFESSOR'S SHEET
+//   Every lesson renders the same way: a modal dialog sheet with the big
+//   professor portrait and the typewriter text reveal. The small anchored
+//   coach-mark pill was retired -- two visual registers for the same job kept
+//   confusing players about what was a lesson and what was a floating button,
+//   and every pill-specific bug class (anchor re-rendered away, anchored into
+//   a closed dialog, dropped below a scrim) vanished with it. When a caller
+//   names the element the lesson is ABOUT (anchor / anchorSel), the sheet
+//   still paints the violet halo on it for as long as the sheet is up, so the
+//   link between the words and the thing stays visible.
+//
 // WHAT LIVES WHERE
 //   Coach.lesson(id, ...)   fire a lesson (deduped, queued, respects opt-out)
 //   Coach.tipBadge(...)     the small ✦Tip marker on a thing worth choosing
@@ -105,16 +116,21 @@
     return c;
   }
 
-  function attach(p, save) { profile = p; saveFn = save; return state(); }
+  function attach(p, save) {
+    profile = p; saveFn = save;
+    // A different profile means a different tutorial context: beats queued
+    // for the old profile must not pop up over the new one's game. `pending`
+    // is declared in the presentation section below; assignment here is safe
+    // because attach() only runs after the whole module has been evaluated.
+    pending.length = 0;
+    return state();
+  }
   function persist() { if (saveFn) { try { saveFn(); } catch (e) {} } }
 
   function tipsOn() { return !state().off; }
   function badgesOn() { var c = state(); return !c.off && c.badges !== false; }
   function seen(id) { return !!state().seen[id]; }
   function markSeen(id) { state().seen[id] = 1; persist(); }
-  // Put a lesson back in the syllabus. Used when a card was dismissed by the
-  // UI rather than by the player, so it is not silently written off as read.
-  function unsee(id) { delete state().seen[id]; persist(); }
   function setOff(v) { state().off = !!v; persist(); }
   function setBadges(v) { state().badges = !!v; persist(); }
   function isOnboarded() { return !!state().onboarded; }
@@ -129,6 +145,7 @@
     var c = state();
     c.seen = {}; c.modes = {}; c.off = false; c.badges = true;
     c.onboarded = false; c.prologue = false;
+    pending.length = 0;
     persist();
   }
 
@@ -476,22 +493,50 @@
   // Copy rules: one idea, ~2 short sentences, no jargon that has not just
   // been defined, and always phrased as something to DO.
   var LESSONS = [
-    { id: 'welcome', where: 'basics', title: 'One life each', body: 'If a Pokemon faints, it is gone forever. No revives.' },
-    { id: 'starter', where: 'basics', title: 'Choose your starter!', body: 'Pick one. It fights with you. Name it!' },
-    { id: 'battleBar', where: 'battle', title: 'Battle buttons', body: 'Tap Moves to attack. Use a Ball to catch. Bag for items. Party to switch.' },
-    { id: 'effect', where: 'battle', title: 'Super effective!', body: 'Look for \u00d72 on moves. That hurts the enemy a lot!' },
-    { id: 'switch', where: 'battle', title: 'How to Switch', body: 'Tap Party during battle to switch to a Pokemon with a better type match!' },
-    { id: 'battleItem', where: 'battle', title: 'Items in Battle', body: 'Tap Bag during battle to use potions and heal your active Pokemon!' },
-    { id: 'catch', where: 'catching', title: 'Catch your first!', body: 'Weaken the wild Pokemon first. Then throw a Ball!' },
-    { id: 'caught', where: 'catching', title: 'New friend!', body: 'It joins with the HP it had. Name it!' },
-    { id: 'route', where: 'basics', title: 'The path', body: 'Capture one, fight two wilds for money, then the Trainer boss.' },
-    { id: 'trainer', where: 'basics', title: 'Heal first!', body: 'Heal your team before the Trainer fight!' },
-    { id: 'save', where: 'basics', title: 'Save your game', body: 'Tap Save progress to securely record your progress so you never lose your run.' },
-    { id: 'shopBalls', where: 'items', title: 'Poke Mart: Balls', body: 'Spend your prize money on Poke Balls so you can catch wild encounters.' },
-    { id: 'shopHeals', where: 'items', title: 'Poke Mart: Medicine', body: 'Buy Potions and healing items to restore HP between or during fights.' },
-    { id: 'shopHeld', where: 'items', title: 'Poke Mart: Held items', body: 'Buy held items for passive stat boosts or healing, and give them to your team via the party screen.' },
-    { id: 'mart', where: 'items', title: 'Buy balls!', body: 'Use money on Poke Balls and Potions.' },
-    { id: 'evolve', where: 'training', title: 'Evolution', body: 'Evolve your Pokémon using Rare Candies or items from your bag to make them much stronger!' }
+    { id: 'welcome', where: 'basics', title: 'One life each',
+      body: 'If a Pokemon faints, it is gone forever. No revives, no exceptions.' },
+    { id: 'starter', where: 'basics', title: 'Choose your starter!',
+      body: 'Pick one. It fights with you. Name it!' },
+    { id: 'route', where: 'basics', title: 'The path',
+      body: 'Each section is a short route: a <b>Capture Encounter</b>, two wild battles for prize money, then the <b>Trainer</b>. Beat the Trainer to move on.' },
+    { id: 'battleBar', where: 'battle', title: 'Battle buttons',
+      body: 'Everything you do in battle runs along this bar: pick a <b>Move</b> to attack, <b>Bag</b> for items, <b>Party</b> to switch, <b>Run</b> to flee a wild battle.' },
+    { id: 'catch', where: 'catching', title: 'Catch your first!',
+      body: 'Weaken the wild Pokemon with attacks first \u2014 the lower its HP, the better your odds. Then tap a <b>Poke Ball</b> on the rail to catch it.' },
+    { id: 'caught', where: 'catching', title: 'New friend!',
+      body: 'It joins your team with the HP and status it had when caught \u2014 not at full health. Give it a name!' },
+    { id: 'effect', where: 'battle', title: 'Super effective!',
+      body: 'Moves marked <b>\u00d72</b> hit a weakness and deal double damage. This wild Pokemon is weak to one of your moves \u2014 look for the \u00d72 tag and press it!' },
+    { id: 'switch', where: 'battle', title: 'How to Switch',
+      body: 'Tap <b>Party</b> during battle to swap to a Pokemon with a better type matchup. Switching costs your turn \u2014 but the right switch can save a life.' },
+    { id: 'battleItem', where: 'battle', title: 'Items in battle',
+      body: 'Tap <b>Bag</b> during battle and use a <b>Potion</b> to heal your active Pokemon. It costs your turn, so heal before a big hit lands \u2014 not after!' },
+    { id: 'trainer', where: 'basics', title: 'Heal first!',
+      body: 'A Trainer battle is next: a full team, smarter moves, and no catching. Heal your team from the Bag before you go in!' },
+    { id: 'skipping', where: 'basics', title: 'The middle stops are a budget',
+      body: 'Every wild battle pays prize money, but costs HP and PP. If a fight goes badly, <b>Run</b> always works \u2014 it only costs you the reward.' },
+    { id: 'save', where: 'saving', title: 'Save your game',
+      body: 'Your run saves itself after every battle. For real peace of mind, tap <b>Save progress</b>: it downloads a backup file you can restore anytime, even on another device.' },
+    { id: 'mart', where: 'items', title: 'The Mart is open',
+      body: 'Spend prize money here. Balls and Potions are always in stock; the held items and stones rotate every section.' },
+    { id: 'shopBalls', where: 'items', title: 'Poke Mart: Balls',
+      body: 'Balls catch wild Pokemon in Capture Encounters. Better balls catch easier \u2014 a <b>Great Ball</b> or <b>Ultra Ball</b> is worth it when the catch really matters.' },
+    { id: 'shopHeals', where: 'items', title: 'Poke Mart: Medicine',
+      body: 'Potions restore HP \u2014 usable between battles AND during one, from the Bag. Nothing here heals on its own: stock up before the Trainer.' },
+    { id: 'shopHeld', where: 'items', title: 'Poke Mart: Held items',
+      body: 'Held items give a Pokemon a passive boost every single turn. Buy one, then tap a Pokemon on your <b>team strip</b> and give it the item to hold.' },
+    { id: 'train', where: 'training', title: 'Train your Pokemon',
+      body: 'The Train service rewrites moves, ability, nature and Stat Points for one fee. A few Stat Points in Speed often decides who moves first.' },
+    { id: 'held', where: 'training', title: 'Free power, every turn',
+      body: 'A held item works every turn without spending a move. If a \u2726Tip badge says one fits your Pokemon, it genuinely does.' },
+    { id: 'fullheal', where: 'items', title: 'Read the label',
+      body: '<b>Full Heal</b> cures status and restores <b>no HP at all</b>. For HP you want a Potion; for both at once, a Full Restore.' },
+    { id: 'evolve', where: 'training', title: 'Evolution',
+      body: 'Nothing levels up here. Use a <b>Rare Candy</b> for a level-up evolution, or a stone from the Mart \u2014 from the Bag or your party sheet. Evolving is a huge permanent power spike.' },
+    { id: 'evoBranch', where: 'training', title: 'It can become more than one thing',
+      body: 'This evolution branches, and the choice is permanent. Check what each form does before you commit.' },
+    { id: 'moveChoice', where: 'training', title: 'Four moves, no take-backs',
+      body: 'Replacing a move forgets the old one for good. Prefer moves that match a type this Pokemon has (STAB) and its stronger attack stat.' }
   ];
 
   var LESSON_BY_ID = {};
@@ -532,15 +577,62 @@
   function modeInfo(m) { return MODES[m] || null; }
 
   // ========================================================== PRESENTATION ==
-  // Two surfaces, and only two:
-  //   * a SHEET   — a modal lesson card, for ideas that deserve a beat
-  //   * a COACH MARK — a small anchored pill pointing at one element
-  // Both carry the professor. Neither is ever chained to another.
+  // ONE surface: the modal lesson sheet, always with the big professor
+  // portrait and the typewriter reveal. The retired anchored pill carried its
+  // own whole bug class (anchor re-rendered away mid-hint, hint buried under
+  // a scrim, anchored into a dialog that then closed); the sheet has none of
+  // those states because the modal controller owns its lifecycle.
+  //
+  // When the caller names what the lesson is ABOUT (anchor / anchorSel), the
+  // sheet paints the violet halo on that element for as long as it is open,
+  // so "tap THIS button" stays literal.
 
   var busy = false;          // a card is on screen right now
   var cooldownUntil = 0;     // no second card for a moment after one closes
   var COOLDOWN_MS = 550;
-  var host = null;           // the coach-mark layer
+
+  // ---- the vital-lesson queue ---------------------------------------------
+  // Tutorial beats (the guided run's scripted lessons) must not silently
+  // vanish because another card was up or just closed when they fired. A
+  // request made with `vital: true` that arrives while the surface is busy
+  // (or cooling down) is queued -- deduped by lesson id -- and pumped when
+  // the surface frees. `stillValid` lets the caller say when a beat has gone
+  // stale (its battle is over, the screen was left): a stale beat drops, and
+  // the natural call site re-requests it at the next appropriate moment.
+  var pending = [];          // [{id, opts}]
+  var pumpTimer = null;
+
+  function queueVital(id, opts) {
+    for (var i = 0; i < pending.length; i++) if (pending[i].id === id) return;
+    pending.push({ id: id, opts: opts });
+    // Arm the pump HERE, not just in setBusy(false): a beat queued during a
+    // cooldown with no sheet opening after it would otherwise sit in the
+    // queue forever -- nothing would ever fire it again. That was a real
+    // dead-tutorial bug (shop chain stalls, route lessons lost).
+    schedulePump();
+  }
+
+  function schedulePump() {
+    if (pumpTimer || !pending.length) return;
+    pumpTimer = setTimeout(function () {
+      pumpTimer = null;
+      pump();
+    }, COOLDOWN_MS + 80);
+  }
+
+  function pump() {
+    if (busy || Date.now() < cooldownUntil || !pending.length) return;
+    while (pending.length && !busy) {
+      var next = pending.shift();
+      if (!tipsOn() || seen(next.id)) continue;
+      if (next.opts && typeof next.opts.stillValid === 'function') {
+        var ok = false;
+        try { ok = !!next.opts.stillValid(); } catch (e) {}
+        if (!ok) continue;   // gone stale: the call site will ask again later
+      }
+      lesson(next.id, next.opts);
+    }
+  }
 
   // `busy` gates every lesson, so anything that can set it and then fail to
   // clear it silences the coach for the rest of the session -- the player
@@ -548,7 +640,10 @@
   // through one place so "released" is impossible to forget.
   function setBusy(on) {
     busy = !!on;
-    if (!busy) cooldownUntil = Date.now() + COOLDOWN_MS;
+    if (!busy) {
+      cooldownUntil = Date.now() + COOLDOWN_MS;
+      schedulePump();
+    }
   }
 
   function esc(s) {
@@ -557,19 +652,32 @@
     });
   }
 
-  function ensureHost() {
-    if (host && host.isConnected) return host;
-    host = document.getElementById('coachLayer');
-    if (!host) {
-      host = document.createElement('div');
-      host.id = 'coachLayer';
-      host.className = 'coach-layer';
-      document.body.appendChild(host);
+  // ---- the halo ------------------------------------------------------------
+  // The element a sheet is talking about glows violet for the sheet's whole
+  // lifetime. It re-resolves selector anchors once after opening, so a HUD
+  // re-render in the same beat doesn't drop the link.
+  var haloTimer = null;
+  function sweepHalo() {
+    var all = document.querySelectorAll('.coach-spot');
+    for (var i = 0; i < all.length; i++) all[i].classList.remove('coach-spot');
+    if (haloTimer) { clearTimeout(haloTimer); haloTimer = null; }
+  }
+  function applyHalo(opts) {
+    sweepHalo();
+    if (!opts) return;
+    var t = opts.anchor || (opts.anchorSel ? document.querySelector(opts.anchorSel) : null);
+    if (t && t.isConnected && !t.closest('[hidden]')) t.classList.add('coach-spot');
+    if (opts.anchorSel) {
+      haloTimer = setTimeout(function () {
+        haloTimer = null;
+        var n = document.querySelector(opts.anchorSel);
+        var lit = document.querySelector('.coach-spot');
+        if (lit && !lit.isConnected) lit.classList.remove('coach-spot');
+        if ((!lit || !lit.isConnected) && n && n.isConnected && !n.closest('[hidden]')) {
+          n.classList.add('coach-spot');
+        }
+      }, 320);
     }
-    // This layer floats above dialogs rather than behind them, so the modal
-    // controller must not inert it along with the rest of the page.
-    host.setAttribute('data-modal-overlay', '');
-    return host;
   }
 
   // ---- the modal lesson sheet --------------------------------------------
@@ -578,14 +686,12 @@
     var el = document.getElementById('screenCoach');
     if (!el || !window.Modal) { if (opts.onDone) opts.onDone(); return; }
 
-    var isImmersive = true;
     var card = el.querySelector('.overlay-card');
 
-    var portraitSize = isImmersive ? 88 : 52;
-    var head = '<div class="coach-head' + (isImmersive ? ' immersive' : '') + '">' +
-        '<span class="coach-portrait">' + advisorImg(portraitSize) + '</span>' +
+    var head = '<div class="coach-head immersive">' +
+        '<span class="coach-portrait">' + advisorImg(88) + '</span>' +
         '<div class="coach-who"><b>' + esc(ADVISOR.name) + '</b>' +
-          '<em>' + esc(opts.eyebrow || (isImmersive ? 'Professor Elm' : 'Tip')) + '</em></div>' +
+          '<em>' + esc(opts.eyebrow || 'Professor Elm') + '</em></div>' +
       '</div>';
 
     var bodyId = 'coachBodyReveal';
@@ -602,22 +708,22 @@
     if (window.Modal.isOpen(el)) window.Modal.close(el);
 
     setBusy(true);
+    applyHalo(opts);
     window.Modal.open(el, {
       onClose: function () {
+        sweepHalo();
         setBusy(false);
         if (opts.onDone) { try { opts.onDone(); } catch (e) {} }
       }
     });
 
+    // The typewriter reveal: text appears character by character with a soft
+    // blip, and a tap finishes the line immediately.
     var bodyDiv = card.querySelector('#' + bodyId);
     var raw = lesson.body.replace(/<[^>]*>/g, '');
-    if (isImmersive) {
-      bodyDiv.classList.add('text-reveal');
-      var skip = typeText(bodyDiv, raw, 26, null);
-      bodyDiv.onclick = function() { skip(); bodyDiv.innerHTML = lesson.body; bodyDiv.onclick = null; };
-    } else {
-      bodyDiv.innerHTML = lesson.body;
-    }
+    bodyDiv.classList.add('text-reveal');
+    var skip = typeText(bodyDiv, raw, 26, null);
+    bodyDiv.onclick = function () { skip(); bodyDiv.innerHTML = lesson.body; bodyDiv.onclick = null; };
 
     card.querySelector('[data-coach-ok]').addEventListener('click', function () {
       window.Modal.close(el);
@@ -627,162 +733,29 @@
       setOff(true);
       window.Modal.close(el);
       if (window.Game && window.Game.toast) window.Game.toast('Tips off. Turn them back on in Profile.');
+      if (window.Game && window.Game.onCoachSkip) {
+        try { window.Game.onCoachSkip(); } catch (e) {}
+      }
     });
   }
 
-  // ---- the anchored coach mark -------------------------------------------
-  // Points at exactly one element. Repositions on scroll/resize, and gives up
-  // gracefully (falling back to a sheet) if the target is not on screen.
-  var activeMark = null;
-
+  // Release the surface. Called on every screen transition by app.js: a halo
+  // must never survive the screen it described, and `busy` must self-heal if
+  // a sheet vanished without routing through Modal.close (a screen change
+  // can hide an overlay directly, and then onClose never runs).
   function clearMark() {
-    if (!activeMark) {
-      // No pill, but `busy` may still be set by a sheet whose dialog is gone
-      // (a screen change can hide an overlay without routing through
-      // Modal.close, and then onClose never runs). Releasing here keeps a
-      // vanished card from silencing every later lesson.
-      if (busy && !(window.Modal && window.Modal.isOpen('screenCoach'))) setBusy(false);
-      // A halo can outlive its pill when the anchor is re-rendered; sweep.
-      var orphans = document.querySelectorAll('.coach-spot');
-      for (var o = 0; o < orphans.length; o++) orphans[o].classList.remove('coach-spot');
-      return;
-    }
-    var m = activeMark;
-    activeMark = null;
-    if (m.poll) clearInterval(m.poll);
-    if (m.reflow) {
-      window.removeEventListener('scroll', m.reflow, true);
-      window.removeEventListener('resize', m.reflow);
-    }
-    if (m.onModal) {
-      document.removeEventListener('modal:open', m.onModal);
-      document.removeEventListener('modal:close', m.onModal);
-    }
-    if (m.el && m.el.parentNode) {
-      m.el.classList.remove('on');
-      var n = m.el;
-      setTimeout(function () { if (n.parentNode) n.parentNode.removeChild(n); }, 180);
-    }
-    if (m.target) m.target.classList.remove('coach-spot');
-    // The halo may have moved to a re-rendered clone; sweep any stragglers.
-    var stray = document.querySelectorAll('.coach-spot');
-    for (var i = 0; i < stray.length; i++) stray[i].classList.remove('coach-spot');
-    setBusy(false);
-    if (m.onDone) { try { m.onDone(); } catch (e) {} }
-  }
-
-  // Is the thing a mark points at still really on screen? A node inside a
-  // just-closed overlay is still `isConnected` -- the overlay is only
-  // `hidden` -- so connectedness alone is not enough.
-  function targetVisible(m) {
-    var t = m && m.target;
-    if (!t || !t.isConnected) return false;
-    return !t.closest('[hidden]');
-  }
-
-  function showMark(lesson, target, opts) {
-    opts = opts || {};
-    // `anchorSel` lets a caller name its target by selector as well as by
-    // node. BattleUI rebuilds its whole HUD on every render, so an element
-    // captured now is detached moments later -- the halo would vanish and the
-    // pill would sit pointing at nothing. With a selector we can re-resolve
-    // the target on each reflow and follow it across re-renders.
-    var sel = opts.anchorSel || null;
-    if (!target && sel) target = document.querySelector(sel);
-    if (!target || !target.isConnected) {
-      // No anchor at all: the lesson still matters, so deliver it as a sheet.
-      showSheet(lesson, opts);
-      return;
-    }
-    clearMark();
-    var layer = ensureHost();
-    var el = document.createElement('div');
-    el.className = 'coach-mark';
-    el.setAttribute('role', 'status');
-    el.innerHTML =
-      '<span class="cm-face">' + advisorImg(34) + '</span>' +
-      '<div class="cm-text">' +
-        '<b>' + esc(lesson.title) + '</b>' +
-        '<span>' + lesson.body + '</span>' +
-      '</div>' +
-      '<button type="button" class="cm-ok" data-cm-ok>Got it</button>';
-    layer.appendChild(el);
-
-    target.classList.add('coach-spot');
-
-    function place() {
-      if (!el.isConnected) return;
-      // Re-resolve a selector-anchored target: the node we were handed may
-      // have been replaced by a re-render since the last frame.
-      if (sel && (!target || !target.isConnected)) {
-        var next = document.querySelector(sel);
-        if (next) {
-          target = next;
-          activeMark.target = next;
-        }
-      }
-      if (!target || !target.isConnected) return;
-      if (!target.classList.contains('coach-spot')) target.classList.add('coach-spot');
-      var r = target.getBoundingClientRect();
-      var w = el.offsetWidth, h = el.offsetHeight;
-      var pad = 10;
-      var left = r.left + r.width / 2 - w / 2;
-      left = Math.max(pad, Math.min(left, window.innerWidth - w - pad));
-      var top = r.top - h - 12;
-      el.classList.remove('below');
-      if (top < pad) { top = r.bottom + 12; el.classList.add('below'); }
-      // If it still doesn't fit, pin it to the bottom of the viewport.
-      if (top + h > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - h - pad);
-      el.style.left = Math.round(left) + 'px';
-      el.style.top = Math.round(top) + 'px';
-    }
-    activeMark = { el: el, target: target, sel: sel, onDone: opts.onDone };
-    place();
-    requestAnimationFrame(function () { el.classList.add('on'); place(); });
-
-    var reflow = function () { place(); };
-    window.addEventListener('scroll', reflow, true);
-    window.addEventListener('resize', reflow);
-    // A re-rendered HUD swaps the anchor out from under us; keep the halo and
-    // the pill following it for as long as the mark is up.
-    var poll = setInterval(place, 400);
-    activeMark.reflow = reflow;
-    activeMark.poll = poll;
-    // A mark only makes sense while the thing it points at is on screen.
-    // Two ways that stops being true, both of which used to strand the pill
-    // and latch `busy` -- which silently ended the teaching for the rest of
-    // the session:
-    //   * a dialog OPENS over it, burying the subject behind a scrim;
-    //   * the dialog it was anchored INTO closes (the evolve lesson lives on
-    //     the party sheet), taking the subject with it.
-    // Either way the hint has lost its anchor, so retire it. It was never
-    // actually read, so hand it back to the syllabus instead of counting it
-    // as taught.
-    activeMark.onModal = function (ev) {
-      // On close, only give up if the subject really did go away -- closing
-      // some unrelated dialog must not cancel a hint that is still valid.
-      if (ev && ev.type === 'modal:close' && targetVisible(activeMark)) return;
-      if (opts.markedSeen && lesson && lesson.id) unsee(lesson.id);
-      clearMark();
-    };
-    document.addEventListener('modal:open', activeMark.onModal);
-    document.addEventListener('modal:close', activeMark.onModal);
-    setBusy(true);
-    el.querySelector('[data-cm-ok]').addEventListener('click', clearMark);
-
-    // Interacting with the thing being pointed at also dismisses the mark:
-    // the player has understood, so the annotation has done its job.
-    target.addEventListener('click', clearMark, { once: true });
-
-    try { target.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+    sweepHalo();
+    if (busy && !(window.Modal && window.Modal.isOpen('screenCoach'))) setBusy(false);
   }
 
   // ---- the public entry point ---------------------------------------------
-  // Coach.lesson('mart', { anchor: el })
+  // Coach.lesson('mart', { anchor: el, vital: true, stillValid: fn })
   //
   // Silently does nothing when: tips are off, this lesson was already seen,
-  // or another card is on screen / just closed. That last rule is what stops
-  // chains — the caller does not need to know about it.
+  // the beat's own context is gone (`stillValid` says so), or another card is
+  // on screen / just closed. That last rule is what stops chains -- EXCEPT
+  // for `vital` tutorial beats, which queue instead of dropping so the
+  // scripted onboarding can never lose a step to a race.
   function lesson(id, opts) {
     opts = opts || {};
     var l = lessonById(id);
@@ -790,20 +763,22 @@
     if (!opts.force) {
       if (!tipsOn()) return false;
       if (seen(id)) return false;
-      if (busy) return false;
-      if (Date.now() < cooldownUntil) return false;
+      // The caller knows when a beat belongs: a capture lesson is only
+      // meaningful during the capture battle, a shop lesson only while the
+      // Mart is on screen. If that moment has ALREADY passed, drop quietly --
+      // the natural call site re-requests at the next appropriate moment.
+      if (typeof opts.stillValid === 'function') {
+        var okNow;
+        try { okNow = !!opts.stillValid(); } catch (e) { okNow = false; }
+        if (!okNow) return false;
+      }
+      if (busy || Date.now() < cooldownUntil) {
+        if (opts.vital) queueVital(id, opts);
+        return false;
+      }
     }
     if (!opts.force) markSeen(id);
-    if (opts.anchor || opts.anchorSel) {
-      // Tell showMark whether this counts against the syllabus, so a hint the
-      // UI retires unread can be handed back rather than written off.
-      var markOpts = {};
-      for (var k in opts) if (Object.prototype.hasOwnProperty.call(opts, k)) markOpts[k] = opts[k];
-      markOpts.markedSeen = !opts.force;
-      showMark(l, opts.anchor || null, markOpts);
-    } else {
-      showSheet(l, opts);
-    }
+    showSheet(l, opts);
     return true;
   }
 
@@ -811,7 +786,7 @@
   function replay(id) {
     var l = lessonById(id);
     if (!l) return;
-    clearMark();
+    sweepHalo();
     showSheet(l, { force: true, noSkip: true, eyebrow: 'From the guide' });
   }
 
@@ -824,7 +799,7 @@
     opts = opts || {};
     return '<span class="tip-badge' + (opts.cls ? ' ' + opts.cls : '') + '"' +
       (reason ? ' data-tip="text:' + esc(reason) + '"' : '') + '>' +
-      '<i aria-hidden="true">\u2726</i>Tip</span>';
+      '<i aria-hidden="true">✦</i>Tip</span>';
   }
 
   window.Coach = {
@@ -847,6 +822,7 @@
     // presentation
     lesson: lesson, replay: replay, sheet: showSheet, clearMark: clearMark,
     tipBadge: tipBadge,
-    get busy() { return busy; }
+    get busy() { return busy; },
+    get pendingCount() { return pending.length; }
   };
 })();

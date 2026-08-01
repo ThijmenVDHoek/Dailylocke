@@ -1352,9 +1352,11 @@
     // while the player is still on the route — battle then paints instantly.
     try { prefetchParty(run.party); } catch (e) {}
     renderHud();
-    // Tutorial mode: dim shop and bag, hide extra complexity
+    // Tutorial mode: dim shop and bag, hide extra complexity -- SECTION 1
+    // ONLY. Section 2 is where the guided run teaches the Mart, so its shop
+    // and bag must be fully interactive while the run is still a prologue.
     var cr = $('screenCrossroads');
-    if (cr) cr.classList.toggle('prologue-dim', !!(run && run.prologue));
+    if (cr) cr.classList.toggle('prologue-dim', !!(run && run.prologue && run.section === 1));
     var isG = N.isGauntlet(run);
     var trainerNext = N.nextIsTrainer(run);   // always true in a Gauntlet
     var gTrainer = isG ? N.trainerFor(run) : null;
@@ -1443,22 +1445,43 @@
   // player to do right now. The coach module itself refuses to chain, but
   // choosing here as well keeps the ordering deliberate rather than
   // whichever-check-ran-first.
+  //
+  // During the guided run the route screen only teaches its two scripted
+  // beats -- the shape of a section, and the pre-boss heal warning -- and
+  // they are `vital` so a race with another card can never swallow them. The
+  // rest of the syllabus waits for the tutorial to be over, so it does not
+  // pile onto the scripted beats.
   function routeCoach(trainerNext, isG) {
     var CO = window.Coach;
     if (!CO || !CO.tipsOn() || isG) return;
-    // Never talk over a screen the player has not looked at yet.
-    setTimeout(function () {
+    // Request on a SHORT beat, not immediately: renderCrossroads() is always
+    // followed synchronously by show('Crossroads'), so the screen is still
+    // hidden at render time -- and a beat requested into a hidden screen
+    // drops (stillValid), losing the lesson exactly once before. The old
+    // 420ms timer hid that by racing the navigation instead of modelling it.
+    // `stillValid` + the coach's vital queue are the correct patience model:
+    // a beat whose screen was left drops and is re-requested at the next
+    // render, and a beat raced by another card waits instead of dying.
+    setTimeout(requestRouteLesson, 80);
+    function requestRouteLesson() {
       if ($('screenCrossroads').hidden) return;
       var n = run.battleInSection;
+      var pro = run && run.prologue;
+      var onRoute = function () { return !$('screenCrossroads').hidden; };
 
       // 1. How a section is shaped. The very first thing after the starter.
-      if (!CO.seen('route')) { CO.lesson('route', { anchor: $('xProgress') }); return; }
+      if (!CO.seen('route')) { CO.lesson('route', { anchor: $('xProgress'), vital: pro, stillValid: onRoute }); return; }
 
       // 2. Before the boss: heal up. This is the highest-value warning in the
       //    game and it is the one casual players most often need.
       if (trainerNext && !CO.seen('trainer')) {
-        CO.lesson('trainer', { anchor: $('btnGoBattle') }); return;
+        CO.lesson('trainer', { anchor: $('btnGoBattle'), vital: pro, stillValid: onRoute }); return;
       }
+
+      // Everything below is contextual teaching for AFTER the tutorial: it
+      // re-fires on every visit until read, so it needs no queue, and it
+      // must not pile onto the guided run's scripted beats.
+      if (pro) return;
 
       // 3. The two middle battles are the budget. Said once, on stop 2.
       if (!trainerNext && n === 1 && !CO.seen('skipping')) {
@@ -1480,7 +1503,7 @@
       if (run.section >= 2 && !CO.seen('held') && martHasAffordableHeld()) {
         CO.lesson('held', { anchor: $('xShopBlock') }); return;
       }
-    }, 420);
+    }
   }
 
   function martHasAffordableHeld() {
@@ -1585,24 +1608,63 @@
     shopCoach();
   }
 
+  // ---- the shop tutorial (guided run, section 2) ---------------------------
+  // The Mart's first real visit teaches its three shelves in order -- balls,
+  // then medicine, then held items -- and the evolution lesson closes the
+  // guided run. All four are `vital` beats: they queue behind each other
+  // rather than competing, so the sequence always plays out in order and
+  // never loses a step to a busy surface. If the player dashes into the next
+  // battle mid-series, the unplayed beats drop and re-request on the next
+  // visit, still in order.
   function shopCoach() {
     var CO = window.Coach;
-    if (!CO || !CO.tipsOn() || !run || !run.prologue || run.section !== 2) return;
+    if (!CO || !CO.tipsOn() || !CO.inPrologue() || !run || !run.prologue || run.section !== 2) return;
+    // Same short beat as routeCoach: the crossroads is still hidden at render
+    // time (show() runs right after), and beats requested into a hidden
+    // screen drop. The queue plays the series in order, one dismissal at a
+    // time; a player who dashes into the next battle mid-series invalidates
+    // the unplayed beats, and this function re-requests them on the next
+    // visit, still in order.
     setTimeout(function () {
-      if ($('screenCrossroads').hidden) return;
-      if (!CO.seen('shopBalls')) {
-        CO.lesson('shopBalls', { anchor: $('xShopBlock'), immersive: true });
-        return;
+      var onRoute = function () {
+        return !$('screenCrossroads').hidden && run && run.prologue && run.section === 2;
+      };
+      ['shopBalls', 'shopHeals', 'shopHeld'].forEach(function (id) {
+        if (!CO.seen(id)) CO.lesson(id, { anchor: $('xShopBlock'), vital: true, stillValid: onRoute });
+      });
+      if (!CO.seen('evolve')) {
+        CO.lesson('evolve', { anchor: $('xShopBlock'), vital: true, stillValid: onRoute, onDone: concludeTutorial });
+      } else {
+        // Every scripted beat has been taught, but the conclusion never ran
+        // (the app was closed while the final sheet was still open: the
+        // lesson is persisted as seen, its dismissal hook was not). End the
+        // prologue here, or it would linger half-armed forever.
+        concludeTutorial();
       }
-      if (!CO.seen('shopHeals')) {
-        CO.lesson('shopHeals', { anchor: $('xShopBlock'), immersive: true });
-        return;
-      }
-      if (!CO.seen('shopHeld')) {
-        CO.lesson('shopHeld', { anchor: $('xShopBlock'), immersive: true });
-        return;
-      }
-    }, 420);
+    }, 80);
+  }
+
+  // The guided first run is over: the safety net and scripted beats stop, and
+  // the run continues as an ordinary one with normal randomness. Both flags
+  // go together -- the coach module's governs lesson logic, the run's
+  // governs encounter generation, and splitting them is how the tutorial
+  // used to die halfway through.
+  function concludeTutorial(opts) {
+    opts = opts || {};
+    var was = (window.Coach && window.Coach.inPrologue()) || (run && run.prologue);
+    if (!was) return;
+    if (window.Coach && window.Coach.inPrologue()) window.Coach.setPrologue(false);
+    if (run && run.prologue) { run.prologue = false; saveGame(); }
+    if (!opts.silent) toast('Tutorial complete \u2014 the rest of the run is all yours.');
+  }
+
+  // "Skip tips" anywhere during the guided run means the player is opting
+  // out of the tutorial itself, not just out of future cards. The coach has
+  // its own toast for that ("Tips off..."), so this just ends the prologue.
+  function onCoachSkip() {
+    if ((window.Coach && window.Coach.inPrologue()) || (run && run.prologue)) {
+      concludeTutorial({ silent: true });
+    }
   }
   function drawMart() {
     var grid = $('martGrid');
@@ -1671,8 +1733,10 @@
     // The name trap, called out once, anchored to the actual item. This is
     // the single most-misread thing in the game: Full Heal cures status and
     // restores zero HP, and it sits next to Full Restore, which does both.
+    // NOT during the guided run: the scripted shop series is playing there,
+    // and this would jostle with it for the same screen.
     var CO = window.Coach;
-    if (CO && CO.tipsOn() && !CO.seen('fullheal') && run.money >= 600) {
+    if (CO && CO.tipsOn() && !CO.seen('fullheal') && run.money >= 600 && !(run && run.prologue)) {
       var fhTile = grid.querySelector('[data-tip="item:fullheal"]');
       if (fhTile) setTimeout(function () {
         if (!$('screenCrossroads').hidden) CO.lesson('fullheal', { anchor: fhTile });
@@ -2354,16 +2418,26 @@
       var evoBox = host.querySelector('.evo-box');
       if (evoBox) {
         var branching = evoBox.querySelectorAll('.evo-btn').length > 1;
-        var which = (branching && !CO.seen('evoBranch')) ? 'evoBranch'
-                  : (!CO.seen('evolve') ? 'evolve' : null);
+        var pro = !!(run && run.prologue && CO.inPrologue());
+        // During the guided run this is a FALLBACK for the scripted evolution
+        // lesson (the shop chain normally teaches it first): if the player
+        // opens a party member's evolution box before the chain reaches it,
+        // the lesson fires here instead and concludes the tutorial. The
+        // Coach queue dedupes by lesson id, so the two paths can never both
+        // show it.
+        var which = pro
+          ? (!CO.seen('evolve') ? 'evolve' : null)
+          : ((branching && !CO.seen('evoBranch')) ? 'evoBranch'
+            : (!CO.seen('evolve') ? 'evolve' : null));
         if (which) {
-          if (which === 'evolve' && run && run.prologue) {
-            window.Coach.setPrologue(false);
-            run.prologue = false;
-            saveGame();
-          }
           setTimeout(function () {
-            if (window.Modal.isOpen('xTeamDetail')) CO.lesson(which, { anchor: evoBox, immersive: true });
+            if (!window.Modal.isOpen('xTeamDetail')) return;
+            CO.lesson(which, {
+              anchor: evoBox,
+              vital: pro,
+              stillValid: function () { return window.Modal.isOpen('xTeamDetail'); },
+              onDone: (pro && which === 'evolve') ? concludeTutorial : null
+            });
           }, 480);
         }
       }
@@ -2608,7 +2682,13 @@
     $('profBody').querySelectorAll('[data-theme]').forEach(function (b) { b.onclick = function () { profile.theme = b.dataset.theme; saveProfile(); applyTheme(); showProfile(); }; });
     $('profBody').querySelectorAll('[data-bf]').forEach(function (b) { b.onclick = function () { profile.battlefield = b.dataset.bf; saveProfile(); showProfile(); }; });
     $('profBody').querySelectorAll('[data-tips]').forEach(function (b) {
-      b.onclick = function () { CO.setOff(b.dataset.tips === 'off'); showProfile(); };
+      b.onclick = function () {
+        CO.setOff(b.dataset.tips === 'off');
+        // Turning tips OFF during the guided run abandons the tutorial, so
+        // end it cleanly rather than leaving the prologue half-armed.
+        if (b.dataset.tips === 'off') onCoachSkip();
+        showProfile();
+      };
     });
     $('profBody').querySelectorAll('[data-badges]').forEach(function (b) {
       b.onclick = function () { CO.setBadges(b.dataset.badges === 'on'); showProfile(); };
@@ -3986,7 +4066,10 @@
 
   // ---- in-battle teaching --------------------------------------------------
   // One lesson per request at most, ordered so the first thing a player is
-  // ever told is what the buttons do -- not what STAB is.
+  // ever told is what the buttons do -- not what STAB is. The guided run's
+  // four battle beats (catch -> super effective -> switch -> battle item)
+  // are `vital`: if the surface is busy when they fire, they queue and still
+  // appear instead of being silently dropped.
   function battleCoach(catchOpen) {
     var CO = window.Coach;
     if (!CO || !CO.tipsOn()) return;
@@ -3997,40 +4080,45 @@
       var pro = run && run.prologue;
       var n = run.battleInSection;
       var isWild = bctx && bctx.cfg && bctx.cfg.isWild;
+      // A queued beat goes stale the moment the fight moves on or ends; the
+      // next natural beat re-requests it (turn requests re-run battleCoach).
+      var stillHere = function () {
+        return !$('screenBattle').hidden && run && run.battleInSection === n;
+      };
 
       if (pro && run.section === 1) {
         if (n === 0 && isWild && !CO.seen('catch')) {
-          CO.lesson('catch', { anchorSel: '.battle-hud .ballrail', immersive: true });
+          CO.lesson('catch', { anchorSel: '.battle-hud .ballrail', vital: true, stillValid: stillHere });
           return;
         }
         if (n === 1 && isWild && !CO.seen('effect')) {
-          CO.lesson('effect', { anchorSel: '.battle-hud .mv', immersive: true });
+          CO.lesson('effect', { anchorSel: '.battle-hud .mv', vital: true, stillValid: stillHere });
           return;
         }
         if (n === 2 && isWild && !CO.seen('switch')) {
-          CO.lesson('switch', { anchorSel: '.battle-hud [data-a="switch"], .battle-hud .actbar', immersive: true });
+          CO.lesson('switch', { anchorSel: '.battle-hud [data-a="switch"], .battle-hud .actbar', vital: true, stillValid: stillHere });
           return;
         }
         if (n === 3 && !isWild && !CO.seen('battleItem')) {
-          CO.lesson('battleItem', { anchorSel: '.battle-hud [data-a="bag"], .battle-hud .actbar', immersive: true });
+          CO.lesson('battleItem', { anchorSel: '.battle-hud [data-a="bag"], .battle-hud .actbar', vital: true, stillValid: stillHere });
           return;
         }
       }
 
       if (!CO.seen('battleBar')) {
-        CO.lesson('battleBar', { anchorSel: '.battle-hud .actbar', immersive: pro });
+        CO.lesson('battleBar', { anchorSel: '.battle-hud .actbar' });
         return;
       }
 
       if (!CO.seen('effect')) {
-        CO.lesson('effect', { anchorSel: '.battle-hud .mv', immersive: pro });
+        CO.lesson('effect', { anchorSel: '.battle-hud .mv' });
         return;
       }
 
       if (catchOpen && !CO.seen('catch')) {
         var info = battle.enemyInfo();
         if (info && info.hpPct <= 0.7) {
-          CO.lesson('catch', { anchorSel: '.battle-hud .ballrail', immersive: true });
+          CO.lesson('catch', { anchorSel: '.battle-hud .ballrail' });
         }
       }
     }, 620);
@@ -4444,7 +4532,11 @@
     var COc = window.Coach;
     if (COc && COc.tipsOn() && !COc.seen('caught')) {
       setTimeout(function () {
-        if (!$('screenCatch').hidden) COc.lesson('caught');
+        if ($('screenCatch').hidden) return;
+        COc.lesson('caught', {
+          vital: !!(run && run.prologue),
+          stillValid: function () { return !$('screenCatch').hidden; }
+        });
       }, 700);
     }
 
@@ -4667,14 +4759,11 @@
     $('btnSumNext').textContent = 'Enter Section ' + run.section;
     show('Summary');
 
-    // The guided run ends here: from section 2 the player is on their own,
-    // with normal encounters and a normal trainer. Lessons keep firing where
-    // they are relevant, but nothing is padded any more.
-    if (window.Coach && window.Coach.inPrologue() && finished >= 1) {
-      window.Coach.setPrologue(false);
-      if (run) { run.prologue = false; saveGame(); }
-    }
-
+    // The guided run does NOT end at the section boundary: the shop series
+    // and the evolution lesson in section 2 are still ahead of the player.
+    // The prologue flags are cleared only by concludeTutorial() -- after the
+    // evolution lesson has actually been taught -- or by skipping tips.
+    //
     // SAVE SAFETY, taught at the one moment it is felt rather than as a
     // settings-menu line item: the player has just finished a section with a
     // team they now care about. Losing browser data would take it. The
@@ -4683,7 +4772,12 @@
     var COs = window.Coach;
     if (COs && COs.tipsOn() && !COs.seen('save')) {
       setTimeout(function () {
-        if (!$('screenSummary').hidden) COs.lesson('save', { anchor: $('btnSumSave') });
+        if ($('screenSummary').hidden) return;
+        COs.lesson('save', {
+          anchor: $('btnSumSave'),
+          vital: !!(run && run.prologue),
+          stillValid: function () { return !$('screenSummary').hidden; }
+        });
       }, 800);
     }
   }
@@ -5743,7 +5837,10 @@
                   advance: afterBattleAdvance,
                   setContinueState: setContinueState,
                   showDailyResult: showDailyResult,
-                  continueDailyInFreePlay: continueDailyInFreePlay };
+                  continueDailyInFreePlay: continueDailyInFreePlay,
+                  // Coach hook: the player bailed on tips mid-tutorial, so the
+                  // guided run is over -- hand them the ordinary game.
+                  onCoachSkip: onCoachSkip };
 
   // ---------------------------------------------------------------- AUDIO --
   // Music is owned by src/audio.js. It plays only while a battle is on screen
