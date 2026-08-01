@@ -199,6 +199,54 @@
     return mon.species || C.cleanName(mon.id);
   }
 
+  // ---- plain-language helpers (LAYER 1: always on, for everyone) ----------
+  // These add information the game always had but never said out loud. They
+  // are NOT part of the tutorial and are never hidden by the tips toggle: a
+  // veteran benefits from a STAB marker exactly as much as a beginner does.
+
+  // "Fast attacker · Physical" plus a power bar, from base stats alone.
+  function monRoleHtml(mon) {
+    var CO = window.Coach;
+    if (!CO || !mon || !mon.id) return '';
+    var role = CO.roleOf(mon.id);
+    var style = CO.attackStyle(mon.id);
+    if (!role) return '';
+    var bst = C.bst(mon.id);
+    var band = CO.powerBand(bst, mon.id);
+    return '<div class="mon-role">' +
+      '<div class="mr-top"><span class="mr-label">' + escapeHtml(role.label) + '</span>' +
+        (style && style.key !== 'mixed'
+          ? '<span class="mr-style" data-tip="text:' + escapeHtml(style.note) + '">' +
+            escapeHtml(style.label) + '</span>'
+          : '') +
+      '</div>' +
+      '<span class="mr-note">' + escapeHtml(role.note) + '</span>' +
+      '<div class="mon-power' + (band.early ? ' early' : '') + '" ' +
+        'data-tip="text:<b>Total power ' + bst + '</b> \u2014 the sum of all six stats. ' +
+        (band.early ? 'It still evolves, which is a big jump up.' : 'Higher means a stronger Pokemon overall.') + '">' +
+        '<span class="mp-bar"><i style="width:' + band.pct + '%"></i></span>' +
+        '<span class="mp-txt">' + escapeHtml(band.label) + '</span></div>' +
+    '</div>';
+  }
+
+  // STAB / weak-stat / drawback chips for one move.
+  function badgesHtml(moveId, mon, opts) {
+    if (!window.Coach) return '';
+    var b = window.Coach.moveBadges(moveId, mon, opts);
+    return b ? '<div class="mv-badges">' + b + '</div>' : '';
+  }
+
+  // The honest one-line subtitle for an item whose name misleads.
+  function itemPlainHtml(id, cls) {
+    if (!window.Coach) return '';
+    var line = window.Coach.itemOneLiner(id);
+    if (!line) {
+      var held = window.Coach.heldPlain(id);
+      if (held) line = held;
+    }
+    return line ? '<span class="' + (cls || 'si-plain') + '">' + escapeHtml(line) + '</span>' : '';
+  }
+
   function typeChips(types) {
     return types.map(function (t) { return '<span class="type type-' + t + '">' + t + '</span>'; }).join('');
   }
@@ -246,15 +294,18 @@
   }
 
   // ------------------------------------------------------------ SCREENS ---
-  var SCREENS = ['Title', 'Starter', 'TeamBuilder', 'Crossroads', 'Battle',
+  var SCREENS = ['Title', 'Setup', 'Starter', 'TeamBuilder', 'Crossroads', 'Battle',
                  'Reward', 'Catch', 'Tutor', 'Evolve', 'Summary', 'GameOver',
-                 'DailyResult', 'Profile', 'Shinies', 'History', 'Rules'];
+                 'DailyResult', 'Profile', 'Shinies', 'History', 'Rules', 'Guide'];
   function show(name) {
     SCREENS.forEach(function (s) {
       var el = $('screen' + s);
       if (el) el.hidden = (s !== name);
     });
     if (name !== 'Battle') teardownBattleUI();
+    // A coach mark is anchored to an element on the screen being left, so it
+    // must never survive the transition.
+    if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
     // Battle music never plays outside a battle. beginBattle() starts the
     // right track; every other screen fades it out.
     if (name !== 'Battle' && window.GameAudio) window.GameAudio.stop();
@@ -400,14 +451,131 @@
     $('btnNewRun').addEventListener('click', function () {
       var s = loadGame('free');
       if (s) { run = reviveRun(s); renderCrossroads(); show('Crossroads'); return; }
-      startFreeRun();
+      withModeInfo('free', startFreeRun);
     });
     $('btnDaily').addEventListener('click', onDailyClick);
     $('btnGauntlet').addEventListener('click', onGauntletClick);
     $('btnTitleMenu').addEventListener('click', openMenu);
     var ar = $('btnArchiveDaily');
     if (ar) ar.addEventListener('click', archiveStaleDaily);
+    // ---- first-visit doors ----
+    var fresh = $('btnFreshGame');
+    if (fresh) fresh.addEventListener('click', openSetup);
+    var resume = $('btnResumeRun');
+    if (resume) resume.addEventListener('click', function () {
+      var s = loadGame('free');
+      if (!s) { setContinueState(); return; }
+      run = reviveRun(s); renderCrossroads(); show('Crossroads');
+    });
+    [$('btnTitleLoad'), $('btnTitleLoad2')].forEach(function (b) {
+      if (b) b.addEventListener('click', openSaveImport);
+    });
     setContinueState();
+  }
+
+  // Has this player ever finished anything? Used to decide whether the title
+  // shows two friendly doors or the full three-mode menu. Deliberately
+  // generous: any run in any slot, any history, any completed Daily counts,
+  // so an existing player is never demoted to the beginner screen.
+  function hasAnyHistory() {
+    try {
+      if (window.Coach && window.Coach.isOnboarded()) return true;
+      if (profile && (profile.history || []).length) return true;
+      if (profile && profile.totalRuns > 0) return true;
+      if (loadGame('free') || loadGame('daily') || loadGame('gauntlet')) return true;
+      var d = window.Daily && window.Daily.load();
+      if (d && d.results && Object.keys(d.results).length) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  // ------------------------------------------------------- TRAINER SETUP ---
+  // Sprite + name + "how much help do you want". Ten seconds of investment
+  // before any instruction, which is what makes someone willing to read the
+  // first lesson instead of hammering past it.
+  var setupWantsTips = true;
+
+  function openSetup() {
+    loadProfile();
+    setupWantsTips = true;
+    pendingAvatar = null;
+    var img = $('setupAvatarImg');
+    if (img) img.src = avatarUrl(safeAvatar());
+    var nameIn = $('setupName');
+    if (nameIn) nameIn.value = profile.name || '';
+    $('screenSetup').querySelectorAll('[data-exp]').forEach(function (b) {
+      b.classList.toggle('on', (b.dataset.exp === 'new') === setupWantsTips);
+    });
+    show('Setup');
+  }
+
+  function initSetup() {
+    var av = $('setupAvatar');
+    if (av) av.addEventListener('click', function () { openAvatarPicker({ from: 'setup' }); });
+    $('screenSetup').querySelectorAll('[data-exp]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        setupWantsTips = b.dataset.exp === 'new';
+        $('screenSetup').querySelectorAll('[data-exp]').forEach(function (o) {
+          o.classList.toggle('on', o === b);
+        });
+      });
+    });
+    var back = $('btnSetupBack');
+    if (back) back.addEventListener('click', function () { show('Title'); });
+    var go = $('btnSetupGo');
+    if (go) go.addEventListener('click', beginFreshGame);
+    var nameIn = $('setupName');
+    if (nameIn) nameIn.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); beginFreshGame(); }
+    });
+  }
+
+  // Commit the trainer, then start the guided first run.
+  function beginFreshGame() {
+    loadProfile();
+    var nameIn = $('setupName');
+    var val = String((nameIn && nameIn.value) || '').trim().replace(/\s+/g, ' ').slice(0, 12);
+    profile.name = val || 'Trainer';
+    if (pendingAvatar) { profile.avatar = pendingAvatar; pendingAvatar = null; }
+    saveProfile();
+    updateMenuAvatar();
+
+    if (window.Coach) {
+      window.Coach.setOff(!setupWantsTips);
+      // The prologue flag makes section 1 gentler and turns on the guided
+      // beats. It is cleared once the first section is behind them.
+      window.Coach.setPrologue(setupWantsTips);
+      window.Coach.setOnboarded(true);
+    }
+    startFreeRun({ prologue: true });
+  }
+
+  // ---------------------------------------------------- MODE EXPLAINERS ----
+  // One sheet the first time each mode is opened. Answers only three
+  // questions: what is it, how long is it, what's the catch.
+  function withModeInfo(mode, go) {
+    var C2 = window.Coach;
+    if (!C2 || C2.modeSeen(mode) || !C2.tipsOn()) { go(); return; }
+    var info = C2.modeInfo(mode);
+    if (!info) { go(); return; }
+    var el = $('screenModeInfo');
+    if (!el) { go(); return; }
+    $('modeFace').innerHTML = C2.advisorImg(46);
+    $('modeTitle').textContent = info.title;
+    $('modeLede').textContent = info.lede;
+    $('modePoints').innerHTML = info.points.map(function (p) {
+      return '<li><b>' + escapeHtml(p[0]) + '</b><span>' + escapeHtml(p[1]) + '</span></li>';
+    }).join('');
+    var done = false;
+    function close(then) {
+      if (done) return; done = true;
+      C2.markMode(mode);
+      window.Modal.close(el);
+      if (then) then();
+    }
+    $('btnModeGo').onclick = function () { close(go); };
+    $('btnModeBack').onclick = function () { close(null); };
+    window.Modal.open(el, { onClose: function () { if (!done) { done = true; C2.markMode(mode); } } });
   }
 
   // The Daily button has four states, and the click means something different
@@ -427,7 +595,7 @@
     if (stale && !confirm('You have an unfinished Daily from ' + stale.dailyDate +
         '.\n\nStarting today\u2019s Daily replaces it. Use "Move to Free Play" on the ' +
         'title screen first if you want to keep it.')) return;
-    startDailyRun();
+    withModeInfo('daily', startDailyRun);
   }
 
   // The Gauntlet CTA mirrors the Daily's: resume the parked run when one
@@ -437,7 +605,7 @@
     if (saved) {
       run = reviveRun(saved); renderCrossroads(); show('Crossroads'); return;
     }
-    startGauntlet();
+    withModeInfo('gauntlet', startGauntlet);
   }
 
   // ---- RUN STARTERS --------------------------------------------------------
@@ -453,8 +621,10 @@
       dailyNumber: D.puzzleNumber(key)
     });
   }
-  function startFreeRun() {
-    return startRun(Math.floor(Math.random() * 1e9), { mode: 'free' });
+  function startFreeRun(opts) {
+    opts = opts || {};
+    return startRun(Math.floor(Math.random() * 1e9),
+      { mode: 'free', prologue: !!opts.prologue });
   }
 
   // Yesterday's unfinished Daily is a real run someone spent time on. Rather
@@ -484,6 +654,27 @@
     var dailySave = loadDailyToday();
     var stale = loadDailyStale();
     var free = loadGame('free');
+
+    // ---- which title is this? ----
+    // A first-time visitor gets two doors, not three modes they cannot tell
+    // apart. Someone mid-prologue gets one door back into it. Everyone else
+    // gets the real menu.
+    var firstBlock = $('titleFirst'), resumeBlock = $('titleResume'), modesBlock = $('titleModes');
+    var prologue = window.Coach && window.Coach.inPrologue();
+    var veteran = hasAnyHistory();
+    var mode = (prologue && free) ? 'resume' : (veteran ? 'modes' : 'first');
+    if (firstBlock) firstBlock.hidden = mode !== 'first';
+    if (resumeBlock) resumeBlock.hidden = mode !== 'resume';
+    if (modesBlock) modesBlock.hidden = mode !== 'modes';
+    if (mode === 'resume' && free) {
+      var rs = $('resumeSub');
+      if (rs) {
+        rs.textContent = 'Section ' + (free.section || 1) + ' \u00b7 ' +
+          (free.battlesWon || 0) + (free.battlesWon === 1 ? ' battle won' : ' battles won');
+      }
+    }
+    // Nothing below this point matters when the mode grid is hidden.
+    if (mode !== 'modes') return;
 
     // ---- Daily button ----
     var main = $('dailyMain'), sub = $('dailyDate'), btn = $('btnDaily');
@@ -599,11 +790,25 @@
     run.maxSections = opts.maxSections || 0;    // 0 = endless
     run.sectionMarks = [];                      // share-card squares
     run.trainingPaidThisRound = false;
+    // The guided first run: section 1 is gentler and the lessons fire. It is
+    // a REAL run in the real Free Play slot -- nothing is faked -- it just
+    // does not open with a species that can end the run before the tutorial
+    // about catching has happened.
+    run.prologue = !!opts.prologue;
     var rand = C.mulberry32(seed ^ 0x1234);
     // Starters use the same complete National Dex pool as wild encounters and
     // the gauntlet.  No mode-specific species whitelist: all 1025 species are
     // eligible here, including legendary and unevolved Pokémon.
-    var ids = C.pickN(C.speciesPool(), 3, rand);
+    //
+    // EXCEPT in the prologue: a fixed grass/fire/water trio makes the first
+    // lesson legible. Three random picks out of 1025 can hand a beginner
+    // three unevolved oddities or three legendaries, and then "compare the
+    // stats" teaches nothing. These three differ in a way a person can read,
+    // and all three still evolve, so evolution can be taught later on the
+    // player's own Pokemon.
+    var ids = run.prologue
+      ? ['treecko', 'charmander', 'froakie']
+      : C.pickN(C.speciesPool(), 3, rand);
     show('Starter');
     $('starterGrid').innerHTML = '<p class="hint center">Loading...</p>';
     starterChoices = [];
@@ -619,6 +824,26 @@
 
   function renderStarters() {
     var g = $('starterGrid');
+    var CO = window.Coach;
+
+    // The advice sits BESIDE the choice, not over it: a modal here would be a
+    // speed bump in front of the most exciting screen in the game.
+    var coachBox = $('starterCoach');
+    if (coachBox) {
+      var wantCoach = CO && CO.tipsOn() && run && run.prologue;
+      coachBox.hidden = !wantCoach;
+      if (wantCoach) {
+        coachBox.innerHTML =
+          '<span class="coach-portrait">' + CO.advisorImg(38) + '</span>' +
+          '<p><b>Pick on what it does, not how it looks.</b> Each card names what that Pokemon ' +
+          'is \u2014 a glass cannon trades safety for damage, a wall does the opposite. ' +
+          'And remember: if it faints, it is gone for the whole run.</p>';
+        CO.markSeen('starter');
+      }
+    }
+    var sub = $('starterSub');
+    if (sub && run && run.prologue) sub.textContent = 'One life. No revives. Choose carefully.';
+
     g.innerHTML = '';
     starterChoices.forEach(function (mon) {
       var card = document.createElement('div');
@@ -627,15 +852,17 @@
         '<div class="sprite-box">' + bigSprite(mon.id, '', 112, 150, 1, mon.shiny) + '</div>' +
         '<div class="sc-name">' + escapeHtml(mon.name) + '</div>' +
         '<div class="types">' + typeChips(mon.types) + '</div>' +
+        monRoleHtml(mon) +
         '<div class="statline">HP ' + C.maxHP(mon) + ' \u00b7 BST ' + C.bst(mon.id) + '</div>' +
-        '<div class="ability">' + mon.ability + '</div>' +
+        '<div class="ability" data-tip="ability:' + mon.ability + '">' + mon.ability + '</div>' +
         '<div class="movelist">' + mon.moves.map(function (m) {
           var d = Dex.moves.get(m);
           var pw = d.category === 'Status' ? 'Status' : (d.basePower ? 'Pow ' + d.basePower : '');
           return '<div class="move-card-inline" data-tip="move:' + d.id + '" tabindex="0">' +
             '<div class="mci-top"><span class="mv-chip type-' + d.type + '">' + d.type + '</span>' +
             '<span class="mci-pw">' + pw + '</span></div>' +
-            '<span class="mci-name">' + d.name + '</span></div>';
+            '<span class="mci-name">' + d.name + '</span>' +
+            badgesHtml(m, mon, { compact: true }) + '</div>';
         }).join('') + '</div>' +
         '<button class="btn-primary pick-btn">Choose</button>';
       card.querySelector('.pick-btn').addEventListener('click', function () {
@@ -647,6 +874,9 @@
           run.seenSpecies[mon.id] = 1;
           N.addItem(run, 'pokeball', 5);
           N.addItem(run, 'potion', 3);
+          // The guided run starts with a little more slack so a first-timer
+          // can afford to miss a ball throw and still learn the lesson.
+          if (run.prologue) { N.addItem(run, 'greatball', 3); N.addItem(run, 'superpotion', 2); }
           N.logMsg(run, 'You set out with ' + nick + ' the ' + mon.species + '.');
           if (mon.shiny) recordShiny(mon, 'starter');
           // The Daily result records which starter you took, so the share card
@@ -1193,6 +1423,60 @@
       // the shop lives on this screen now
       openMart();
     }
+    routeCoach(trainerNext, isG);
+  }
+
+  // ---- route-screen teaching ----------------------------------------------
+  // Fires at most ONE lesson per visit, chosen by what the route is asking the
+  // player to do right now. The coach module itself refuses to chain, but
+  // choosing here as well keeps the ordering deliberate rather than
+  // whichever-check-ran-first.
+  function routeCoach(trainerNext, isG) {
+    var CO = window.Coach;
+    if (!CO || !CO.tipsOn() || isG) return;
+    // Never talk over a screen the player has not looked at yet.
+    setTimeout(function () {
+      if ($('screenCrossroads').hidden) return;
+      var n = run.battleInSection;
+
+      // 1. How a section is shaped. The very first thing after the starter.
+      if (!CO.seen('route')) { CO.lesson('route', { anchor: $('xProgress') }); return; }
+
+      // 2. Before the boss: heal up. This is the highest-value warning in the
+      //    game and it is the one casual players most often need.
+      if (trainerNext && !CO.seen('trainer')) {
+        CO.lesson('trainer', { anchor: $('btnGoBattle') }); return;
+      }
+
+      // 3. The two middle battles are the budget. Said once, on stop 2.
+      if (!trainerNext && n === 1 && !CO.seen('skipping')) {
+        CO.lesson('skipping', { anchor: $('xNextDesc') }); return;
+      }
+
+      // 4. The Mart, once there is actually money to spend.
+      if (run.money >= 600 && !CO.seen('mart')) {
+        CO.lesson('mart', { anchor: $('xShopBlock') }); return;
+      }
+
+      // 5. Training, once it is affordable. Section 2+ so it does not land on
+      //    top of the first section's own lessons.
+      if (run.section >= 2 && run.money >= SERVICE_PRICE && !CO.seen('train')) {
+        CO.lesson('train', { anchor: $('xTeam') }); return;
+      }
+
+      // 6. Held items, once one is affordable and somebody could use it.
+      if (run.section >= 2 && !CO.seen('held') && martHasAffordableHeld()) {
+        CO.lesson('held', { anchor: $('xShopBlock') }); return;
+      }
+    }, 420);
+  }
+
+  function martHasAffordableHeld() {
+    if (!martStock) return false;
+    return martStock.some(function (e) {
+      return e.kind === 'held' && e.price <= run.money &&
+        window.Coach && window.Coach.bestHolderFor(e.id, run.party);
+    });
   }
 
   // ---- ASCENSION BANNER ----------------------------------------------------
@@ -1316,10 +1600,25 @@
         d.className = 'shop-item' + (sold ? ' sold' : '') + (broke ? ' broke' : '') + (e.kind === 'service' ? ' service' : '') + (e.hot ? ' hot' : '') + (e.kind === 'mega' ? ' mega-item' : '') + (e.kind === 'forme' ? ' forme-item' : '');
         var artHtml = (window.ItemArt && e.kind !== 'service')
           ? window.ItemArt.itemImg(e.id, 34, 'si-art') : '';
-        d.innerHTML =
+        // The canon name stays; the gold line underneath is what the item
+        // ACTUALLY does. "Full Heal" is the worst offender in the shop --
+        // everyone reads it as "restores everything", and it restores no HP.
+        var plainHtml = itemPlainHtml(e.id, 'si-plain');
+        // ✦Tip: a recommendation, not a lesson. Only for a held item that
+        // genuinely suits someone in the party, and only when affordable --
+        // a badge on everything is a badge on nothing.
+        var tipHtml = '';
+        if (window.Coach && e.kind === 'held' && !sold && !broke) {
+          var holder = window.Coach.bestHolderFor(e.id, run.party);
+          if (holder) {
+            tipHtml = window.Coach.tipBadge('Good fit for ' + holder.name + '. ' +
+              (window.Coach.heldPlain(e.id) || ''));
+          }
+        }
+        d.innerHTML = tipHtml +
           '<div class="si-top">' + artHtml + '<span class="si-name">' + e.name + '</span>' +
           '<span class="si-price' + (e.sale ? ' sale' : '') + '">' + (sold ? 'SOLD' : '$' + e.price) + '</span></div>' +
-          '<div class="si-desc">' + (e.desc || '') + '</div>' +
+          '<div class="si-desc">' + (e.desc || '') + plainHtml + '</div>' +
           (e.kind === 'evo' ? '<div class="si-tag evo">evolution</div>' : '') +
           (e.kind === 'mega' ? '<div class="si-tag mega">mega stone</div>' : '') +
           (e.kind === 'forme' ? '<div class="si-tag forme">forme change</div>' : '') +
@@ -1331,6 +1630,17 @@
       });
       grid.appendChild(wrap);
     });
+
+    // The name trap, called out once, anchored to the actual item. This is
+    // the single most-misread thing in the game: Full Heal cures status and
+    // restores zero HP, and it sits next to Full Restore, which does both.
+    var CO = window.Coach;
+    if (CO && CO.tipsOn() && !CO.seen('fullheal') && run.money >= 600) {
+      var fhTile = grid.querySelector('[data-tip="item:fullheal"]');
+      if (fhTile) setTimeout(function () {
+        if (!$('screenCrossroads').hidden) CO.lesson('fullheal', { anchor: fhTile });
+      }, 900);
+    }
 
     // sell
     var sell = $('martSell');
@@ -1455,7 +1765,16 @@
       '<div id="tutorList" class="move-list"></div>';
 
     function drawCurrent() {
-      $('trCurrent').innerHTML =
+      var CO = window.Coach;
+      var style = CO ? CO.attackStyle(mon.id) : null;
+      // Say out loud what the game has always silently assumed: this Pokemon
+      // has a better attacking stat, and its moves should use it.
+      var guide = style && style.key !== 'mixed'
+        ? '<div class="tc-guide">' + escapeHtml(speciesOf(mon)) + ' hits harder with <b>' +
+          escapeHtml(style.label.toLowerCase()) + '</b> moves. Look for <b>STAB</b> \u2014 ' +
+          'those match its own type and do 50% more damage.</div>'
+        : '';
+      $('trCurrent').innerHTML = guide +
         '<div class="tc-label">Current moves \u2014 tap one to replace it</div>' +
         '<div class="tc-slots">' + mon.moves.map(function (id, i) {
           var m = Dex.moves.get(id);
@@ -1463,6 +1782,7 @@
             '" data-slot="' + i + '" data-tip="move:' + m.id + '">' +
             '<span class="tc-n">' + m.name + '</span>' +
             '<span class="tc-m">' + (m.category === 'Status' ? 'St' : m.basePower) + '</span>' +
+            badgesHtml(id, mon, { compact: true }) +
             '</button>';
         }).join('') + '</div>';
       $('trCurrent').querySelectorAll('.tc-slot').forEach(function (b) {
@@ -1491,7 +1811,10 @@
             '<span class="mc-cat">' + m.category + '</span></div>' +
           '<div class="mc-name">' + m.name + '</div>' +
           '<div class="mc-stats"><span>' + (m.category === 'Status' ? '\u2014' : 'Pow ' + m.basePower) +
-            '</span><span>Acc ' + acc + '</span><span>PP ' + m.pp + '</span></div></button>';
+            '</span><span>Acc ' + acc + '</span><span>PP ' + m.pp + '</span></div>' +
+          // This is where the wrong choice actually gets made: a big power
+          // number with "must rest after" attached. Say so on the card.
+          badgesHtml(id, mon) + '</button>';
       }).join('') || '<p class="hint">No matches.</p>';
       listEl.querySelectorAll('.move-card').forEach(function (b) {
         b.addEventListener('click', function () { teachNow(b.dataset.m); });
@@ -1527,6 +1850,15 @@
     drawCurrent();
     drawList('');
     $('tutorSearch').addEventListener('input', function () { drawList(this.value); });
+
+    // How to actually pick a move. Fires once, on the list itself, the first
+    // time someone opens the move tab.
+    var CO2 = window.Coach;
+    if (CO2 && CO2.tipsOn() && !CO2.seen('moveChoice')) {
+      setTimeout(function () {
+        if (!$('screenTutor').hidden) CO2.lesson('moveChoice', { anchor: $('trCurrent') });
+      }, 500);
+    }
   }
 
   function drawTrainAbility(body, mon) {
@@ -1816,6 +2148,7 @@
           '<span>' + cur + ' / ' + mx + (mon.status ? '  \u00b7  ' + mon.status.toUpperCase() : '') + '</span>' +
         '</div>' +
         potionHtml +
+        monRoleHtml(mon) +
 
         '<div class="pd-facts">' +
           '<div class="pd-fact" data-tip="ability:' + mon.ability + '" tabindex="0"><span class="k">Ability</span><span class="v">' + mon.ability + '</span></div>' +
@@ -1841,6 +2174,7 @@
               '<div class="pd-move-top"><span class="mv-chip type-' + mv.type + '">' + mv.type + '</span>' +
               '<span class="pd-mv-pw">' + pw + '</span></div>' +
               '<span class="pd-mn">' + mv.name + '</span>' +
+              badgesHtml(m, mon, { compact: true }) +
               '<div class="pd-mp-bar"><div class="pd-mp-track"><div class="pd-mp-fill" style="width:' + (frac * 100) + '%;background:' + ppCol + '"></div></div>' +
               '<span class="pd-mp' + (low ? ' low' : '') + '">' + have + '/' + mxpp + '</span></div>' +
               '</div>';
@@ -1863,8 +2197,14 @@
           (mon.item
             ? '<button class="pd-held" data-take="1" data-tip="item:' + mon.item + '">' +
                 (window.ItemArt ? window.ItemArt.itemImg(mon.item, 26) : '') +
-                '<span>' + itemName(mon.item) + '</span><em>tap to remove</em></button>'
-            : '<div class="pd-empty">Nothing held \u2014 give one from your Bag.</div>') +
+                '<span>' + itemName(mon.item) +
+                  (window.Coach && window.Coach.heldPlain(mon.item)
+                    ? '<em class="oi-plain">' + escapeHtml(window.Coach.heldPlain(mon.item)) + '</em>' : '') +
+                '</span><em>tap to remove</em></button>'
+            // An empty slot is the single biggest missed opportunity for a
+            // casual player, so say what it is FOR, not just that it is empty.
+            : '<div class="pd-empty">Nothing held. A held item works in every battle and never ' +
+              'runs out \u2014 buy one in the Mart and give it from your Bag.</div>') +
         '</div>' +
         evoRowHtml(mon, partySel) +
         formeRowHtml(mon)) +
@@ -1969,6 +2309,21 @@
     if (gbPickHeld) gbPickHeld.addEventListener('click', function () {
       openGbRunHeldPicker(mon);
     });
+
+    // Evolution lessons, on the row itself. The branch warning takes
+    // precedence: it is the one with a consequence attached.
+    var CO = window.Coach;
+    if (CO && CO.tipsOn() && !isG) {
+      var evoBox = host.querySelector('.evo-box');
+      if (evoBox) {
+        var branching = evoBox.querySelectorAll('.evo-btn').length > 1;
+        var which = (branching && !CO.seen('evoBranch')) ? 'evoBranch'
+                  : (!CO.seen('evolve') ? 'evolve' : null);
+        if (which) setTimeout(function () {
+          if (window.Modal.isOpen('xTeamDetail')) CO.lesson(which, { anchor: evoBox });
+        }, 480);
+      }
+    }
   }
 
   // Items you own, shown above the shop. Tapping one uses/gives it.
@@ -2035,7 +2390,7 @@
         if (e.qty > 0) {
           html += '<button class="owned-item" data-item="' + id + '" data-tip="item:' + id + '">' +
             '<span class="oi-art">' + (window.ItemArt ? window.ItemArt.itemImg(id, 28) : '') + '</span>' +
-            '<span class="oi-n">' + itemName(id) + '</span>' +
+            '<span class="oi-n">' + itemName(id) + itemPlainHtml(id, 'oi-plain') + '</span>' +
             '<span class="oi-q">x' + e.qty + '</span>' +
             '</button>';
         }
@@ -2130,7 +2485,9 @@
     return AVATARS.indexOf(a) >= 0 ? a : 'red';
   }
   var pendingAvatar = null;
-  function openAvatarPicker() {
+  var avatarPickerFrom = null;   // 'setup' when opened from trainer setup
+  function openAvatarPicker(opts) {
+    avatarPickerFrom = (opts && opts.from) || null;
     pendingAvatar = safeAvatar();
     var grid = $('avatarModalGrid');
     grid.innerHTML = AVATARS.map(function (id) { var label = id.replace(/^./, function (x) { return x.toUpperCase(); }); return '<button class="avatar-choice' + (id === pendingAvatar ? ' on' : '') + '" data-avatar="' + id + '" title="' + label + '" aria-label="' + label + '"><img loading="lazy" decoding="async" src="' + avatarUrl(id) + '" alt="" onerror="this.onerror=null;this.src=\'https://play.pokemonshowdown.com/sprites/trainers/red.png\'"></button>'; }).join('');
@@ -2178,8 +2535,21 @@
     var shinies = profile.shinies.length, av = safeAvatar();
     var cur = run && !run.over ? '<div class="prof-now"><div class="pd-label">Current run</div><div class="prof-grid">' + statCard(run.battlesWon || 0, 'Battles won') + statCard('S' + (run.section || 1), 'Section') + statCard(run.caught || 0, 'Caught') + statCard('$' + (run.money || 0).toLocaleString(), 'Cash') + '</div></div>' : '<p class="hint center">No run in progress.</p>';
     var bf = profile.battlefield || 'dynamic';
-    $('profBody').innerHTML = '<div class="profile-hero"><div class="profile-avatar"><img src="' + avatarUrl(av) + '" alt="Avatar"></div><div style="flex:1"><div class="profile-name">Trainer Profile</div><div class="profile-sub">Customize your look and game theme</div></div><button id="editAvatar" class="btn-mini">Edit sprite</button></div>' +
-      '' +
+    var CO = window.Coach;
+    var tipsRow = CO
+      ? '<div class="profile-section">Help &amp; tips</div>' +
+        '<div class="bf-toggle">' +
+          '<button class="bf-btn' + (CO.tipsOn() ? ' on' : '') + '" data-tips="on"><b>Tips on</b><span>Explain things as they come up</span></button>' +
+          '<button class="bf-btn' + (CO.tipsOn() ? '' : ' on') + '" data-tips="off"><b>Tips off</b><span>Never interrupt me</span></button>' +
+        '</div>' +
+        '<div class="bf-toggle" style="margin-top:8px">' +
+          '<button class="bf-btn' + (CO.badgesOn() ? ' on' : '') + '" data-badges="on"><b>\u2726 Tip badges on</b><span>Mark items worth buying</span></button>' +
+          '<button class="bf-btn' + (CO.badgesOn() ? '' : ' on') + '" data-badges="off"><b>Badges off</b><span>No suggestions</span></button>' +
+        '</div>' +
+        '<button class="btn-secondary wide" id="btnResetTips" style="margin-top:10px">Reset all tips</button>'
+      : '';
+    $('profBody').innerHTML = '<div class="profile-hero"><div class="profile-avatar"><img src="' + avatarUrl(av) + '" alt="Avatar"></div><div style="flex:1"><div class="profile-name">' + escapeHtml(profile.name || 'Trainer Profile') + '</div><div class="profile-sub">Customize your look and game theme</div></div><button id="editAvatar" class="btn-mini">Edit sprite</button></div>' +
+      tipsRow +
       '<div class="profile-section">Theme</div><div class="theme-grid">' + THEMES.map(function (t) { return '<button class="theme-choice' + (t.id === (profile.theme || 'default') ? ' on' : '') + '" data-theme="' + t.id + '" style="--theme-dot:' + t.dot + '"><span class="theme-dot"></span>' + t.name + '</button>'; }).join('') + '</div>' +
       '<div class="profile-section">Battlefield</div>' +
       '<div class="bf-toggle">' +
@@ -2193,6 +2563,22 @@
     // Full gallery is rendered only inside the dedicated sheet.
     $('profBody').querySelectorAll('[data-theme]').forEach(function (b) { b.onclick = function () { profile.theme = b.dataset.theme; saveProfile(); applyTheme(); showProfile(); }; });
     $('profBody').querySelectorAll('[data-bf]').forEach(function (b) { b.onclick = function () { profile.battlefield = b.dataset.bf; saveProfile(); showProfile(); }; });
+    $('profBody').querySelectorAll('[data-tips]').forEach(function (b) {
+      b.onclick = function () { CO.setOff(b.dataset.tips === 'off'); showProfile(); };
+    });
+    $('profBody').querySelectorAll('[data-badges]').forEach(function (b) {
+      b.onclick = function () { CO.setBadges(b.dataset.badges === 'on'); showProfile(); };
+    });
+    var rt = $('btnResetTips');
+    if (rt) rt.onclick = function () {
+      CO.resetAll();
+      // resetAll() also clears `onboarded`, but a player who is deliberately
+      // replaying the tips from Profile has plainly already played -- putting
+      // them back on the beginner title screen would be a bug, not a feature.
+      CO.setOnboarded(true);
+      toast('Tips reset \u2014 they will appear again as you play.');
+      showProfile();
+    };
     show('Profile');
   }
 
@@ -2275,7 +2661,85 @@
     show('Shinies');
   }
 
-  function showRules() { closeMenu(); show('Rules'); }
+  function showRules() {
+    closeMenu();
+    var face = $('rulesFace');
+    if (face && window.Coach) face.innerHTML = window.Coach.advisorImg(32);
+    show('Rules');
+  }
+
+  // ---------------------------------------------------------------- GUIDE --
+  // Every lesson, permanently re-readable, grouped the way a person would
+  // look for them. This is what licenses the game to stop nagging: if someone
+  // gets stuck later, the answer is here rather than on a wiki.
+  var GUIDE_GROUPS = [
+    ['basics',   'The basics'],
+    ['battle',   'In battle'],
+    ['catching', 'Catching'],
+    ['items',    'Items & the Mart'],
+    ['training', 'Training & evolving'],
+    ['saving',   'Keeping your progress']
+  ];
+
+  function showGuide() {
+    closeMenu();
+    var CO = window.Coach;
+    if (!CO) { show('Title'); return; }
+    var face = $('guideFace');
+    if (face) face.innerHTML = CO.advisorImg(44);
+    var who = $('guideWho');
+    if (who) who.textContent = CO.ADVISOR.name;
+
+    var body = $('guideBody');
+    var html = '';
+    GUIDE_GROUPS.forEach(function (g) {
+      var items = CO.LESSONS.filter(function (l) { return l.where === g[0]; });
+      if (!items.length) return;
+      html += '<div class="guide-group"><h3 class="guide-group-title">' + escapeHtml(g[1]) + '</h3>';
+      items.forEach(function (l) {
+        var read = CO.seen(l.id);
+        html += '<button type="button" class="guide-card" data-lesson="' + l.id + '">' +
+          '<span class="coach-portrait">' + CO.advisorImg(30) + '</span>' +
+          '<span class="gc-t"><b>' + escapeHtml(l.title) + '</b>' +
+            '<em>' + escapeHtml(stripTags(l.body).slice(0, 74)) + '\u2026</em></span>' +
+          '<span class="gc-state' + (read ? ' seen' : '') + '">' + (read ? 'Read' : 'New') + '</span>' +
+          '</button>';
+      });
+      html += '</div>';
+    });
+
+    // The three modes get their own cards at the end.
+    html += '<div class="guide-group"><h3 class="guide-group-title">Game modes</h3>';
+    ['daily', 'free', 'gauntlet'].forEach(function (m) {
+      var info = CO.modeInfo(m);
+      if (!info) return;
+      html += '<button type="button" class="guide-card" data-mode="' + m + '">' +
+        '<span class="coach-portrait">' + CO.advisorImg(30) + '</span>' +
+        '<span class="gc-t"><b>' + escapeHtml(info.title) + '</b>' +
+          '<em>' + escapeHtml(info.lede) + '</em></span></button>';
+    });
+    html += '</div>';
+
+    body.innerHTML = html;
+    body.querySelectorAll('[data-lesson]').forEach(function (b) {
+      b.addEventListener('click', function () { CO.replay(b.dataset.lesson); });
+    });
+    body.querySelectorAll('[data-mode]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var info = CO.modeInfo(b.dataset.mode);
+        if (!info) return;
+        CO.sheet({
+          title: info.title,
+          body: '<p>' + escapeHtml(info.lede) + '</p>' + info.points.map(function (p) {
+            return '<p><b>' + escapeHtml(p[0]) + '.</b> ' + escapeHtml(p[1]) + '</p>';
+          }).join('')
+        }, { force: true, noSkip: true, eyebrow: 'Game mode' });
+      });
+    });
+    show('Guide');
+  }
+
+  function stripTags(s) { return String(s || '').replace(/<[^>]*>/g, ''); }
 
   // History has two halves now: the dated Daily record (calendar + streak) and
   // the old all-runs list. A tab keeps both reachable without a new screen.
@@ -2532,7 +2996,8 @@
     if (!picker) return;
     var id = picker.itemId;
     var art = window.ItemArt ? window.ItemArt.itemImg(id, 40) : '';
-    $('pickerTitle').innerHTML = art + '<span>' + itemName(id) + '</span>';
+    $('pickerTitle').innerHTML = art + '<span>' + itemName(id) +
+      itemPlainHtml(id, 'pick-plain') + '</span>';
 
     if (picker.step === 'move') {
       var mon = picker.mon;
@@ -3471,6 +3936,58 @@
     // is actually catchable.
     if (canCatch && ballCount) buildBallRail();
     else ui.setBallRail(null);
+
+    battleCoach(canCatch && ballCount > 0);
+  }
+
+  // ---- in-battle teaching --------------------------------------------------
+  // One lesson per request at most, ordered so the first thing a player is
+  // ever told is what the buttons do -- not what STAB is.
+  function battleCoach(catchOpen) {
+    var CO = window.Coach;
+    if (!CO || !CO.tipsOn()) return;
+    // BattleUI rebuilds its entire HUD on every render, so these are passed
+    // as SELECTORS rather than captured nodes: the coach re-resolves them on
+    // each reflow and keeps the halo attached across re-renders.
+    setTimeout(function () {
+      if ($('screenBattle').hidden || !ui) return;
+      if (!document.querySelector('.battle-hud')) return;
+
+      // 1. What the buttons are. Always first -- nothing else can be
+      //    understood before this.
+      if (!CO.seen('battleBar')) {
+        CO.lesson('battleBar', { anchorSel: '.battle-hud .actbar' });
+        return;
+      }
+
+      // 2. How to read the x2 / x0.5 / -- markers on the move buttons.
+      if (!CO.seen('effect')) {
+        CO.lesson('effect', { anchorSel: '.battle-hud .mv' });
+        return;
+      }
+
+      // 3. STAB, once effectiveness has been introduced. Only fires when the
+      //    active Pokemon actually HAS a STAB move to look at, so the lesson
+      //    always has a concrete example on screen.
+      if (!CO.seen('stab')) {
+        var act = battle.activeMon();
+        var hasStab = act && act.moves && act.moves.some(function (mv) {
+          var f = CO.moveFacts(mv, act);
+          return f && f.stab;
+        });
+        if (hasStab) { CO.lesson('stab', { anchorSel: '.battle-hud .mv' }); return; }
+      }
+
+      // 4. The catch window, held back until the target is actually weak
+      //    enough for a ball to be worth throwing -- teaching "weaken it
+      //    first" while it is at full HP teaches the wrong reflex.
+      if (catchOpen && !CO.seen('catch')) {
+        var info = battle.enemyInfo();
+        if (info && info.hpPct <= 0.55) {
+          CO.lesson('catch', { anchorSel: '.battle-hud .ballrail' });
+        }
+      }
+    }, 620);
   }
 
   // Running from a wild battle: it never fails, but you forfeit the reward.
@@ -3878,6 +4395,13 @@
       '<p class="hint">It keeps the HP, PP and status it had when caught.</p>' +
       '<p class="reward-money">+$' + money + '</p>';
 
+    var COc = window.Coach;
+    if (COc && COc.tipsOn() && !COc.seen('caught')) {
+      setTimeout(function () {
+        if (!$('screenCatch').hidden) COc.lesson('caught');
+      }, 700);
+    }
+
     var swap = $('catchSwap');
     if (run.party.length < N.MAX_PARTY) {
       swap.innerHTML = '';
@@ -4096,6 +4620,26 @@
 
     $('btnSumNext').textContent = 'Enter Section ' + run.section;
     show('Summary');
+
+    // The guided run ends here: from section 2 the player is on their own,
+    // with normal encounters and a normal trainer. Lessons keep firing where
+    // they are relevant, but nothing is padded any more.
+    if (window.Coach && window.Coach.inPrologue() && finished >= 1) {
+      window.Coach.setPrologue(false);
+      if (run) { run.prologue = false; saveGame(); }
+    }
+
+    // SAVE SAFETY, taught at the one moment it is felt rather than as a
+    // settings-menu line item: the player has just finished a section with a
+    // team they now care about. Losing browser data would take it. The
+    // "Save progress" button is right there on this screen, so the lesson
+    // points at the real thing and the next tap does it for real.
+    var COs = window.Coach;
+    if (COs && COs.tipsOn() && !COs.seen('save')) {
+      setTimeout(function () {
+        if (!$('screenSummary').hidden) COs.lesson('save', { anchor: $('btnSumSave') });
+      }, 800);
+    }
   }
 
   // ------------------------------------------------------------ GAME OVER --
@@ -4480,7 +5024,15 @@
         '</span>' +
         '</button>';
     }).join('');
-    return '<div class="evo-box"><div class="evo-title">Evolution</div>' + rows + '</div>';
+    // A branching evolution is a one-way, irreversible choice that a casual
+    // player does not know they are making. Name it, even though the targets
+    // themselves stay a surprise.
+    var branchNote = opts.length > 1
+      ? '<div class="evo-branch-note">This one can become <b>' + opts.length +
+        ' different Pokemon</b> \u2014 you only get to pick once.</div>'
+      : '';
+    return '<div class="evo-box"><div class="evo-title">Evolution</div>' +
+      branchNote + rows + '</div>';
   }
 
   // Animated evolution: the classic white-out morph with a pulsing silhouette.
@@ -4553,7 +5105,15 @@
   // save-format bump) can never wipe a collection built up over months.
   var profile = null;
 
-  function loadProfile() { profile = ST.loadProfile(); return profile; }
+  // loadProfile() REPLACES the profile object, so anything holding a
+  // reference to the old one is instantly stale. The coach keeps lesson state
+  // on the profile, so it has to be re-pointed on every load or a tip marked
+  // as seen would be forgotten the next time any screen refreshed.
+  function loadProfile() {
+    profile = ST.loadProfile();
+    if (window.Coach) window.Coach.attach(profile, saveProfile);
+    return profile;
+  }
   function saveProfile() { return ST.saveProfile(profile); }
 
   // Shiny ownership is a profile unlock. It is never rolled automatically in
@@ -4773,6 +5333,30 @@
     // Avatar and theme come from fixed catalogues, never free-form strings.
     if (AVATARS.indexOf(String(p.avatar)) >= 0) d.avatar = String(p.avatar);
     if (THEMES.some(function (t) { return t.id === p.theme; })) d.theme = p.theme;
+
+    // Trainer name is free-form player input, so it is length-capped here and
+    // HTML-escaped at every render site (see escapeHtml).
+    if (typeof p.name === 'string') d.name = p.name.trim().slice(0, 12);
+
+    // Coach state: only known keys, only the right types. `seen` and `modes`
+    // are id maps, so their KEYS are the untrusted part -- restrict them to
+    // the ids this build actually knows about rather than copying a
+    // hand-edited file's arbitrary keys into storage.
+    var c = ST.blankCoach();
+    if (p.coach && typeof p.coach === 'object' && !Array.isArray(p.coach)) {
+      var pc = p.coach;
+      c.off = !!pc.off;
+      c.badges = pc.badges !== false;
+      c.onboarded = !!pc.onboarded;
+      c.prologue = !!pc.prologue;
+      if (pc.seen && typeof pc.seen === 'object' && window.Coach) {
+        window.Coach.LESSONS.forEach(function (l) { if (pc.seen[l.id]) c.seen[l.id] = 1; });
+      }
+      if (pc.modes && typeof pc.modes === 'object') {
+        ['daily', 'free', 'gauntlet'].forEach(function (m) { if (pc.modes[m]) c.modes[m] = 1; });
+      }
+    }
+    d.coach = c;
     return d;
   }
 
@@ -4905,7 +5489,12 @@
       } catch (e) {}
     };
     loadProfile(); applyTheme(); updateMenuAvatar();
+    // The coach never touches localStorage itself: it reads and writes the
+    // profile object app.js already owns, so there is exactly one writer and
+    // the lesson state rides along in every backup automatically.
+    if (window.Coach) window.Coach.attach(profile, saveProfile);
     initTitle();
+    initSetup();
 
     // Warm the learnsets chunk while the player is still on the title screen.
     // It's only *needed* at the first roll of a moveset, but fetching it now
@@ -5019,8 +5608,22 @@
     $('nickInput').addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); confirmNickname(); }
     });
-    $('btnAvatarCancel').addEventListener('click', closeAvatarPicker);
-    $('btnAvatarSave').addEventListener('click', function () { if (pendingAvatar) { profile.avatar = pendingAvatar; saveProfile(); updateMenuAvatar(); } closeAvatarPicker(); showProfile(); });
+    $('btnAvatarCancel').addEventListener('click', function () {
+      // Cancelling from setup must not discard the sprite they had.
+      if (avatarPickerFrom === 'setup') pendingAvatar = null;
+      closeAvatarPicker();
+    });
+    $('btnAvatarSave').addEventListener('click', function () {
+      if (avatarPickerFrom === 'setup') {
+        // Setup commits on "Begin", not here -- so just preview the choice.
+        var img = $('setupAvatarImg');
+        if (img && pendingAvatar) img.src = avatarUrl(pendingAvatar);
+        closeAvatarPicker();
+        return;
+      }
+      if (pendingAvatar) { profile.avatar = pendingAvatar; saveProfile(); updateMenuAvatar(); }
+      closeAvatarPicker(); showProfile();
+    });
     $('btnPickerCancel').addEventListener('click', closePicker);
     $('btnGoTitle').addEventListener('click', function () { show('Title'); setContinueState(); });
     // ---- Daily result screen ----
@@ -5048,10 +5651,13 @@
     $('btnMenuProfile').addEventListener('click', showProfile);
     $('btnMenuShinies').addEventListener('click', showShinies);
     $('btnMenuHistory').addEventListener('click', showHistory);
+    $('btnMenuGuide').addEventListener('click', showGuide);
     $('btnMenuRules').addEventListener('click', showRules);
     $('btnMenuTransfer').addEventListener('click', function () { closeMenu(); openSaveExport(); });
     $('btnMenuImport').addEventListener('click', function () { closeMenu(); openSaveImport(); });
     $('btnRulesBack').addEventListener('click', backToRoute);
+    var rg = $('btnRulesGuide');
+    if (rg) rg.addEventListener('click', showGuide);
     $('btnMenuAbandon').addEventListener('click', function () {
       if (!run) return;
       if (!confirm('Are you sure you want to abandon this run?')) return;
@@ -5068,6 +5674,7 @@
     $('btnProfBack').addEventListener('click', backToRoute);
     $('btnShinyBack').addEventListener('click', backToRoute);
     $('btnHistBack').addEventListener('click', backToRoute);
+    $('btnGuideBack').addEventListener('click', backToRoute);
     show('Title');
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

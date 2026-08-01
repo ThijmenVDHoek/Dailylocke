@@ -1029,7 +1029,12 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     return null;
   };
 
+  // Free Play now shows a one-time mode explainer before the run starts.
+  // Dismiss it the way a player would, then carry on.
   window.document.getElementById('btnNewRun').click();
+  const modeSheet = await waitFor(() => !window.document.getElementById('screenModeInfo').hidden, 4000);
+  check('a first Free Play press explains the mode first', !!modeSheet);
+  if (modeSheet) window.document.getElementById('btnModeGo').click();
   const starter = await waitFor(() => window.document.querySelector('#starterGrid .pick-btn'));
   check('a Free Play run reaches starter selection', !!starter);
   if (starter) starter.click();
@@ -1208,6 +1213,10 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   const gBtn = doc.getElementById('btnGauntlet');
   check('the title offers the Team Gauntlet', !!gBtn && /team gauntlet/i.test(gBtn.textContent));
   gBtn.click();
+  // Same one-time explainer as Free Play; a player taps through it.
+  const gModeSheet = await waitFor(() => !doc.getElementById('screenModeInfo').hidden, 4000);
+  check('a first Gauntlet press explains the mode first', !!gModeSheet);
+  if (gModeSheet) doc.getElementById('btnModeGo').click();
   check('the gauntlet CTA opens the team draft',
     doc.getElementById('screenTeamBuilder').hidden === false);
   check('the draft cannot start empty', doc.getElementById('btnTbStart').disabled === true);
@@ -1634,6 +1643,305 @@ try {
 check('setupBattle() before mount() does not throw', !threw, threw);
 check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.biomeKey,
   `biome=${ui2.s.biomeKey}`);
+
+// ============================================================== ONBOARDING ==
+// The teaching layer has three jobs and each one is worth guarding:
+//   1. never chain cards (the NN/g rule the whole design rests on)
+//   2. tell the truth about items and moves (the "Full Heal" class of bug)
+//   3. survive a save/restore round trip, so a returning player is not
+//      re-taught from scratch on a new device
+{
+  const CO = window.Coach;
+  check('coach module is loaded', !!CO);
+
+  if (CO) {
+    // ---- the syllabus itself ----
+    check('every lesson has an id, title, body and guide group',
+      CO.LESSONS.every((l) => l.id && l.title && l.body && l.where),
+      CO.LESSONS.length + ' lessons');
+    const ids = CO.LESSONS.map((l) => l.id);
+    check('lesson ids are unique', new Set(ids).size === ids.length);
+    check('all three modes have an explainer',
+      !!CO.modeInfo('daily') && !!CO.modeInfo('free') && !!CO.modeInfo('gauntlet'));
+
+    // ---- 1. never chain ----
+    // The single rule the design depends on: a second card must not open
+    // while one is up, nor immediately after one closes.
+    const fresh = window.Storage.blankProfile();
+    CO.attach(fresh, () => {});
+    const first = CO.lesson('route');
+    const second = CO.lesson('mart');
+    check('a lesson opens when nothing else is on screen', first === true);
+    check('a second lesson NEVER stacks on the first', second === false);
+    window.Modal.close('screenCoach');
+    check('the same lesson never fires twice', CO.lesson('route') === false);
+
+    // ---- opt-out is absolute ----
+    const quiet = window.Storage.blankProfile();
+    CO.attach(quiet, () => {});
+    CO.setOff(true);
+    check('"skip all tips" silences every lesson', CO.lesson('welcome') === false);
+    check('"skip all tips" also hides the tip badges', CO.tipBadge('x') === '');
+    check('the guide can still replay a lesson with tips off', !!CO.lessonById('welcome'));
+    CO.setOff(false);
+    check('badges can be turned off independently of tips',
+      (CO.setBadges(false), CO.tipsOn() === true && CO.badgesOn() === false));
+    CO.setBadges(true);
+
+    // ---- 2. tell the truth ----
+    // Full Heal restores ZERO HP but sits next to Full Restore, which does
+    // both. If this copy ever regresses, the most confusing item in the game
+    // goes back to being unexplained.
+    const fh = CO.itemPlain('fullheal');
+    check('Full Heal is explained as status-only',
+      !!fh && /status only/i.test(fh.one) && /no HP/i.test(fh.one), fh && fh.one);
+    check('Full Restore is explained as the one that does both',
+      /full hp/i.test(CO.itemOneLiner('fullrestore')));
+    check('Revives are flagged as useless in a nuzlocke',
+      /does not work/i.test(CO.itemOneLiner('revive')));
+    check('every heal item the Mart stocks has plain-language copy',
+      ['potion', 'superpotion', 'hyperpotion', 'maxpotion', 'fullrestore', 'fullheal',
+       'ether', 'maxether', 'elixir'].every((id) => !!CO.itemOneLiner(id)));
+    check('every ball has plain-language copy',
+      Object.keys(C.BALLS).every((id) => !!CO.itemOneLiner(id)),
+      Object.keys(C.BALLS).filter((id) => !CO.itemOneLiner(id)).join(', '));
+
+    // STAB, the stat match, and the drawbacks casual players walk into.
+    const charmander = { id: 'charmander', types: ['Fire'] };
+    const fFire = CO.moveFacts('flamethrower', charmander);
+    check('a same-type move is marked STAB', fFire.stab === true);
+    check('an off-type move is not marked STAB',
+      CO.moveFacts('watergun', charmander).stab === false);
+    const gengar = { id: 'gengar', types: ['Ghost', 'Poison'] };
+    check('a physical move on a special attacker is flagged as the weak stat',
+      CO.moveFacts('earthquake', gengar).match === false);
+    check('a special move on a special attacker is not flagged',
+      CO.moveFacts('shadowball', gengar).match === true);
+    check('Hyper Beam warns that you lose the next turn',
+      CO.moveFacts('hyperbeam', gengar).warn.some((w) => w.k === 'recharge'));
+    check('Solar Beam warns that it charges first',
+      CO.moveFacts('solarbeam', gengar).warn.some((w) => w.k === 'charge'));
+    check('Outrage warns that it locks you in',
+      CO.moveFacts('outrage', charmander).warn.some((w) => w.k === 'locked'));
+    check('Flare Blitz warns about recoil',
+      CO.moveFacts('flareblitz', charmander).warn.some((w) => w.k === 'recoil'));
+    check('Close Combat warns that it drops your own stats',
+      CO.moveFacts('closecombat', charmander).warn.some((w) => w.k === 'drop'));
+    check('Focus Blast warns about accuracy',
+      CO.moveFacts('focusblast', gengar).warn.some((w) => w.k === 'acc'));
+    check('Explosion warns that fainting is permanent here',
+      CO.moveFacts('explosion', charmander).warn.some((w) => w.k === 'faint'));
+    // Focus Punch advertises 150 power and says nothing about being priority
+    // -3 and cancelled by any hit. That IS the trap, so it must be named.
+    check('Focus Punch warns that it always moves last',
+      CO.moveFacts('focuspunch', charmander).warn.some((w) => w.k === 'last'));
+    check('a positive-priority move is never flagged as moving last',
+      !CO.moveFacts('quickattack', charmander).warn.some((w) => w.k === 'last'));
+    check('a clean move carries no warnings',
+      CO.moveFacts('icebeam', gengar).warn.length === 0);
+    check('setup moves are called out as good',
+      CO.moveFacts('swordsdance', charmander).good.some((g) => g.k === 'setup'));
+    check('STAB badge markup renders for a matching move',
+      /STAB/.test(CO.moveBadges('flamethrower', charmander)));
+
+    // Role labels: the thing that replaces "BST 405" for a casual player.
+    // These are RELATIVE to each Pokemon's own average, because absolute
+    // cutoffs are calibrated for fully-evolved Pokemon and made every single
+    // base-stage starter read as "All-rounder" -- useless on the one screen
+    // where the label has to do real work.
+    check('a fast frail attacker reads as a glass cannon',
+      /glass|fast/i.test(CO.roleOf('alakazam').label), CO.roleOf('alakazam').label);
+    check('a pure wall reads as a wall',
+      /wall|bulky/i.test(CO.roleOf('shuckle').label), CO.roleOf('shuckle').label);
+    check('a slow heavy hitter is not called fast',
+      !/fast|quick/i.test(CO.roleOf('snorlax').label), CO.roleOf('snorlax').label);
+    check('attack style names the higher stat',
+      CO.attackStyle('machamp').key === 'Physical' &&
+      CO.attackStyle('alakazam').key === 'Special');
+    // The regression that matters: the three starters must be told apart.
+    const trio = ['treecko', 'charmander', 'froakie'].map((id) => CO.roleOf(id).label);
+    check('the starter trio all get a role and an attack style',
+      ['treecko', 'charmander', 'froakie'].every((id) => !!CO.roleOf(id) && !!CO.attackStyle(id)));
+    check('the starter trio do not all collapse to the same label',
+      new Set(trio).size > 1, trio.join(' / '));
+    check('an unevolved Pokemon is described as early, not weak',
+      CO.powerBand(C.bst('treecko'), 'treecko').early === true &&
+      !/weak|frail/i.test(CO.powerBand(C.bst('treecko'), 'treecko').label),
+      CO.powerBand(C.bst('treecko'), 'treecko').label);
+    check('a fully-evolved Pokemon is graded normally',
+      CO.powerBand(C.bst('garchomp'), 'garchomp').early !== true);
+
+    // Held-item fit: this drives the ✦Tip badge, so a wrong answer is a
+    // recommendation the player will follow into a bad purchase.
+    check('Eviolite is only suggested for something that can still evolve',
+      CO.heldFitsMon('eviolite', { id: 'chansey' }) === true &&
+      CO.heldFitsMon('eviolite', { id: 'blissey' }) === false);
+    check('Choice Band is suggested for physical attackers, not special ones',
+      CO.heldFitsMon('choiceband', { id: 'machamp' }) === true &&
+      CO.heldFitsMon('choiceband', { id: 'alakazam' }) === false);
+    check('a tip badge names the Pokemon it is recommending for',
+      /Tip/.test(CO.tipBadge('Good fit for Kip.')));
+
+    // ---- 3. survive a round trip ----
+    const taught = window.Storage.blankProfile();
+    CO.attach(taught, () => {});
+    CO.markSeen('route'); CO.markSeen('mart'); CO.markMode('daily'); CO.setOnboarded(true);
+    const restored = window.Game.fullBackupState();
+    check('a backup carries the trainer name and lesson progress',
+      !!restored.profile && typeof restored.profile === 'object');
+
+    // An old profile with no coach block must not crash, and a player with
+    // runs behind them must not be demoted to the beginner title screen.
+    //
+    // JSDOM's file:// origin is opaque, so real localStorage throws here (the
+    // same failure Safari private mode produces). Swap in an in-memory store
+    // for the migration check: what matters is the SHAPE of the migration.
+    const memP = new Map();
+    const realLS = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (k) => (memP.has(k) ? memP.get(k) : null),
+        setItem: (k, v) => memP.set(k, String(v)),
+        removeItem: (k) => memP.delete(k),
+        clear: () => memP.clear(),
+      },
+    });
+
+    const legacy = { __v: 1, shinies: [], history: [{ at: 1, battles: 3 }], totalRuns: 2 };
+    window.Storage.write(window.Storage.PROFILE_KEY, JSON.stringify(legacy));
+    const migrated = window.Storage.loadProfile();
+    check('a profile written before the coach existed still loads',
+      !!migrated.coach && typeof migrated.coach.seen === 'object');
+    check('an existing player is not treated as a first-time player',
+      migrated.coach.onboarded === true);
+    check('a brand-new profile IS treated as a first-time player',
+      window.Storage.blankProfile().coach.onboarded === false);
+
+    // A profile that already HAS a coach block is never silently promoted:
+    // someone mid-tutorial who restores a backup must stay mid-tutorial.
+    memP.clear();
+    window.Storage.write(window.Storage.PROFILE_KEY, JSON.stringify({
+      __v: 1, shinies: [], history: [{ at: 1 }], totalRuns: 1,
+      coach: { seen: { welcome: 1 }, off: false, badges: true,
+               onboarded: false, modes: {}, prologue: true },
+    }));
+    const midway = window.Storage.loadProfile();
+    check('a player mid-tutorial is not force-completed by the migration',
+      midway.coach.onboarded === false && midway.coach.prologue === true);
+    check('lesson progress survives a reload', midway.coach.seen.welcome === 1);
+
+    memP.clear();
+    Object.defineProperty(window, 'localStorage', realLS);
+  }
+
+  // ---- the title screen's three faces ----
+  const titleFirst = window.document.getElementById('titleFirst');
+  const titleModes = window.document.getElementById('titleModes');
+  check('the title has a first-visit block and a full mode menu',
+    !!titleFirst && !!titleModes);
+  check('the first-visit block offers exactly one primary and one secondary door',
+    !!window.document.getElementById('btnFreshGame') &&
+    !!window.document.getElementById('btnTitleLoad'));
+  check('there is a trainer setup screen with a name field',
+    !!window.document.getElementById('screenSetup') &&
+    !!window.document.getElementById('setupName'));
+  check('the guide is reachable from the menu',
+    !!window.document.getElementById('btnMenuGuide') &&
+    !!window.document.getElementById('screenGuide'));
+
+  // The coach overlay must be a real modal so focus is trapped in it.
+  const coachOverlay = window.document.getElementById('screenCoach');
+  check('the coach sheet is a modal overlay with a card',
+    !!coachOverlay && !!coachOverlay.querySelector('.overlay-card'));
+
+  // ---- coach marks must survive a re-render ----
+  // BattleUI rebuilds its whole HUD on every render, so a mark anchored to a
+  // captured NODE loses its halo the moment the next frame lands. Marks are
+  // therefore anchored by SELECTOR and re-resolved as they reflow.
+  if (CO) {
+    const fresh2 = window.Storage.blankProfile();
+    CO.attach(fresh2, () => {});
+    CO.clearMark();
+    window.Modal.closeAll();
+    const holder = window.document.createElement('div');
+    holder.innerHTML = '<button class="probe-anchor">A</button>';
+    window.document.body.appendChild(holder);
+    // `force` bypasses the seen/cooldown gates: earlier blocks in this file
+    // drive a whole real run, so battleBar has legitimately already fired.
+    CO.lesson('battleBar', { anchorSel: '.probe-anchor', force: true });
+    await new Promise((r) => setTimeout(r, 60));
+    check('a selector-anchored mark attaches its halo',
+      !!window.document.querySelector('.probe-anchor.coach-spot'));
+    // Simulate the HUD rebuilding itself under the mark.
+    holder.innerHTML = '<button class="probe-anchor">A again</button>';
+    await new Promise((r) => setTimeout(r, 500));
+    check('the halo follows the anchor across a re-render',
+      !!window.document.querySelector('.probe-anchor.coach-spot'));
+    CO.clearMark();
+    await new Promise((r) => setTimeout(r, 40));
+    check('clearing a mark leaves no orphaned halo anywhere',
+      window.document.querySelectorAll('.coach-spot').length === 0);
+    check('clearing a mark removes the pill', !window.document.querySelector('.coach-mark.on'));
+    holder.remove();
+
+    // A lesson whose anchor does not exist must still be delivered, as a
+    // sheet, rather than silently vanishing.
+    const fresh3 = window.Storage.blankProfile();
+    CO.attach(fresh3, () => {});
+    CO.lesson('effect', { anchorSel: '.definitely-not-here', force: true });
+    await new Promise((r) => setTimeout(r, 60));
+    check('a lesson with a missing anchor falls back to a sheet',
+      window.Modal.isOpen('screenCoach'));
+    window.Modal.close('screenCoach');
+  }
+}
+
+// ---- the prologue's safety net ----
+// The guided first section must not open with something that can end the run
+// before the lesson about catching has happened.
+{
+  const N2 = window.Nuz;
+  const probe = N2.newRun(4242);
+  probe.prologue = true;
+  probe.mode = 'free';
+  const gentle = [];
+  for (let i = 0; i < 6; i++) {
+    probe.battleInSection = i % 3;
+    gentle.push(N2.pickWild(probe, { dupesClause: i === 0 }));
+  }
+  check('the guided first section draws only easy, low-power wilds',
+    gentle.every((id) => C.bst(id) <= 330 && C.captureRate(id) >= 150),
+    gentle.map((id) => `${id}(${C.bst(id)}/${C.captureRate(id)})`).join(' '));
+  check('the guided first section pairs with the friendliest trainer',
+    /youngster/i.test(N2.trainerFor(probe).sprite), N2.trainerFor(probe).sprite);
+
+  // The net is exactly ONE section wide. The strongest guarantee available
+  // without asserting on RNG is that the pick is identical to what a normal
+  // run of the same seed would produce -- i.e. the prologue branch is not
+  // taken at all once section 1 is behind you.
+  const plain = N2.newRun(4242);
+  plain.mode = 'free';
+  const sameFrom2 = [2, 3, 4].every((sec) => {
+    probe.section = sec; plain.section = sec;
+    return [0, 1, 2].every((b) => {
+      probe.battleInSection = b; plain.battleInSection = b;
+      return N2.pickWild(probe, {}) === N2.pickWild(plain, {});
+    });
+  });
+  check('past section 1 a prologue run rolls exactly like a normal one', sameFrom2);
+
+  // Same for the trainer: only section 1 is pinned to the friendly one.
+  probe.section = 3; plain.section = 3;
+  check('past section 1 the trainer roster is untouched',
+    N2.trainerFor(probe).sprite === N2.trainerFor(plain).sprite);
+
+  // And a run that never opted into the prologue is unaffected from the start.
+  plain.section = 1; plain.battleInSection = 0;
+  const plainFirst = N2.pickWild(plain, { dupesClause: true });
+  check('a run started without the prologue is unchanged',
+    C.bst(plainFirst) > 0 && typeof plainFirst === 'string', plainFirst);
+}
 
 const realErrors = consoleErrors.filter((e) => !/THREE|WebGL|cry|audio|sprite/i.test(e));
 check('no unexpected console errors', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));

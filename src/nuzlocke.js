@@ -239,8 +239,38 @@
   // Wild encounter. Applies the dupes clause when this is the catchable one.
   // Deterministic per seed+section+battle, so every player using the same
   // seed sees the same species (and same shiny rolls) at the same point.
+  // ---- the guided first run's safety net ----------------------------------
+  // A prologue run is a REAL run in the real Free Play slot: same engine, same
+  // rules, same permadeath. The only concession is that SECTION 1 does not
+  // sabotage the lesson it is trying to teach.
+  //
+  // Specifically: the very first catchable encounter is drawn from a short
+  // list of famously easy catches (capture rate 190-255, low BST, nothing that
+  // can one-shot a starter). Teaching "weaken it, then throw a ball" against a
+  // species with a 3% catch rate teaches the opposite lesson.
+  //
+  // Everything from section 2 onwards is completely untouched.
+  var PROLOGUE_WILDS = ['rattata', 'pidgey', 'zigzagoon', 'bidoof', 'patrat',
+                        'lillipup', 'sentret', 'poochyena', 'starly', 'bunnelby',
+                        'yungoos', 'skwovet', 'wurmple', 'caterpie', 'weedle'];
+
+  function isPrologueSection(run) {
+    return !!(run && run.prologue && run.section === 1);
+  }
+
   function pickWild(run, opts) {
     opts = opts || {};
+    if (isPrologueSection(run)) {
+      // The capture encounter is a gentle one; the two cash battles that
+      // follow are drawn from the same friendly pool so the first section
+      // cannot end the run before the player knows what a Poke Ball is.
+      var pr = drand(run.seed + '|prologue|' + run.battleInSection);
+      var pool = PROLOGUE_WILDS.filter(function (id) {
+        return Dex.species.get(id).exists && !(run.seenSpecies || {})[id];
+      });
+      if (!pool.length) pool = PROLOGUE_WILDS.filter(function (id) { return Dex.species.get(id).exists; });
+      if (pool.length) return C.pick(pool, pr);
+    }
     var tr = tier(run, false);
     var ex = null;
     if (opts.dupesClause) {
@@ -375,6 +405,14 @@
   }
 
   function trainerFor(run) {
+    // The prologue's one trainer is always the friendliest face on the roster.
+    // It is still a real trainer battle with a real team -- it just is not a
+    // Gym Leader on the fight that teaches you what a trainer battle is.
+    if (isPrologueSection(run)) {
+      var t0 = TRAINER_CLASSES[0];
+      return { name: t0[0], cls: t0[1], tag: 'wants to battle!', sprite: t0[2],
+               theme: t0[3], boss: false, strategy: STRATEGIES[0] };
+    }
     var rank = Math.min(TRAINER_CLASSES.length - 1, Math.floor((run.section - 1) * 1.45));
     // Early sections use the approachable end of the roster; later sections
     // draw progressively from leaders and champions, while still varying per run.

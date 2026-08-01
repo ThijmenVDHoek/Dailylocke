@@ -49,6 +49,7 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `mega.js` | `Mega` | mega evolution |
 | `forme.js` | `Forme` | forme changes |
 | `itemart.js` | `ItemArt` | item sprites |
+| `coach.js` | `Coach` | onboarding: the advisor, lessons, coach marks, plain-language facts |
 | `audio.js` | `GameAudio` | music/SFX volume, battle-only randomised BGM |
 | `tooltip.js` | — | move/ability/item tooltips |
 | `ui-patch.js` | — | extends `BattleUI` with the run action bar + ball rail |
@@ -102,6 +103,72 @@ which silently makes the app un-installable: no manifest, no worker, so
 The worker also precaches with `cache.add()` per file rather than `addAll()`,
 because `addAll()` is atomic — one 404 would reject `install()` and leave the
 app permanently offline-less.
+
+## Onboarding
+
+Dailylocke is a Pokémon game with a competitive engine underneath it: real
+Showdown movesets, held items, natures, EVs, eight ball types, thirteen
+medicines, branching evolutions. A seasoned player reads all of that at a
+glance. A casual one bounces off it, and the observed failure was always the
+same shape — mash the first attack, skip the Mart, never train, hold nothing,
+lose to the section boss having never discovered the game had answers.
+
+The fix is deliberately split into **four layers**, because they have different
+lifetimes and different audiences.
+
+**1. Always-on clarity.** Information the game always had but never said out
+loud. It is never hidden by the tips toggle, because a veteran benefits from it
+too:
+
+* Every move list — starter cards, party sheet, training, battle — carries a
+  **STAB** badge, a *weak stat* marker when the move uses the Pokémon's lesser
+  attacking stat, and a red chip for the traps (`Must rest after`,
+  `Charges first`, `Locks you in`, `Hurts you`, `Often misses`,
+  `Always moves last`).
+* Every Pokémon card names **what it is** — `Glass cannon`, `Wall`, `Tank` —
+  derived from base stats *relative to its own average*, not absolute cutoffs.
+  Absolute thresholds are calibrated for fully-evolved Pokémon and made every
+  base-stage starter read "All-rounder", which is useless on the one screen
+  where the label has to do real work. Something that still evolves is shown as
+  *Room to grow*, not as weak.
+* Confusing items get an honest one-liner under their canon name. **Full Heal**
+  is the worst offender in the game: it cures status and restores *zero HP*,
+  and it sits in the shop directly beside Full Restore, which does both. The
+  names are untouched; the gold line underneath tells the truth.
+
+**2. A guided first run.** `Start a fresh game` → pick a sprite and a name →
+pick from a fixed Treecko / Charmander / Froakie trio → play a real Free Play
+run with the lessons switched on. Nothing about it is faked: same engine, same
+permadeath, same slot. Section 1 alone gets a safety net (friendly wilds with
+high catch rates, the gentlest trainer on the roster, a few extra balls) so the
+run cannot end before the lesson about catching has happened. From section 2 it
+is an ordinary run.
+
+**3. Just-in-time coach marks.** ~18 lessons, each fired by an *interaction*,
+never a timer, and each anchored to the thing it is talking about. The rules,
+taken from Nielsen Norman Group's coach-mark research, are enforced by the
+module rather than by each call site:
+
+* one idea per card, never two;
+* **never chained** — a second card cannot open while one is up or immediately
+  after it closes, which is the single most-cited coach-mark antipattern;
+* a hint never looks like a button (advisor portrait, violet rail, its own
+  visual register);
+* always skippable, and the choice is permanent and reversible.
+
+**4. A Guide.** Every lesson is permanently re-readable from the menu. This is
+what licenses the game to stop nagging: if someone gets stuck later, the answer
+is in the app rather than on a wiki.
+
+Veterans opt out in one tap at setup (*"I know what I'm doing"*), or any time
+from Profile, which also has an independent toggle for the ✦Tip badges and a
+*Reset all tips* button. Lesson state lives on the profile, so it rides along in
+a backup — restoring on a new device does not re-teach someone who already
+finished. A profile written before any of this existed is migrated, and a player
+with runs behind them is never demoted to the beginner title screen.
+
+The research behind these choices, and the mapping onto this codebase, is in
+[`docs/ONBOARDING-RESEARCH.md`](docs/ONBOARDING-RESEARCH.md).
 
 ## Full-game backups
 

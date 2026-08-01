@@ -27,7 +27,7 @@ const CACHE_PREFIX = 'dailylocke-';
 
 // ---- GENERATED: do not edit by hand -------------------------------------
 // `npm run build:sw --prefix tools` recomputes this from the shell contents.
-const SHELL_REV = '0359f9639d9a';
+const SHELL_REV = '1152a4ec6c34';
 // -------------------------------------------------------------------------
 
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${SHELL_REV}`;
@@ -73,6 +73,7 @@ const APP_SHELL = [
   'src/mega.js',
   'src/forme.js',
   'src/itemart.js',
+  'src/coach.js',
   'src/audio.js',
   'src/tooltip.js',
   'src/ui-patch.js',
