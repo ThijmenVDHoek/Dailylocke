@@ -51,6 +51,13 @@ async function stubRemotes(context) {
 }
 
 // Boot the app and wait until app.js has actually run.
+//
+// A brand-new browser profile now sees the FIRST-VISIT title (two doors:
+// "Start a fresh game" / "Load save") rather than the three-mode menu, and
+// each mode shows a one-time explainer before it starts. Neither is what the
+// suites below are testing, so by default a page is put into the "returning
+// player" state -- onboarded, tips off, explainers already seen. Pass
+// `{ firstVisit: true }` to get the genuine new-player experience.
 async function bootPage(context, origin, opts = {}) {
   const page = await context.newPage();
   const errors = [];
@@ -62,6 +69,16 @@ async function bootPage(context, origin, opts = {}) {
   if (opts.skipReady !== true) {
     await page.waitForFunction(() => !!window.Game && !!window.Daily && !!window.Modal,
       null, { timeout: 30000 });
+  }
+  if (opts.firstVisit !== true && opts.skipReady !== true) {
+    await page.evaluate(() => {
+      if (!window.Coach) return;
+      window.Coach.setOff(true);
+      window.Coach.setOnboarded(true);
+      ['daily', 'free', 'gauntlet'].forEach((m) => window.Coach.markMode(m));
+      window.Game.setContinueState();
+    });
+    await page.waitForSelector('#titleModes:not([hidden])', { timeout: 10000 });
   }
   page.__errors = errors;
   return page;
@@ -405,6 +422,137 @@ try {
     check('no unexpected page errors during a gauntlet', realErrors.length === 0,
       realErrors.slice(0, 2).join(' | '));
 
+    await context.close();
+  }
+
+  // ====================================================== ONBOARDING =======
+  // The guided first run, in a real browser: a coach mark needs real layout
+  // to position itself against, which JSDOM cannot provide at all.
+  section('Onboarding: first visit, guided run, opt-out');
+  {
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true, isMobile: true, deviceScaleFactor: 3,
+    });
+    await stubRemotes(context);
+    const page = await bootPage(context, srv.origin, { firstVisit: true });
+
+    // ---- the first-visit title ----
+    check('a brand-new player sees the first-visit title, not three modes',
+      await page.isVisible('#titleFirst') && !(await page.isVisible('#titleModes')));
+    check('the primary door is "Start a fresh game"',
+      /fresh game/i.test(await page.textContent('#btnFreshGame')));
+    check('the secondary door is "Load save"',
+      /load save/i.test(await page.textContent('#btnTitleLoad')));
+
+    // ---- trainer setup ----
+    await page.click('#btnFreshGame');
+    await page.waitForSelector('#screenSetup:not([hidden])', { timeout: 15000 });
+    check('setup asks for a sprite and a name',
+      await page.isVisible('#setupAvatar') && await page.isVisible('#setupName'));
+    check('setup asks how much help the player wants',
+      (await page.locator('#screenSetup [data-exp]').count()) === 2);
+    check('"show me the ropes" is the default',
+      await page.locator('#screenSetup [data-exp="new"]').evaluate((el) => el.classList.contains('on')));
+
+    await page.fill('#setupName', 'Thijmen');
+    await page.click('#btnSetupGo');
+
+    // ---- the fixed starter trio ----
+    await page.waitForSelector('#screenStarter:not([hidden])', { timeout: 30000 });
+    await page.waitForFunction(
+      () => document.querySelectorAll('#starterGrid .starter-card').length === 3,
+      null, { timeout: 60000 });
+    const trio = await page.evaluate(() =>
+      [...document.querySelectorAll('#starterGrid .sc-name')].map((n) => n.textContent.trim()));
+    check('the guided run offers the fixed grass/fire/water trio',
+      ['Treecko', 'Charmander', 'Froakie'].every((n) => trio.includes(n)), trio.join(', '));
+    check('the professor advises on the starter screen',
+      await page.isVisible('#starterCoach'));
+    const roles = await page.evaluate(() =>
+      [...document.querySelectorAll('#starterGrid .mr-label')].map((n) => n.textContent.trim()));
+    check('each starter card names what that Pokemon is for',
+      roles.length === 3 && roles.every(Boolean), roles.join(' / '));
+    check('the starters are not all given the same label',
+      new Set(roles).size > 1, roles.join(' / '));
+
+    // ---- into the run ----
+    await page.locator('#starterGrid .pick-btn').first().click();
+    await page.waitForSelector('#screenNickname:not([hidden])', { timeout: 15000 });
+    await page.fill('#nickInput', 'Twig');
+    await page.click('#btnNickOk');
+    await page.waitForSelector('#screenCrossroads:not([hidden])', { timeout: 20000 });
+
+    // ---- the first coach mark, positioned by real layout ----
+    const marked = await page.waitForSelector('.coach-mark.on', { timeout: 10000 }).catch(() => null);
+    check('a coach mark appears on the route', !!marked);
+    if (marked) {
+      const box = await marked.boundingBox();
+      check('the coach mark is on screen and has a real size',
+        !!box && box.width > 40 && box.height > 20 &&
+        box.x >= -1 && box.x + box.width <= 391,
+        box && `${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)}`);
+      check('the mark highlights the thing it is talking about',
+        (await page.locator('.coach-spot').count()) === 1);
+      check('the mark is visually distinct from a button',
+        await page.locator('.coach-mark').evaluate((el) =>
+          getComputedStyle(el).borderLeftWidth === '3px'));
+
+      // ---- the no-chaining rule, in a real browser ----
+      await page.evaluate(() => {
+        window.Coach.lesson('mart');
+        window.Coach.lesson('trainer');
+        window.Coach.lesson('held');
+      });
+      check('no second card ever stacks on the first',
+        (await page.locator('.coach-mark').count()) === 1);
+
+      await page.click('.coach-mark .cm-ok');
+      await page.waitForTimeout(400);
+      check('dismissing a mark clears its highlight too',
+        (await page.locator('.coach-spot').count()) === 0);
+    }
+
+    // ---- honest item copy where it matters ----
+    await page.evaluate(() => { window.Game.run.money = 12000; window.Game.redrawRoute(); });
+    await page.waitForTimeout(500);
+    const fullHeal = await page.evaluate(() => {
+      const all = [...document.querySelectorAll('.shop-item')];
+      const fh = all.find((t) => /Full Heal/i.test(t.querySelector('.si-name')?.textContent || ''));
+      return fh ? (fh.querySelector('.si-plain')?.textContent || '') : null;
+    });
+    check('Full Heal is labelled as status-only in the shop',
+      !!fullHeal && /no hp/i.test(fullHeal), fullHeal);
+
+    // ---- the opt-out is real and it sticks ----
+    await page.evaluate(() => { window.Coach.setOff(true); });
+    const stillFires = await page.evaluate(() => window.Coach.lesson('skipping'));
+    check('turning tips off stops every lesson', stillFires === false);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !!window.Coach, null, { timeout: 20000 });
+    check('the tips-off choice survives a reload',
+      await page.evaluate(() => window.Coach.tipsOn() === false));
+    check('an onboarded player keeps the full mode menu after reload',
+      await page.isVisible('#titleModes'));
+
+    // ---- the guide is always there to fall back on ----
+    await page.click('#btnTitleMenu');
+    await page.waitForSelector('#screenMenu:not([hidden])', { timeout: 8000 });
+    await page.click('#btnMenuGuide');
+    await page.waitForSelector('#screenGuide:not([hidden])', { timeout: 8000 });
+    const cards = await page.locator('.guide-card').count();
+    check('the guide lists every lesson for re-reading', cards >= 18, `${cards} cards`);
+    await page.locator('.guide-card').first().click();
+    await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 8000 });
+    check('a lesson can be replayed from the guide even with tips off',
+      await page.isVisible('#screenCoach'));
+
+    for (const e of page.__errors) {
+      if (!/favicon|sprite|cry|audio|Failed to load resource/i.test(e)) {
+        check('no console errors during onboarding', false, e);
+        break;
+      }
+    }
     await context.close();
   }
 

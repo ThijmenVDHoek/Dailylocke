@@ -70,32 +70,62 @@
     </div>
 
     <div class="title-sheet">
-      <!-- Daily and Free Play are SEPARATE slots, so both can be offered at
-           once: finishing a Daily never costs you a Free Play run, and a good
-           Free Play run never locks you out of tomorrow's Daily. -->
-      <div class="title-btns">
-        <button type="button" id="btnDaily" class="btn-white btn-daily">
-          <span class="bd-main" id="dailyMain">Daily Run</span>
-          <span class="bd-sub" id="dailyDate"></span>
+      <!-- FIRST VISIT: no save, no history. A brand-new player is offered
+           exactly two doors instead of three game modes they cannot yet tell
+           apart. "Start a fresh game" runs the guided prologue; "Load save"
+           is for someone arriving from another device.
+           src/app.js decides which of #titleFirst / the mode grid is shown. -->
+      <div class="title-btns title-first" id="titleFirst" hidden>
+        <button type="button" id="btnFreshGame" class="btn-white btn-daily">
+          <span class="bd-main">Start a fresh game</span>
+          <span class="bd-sub">Pick a trainer, pick a partner, learn as you go</span>
         </button>
-        <div class="streak-chip" id="dailyStreak" hidden></div>
-        <button type="button" id="btnArchiveDaily" class="btn-glass btn-archive" hidden>
-          <span class="bd-main">Move old Daily to Free Play</span>
-          <span class="bd-sub"></span>
+        <button type="button" id="btnTitleLoad" class="btn-glass title-action-btn">
+          <span class="bd-main">Load save</span>
+          <span class="bd-sub">Restore a backup from another device</span>
         </button>
       </div>
 
-      <div class="title-sep" id="titleFreeSep"><span>Free Play</span></div>
+      <!-- CONTINUE: a prologue run is in progress. One obvious door back in. -->
+      <div class="title-btns title-first" id="titleResume" hidden>
+        <button type="button" id="btnResumeRun" class="btn-white btn-daily">
+          <span class="bd-main">Continue</span>
+          <span class="bd-sub" id="resumeSub"></span>
+        </button>
+        <button type="button" id="btnTitleLoad2" class="btn-glass title-action-btn">
+          <span class="bd-main">Load save</span>
+        </button>
+      </div>
 
-      <!-- Both Free Play options live together: start a randomized run or
-           build a full team for the trainer-only gauntlet. -->
-      <div class="title-btns title-free-grid" id="titleFreeGrid">
-        <button type="button" id="btnNewRun" class="btn-glass title-action-btn">
-          <span class="bd-main">Random run</span>
-        </button>
-        <button type="button" id="btnGauntlet" class="btn-glass title-action-btn">
-          <span class="bd-main" id="gauntletMain">Full team gauntlet</span>
-        </button>
+      <!-- THE FULL MENU: shown once the player has finished their first run.
+           Daily and Free Play are SEPARATE slots, so both can be offered at
+           once: finishing a Daily never costs you a Free Play run, and a good
+           Free Play run never locks you out of tomorrow's Daily. -->
+      <div id="titleModes">
+        <div class="title-btns">
+          <button type="button" id="btnDaily" class="btn-white btn-daily">
+            <span class="bd-main" id="dailyMain">Daily Run</span>
+            <span class="bd-sub" id="dailyDate"></span>
+          </button>
+          <div class="streak-chip" id="dailyStreak" hidden></div>
+          <button type="button" id="btnArchiveDaily" class="btn-glass btn-archive" hidden>
+            <span class="bd-main">Move old Daily to Free Play</span>
+            <span class="bd-sub"></span>
+          </button>
+        </div>
+
+        <div class="title-sep" id="titleFreeSep"><span>Free Play</span></div>
+
+        <!-- Both Free Play options live together: start a randomized run or
+             build a full team for the trainer-only gauntlet. -->
+        <div class="title-btns title-free-grid" id="titleFreeGrid">
+          <button type="button" id="btnNewRun" class="btn-glass title-action-btn">
+            <span class="bd-main">Random run</span>
+          </button>
+          <button type="button" id="btnGauntlet" class="btn-glass title-action-btn">
+            <span class="bd-main" id="gauntletMain">Full team gauntlet</span>
+          </button>
+        </div>
       </div>
     </div>
   </section>
@@ -107,6 +137,14 @@
       <h2 class="scr-title">How it works</h2>
     </div>
     <div class="rules-body">
+      <!-- Two help surfaces, so each points at the other: this page is the
+           complete rule set, the Guide is the same material broken into one
+           idea at a time. -->
+      <button type="button" id="btnRulesGuide" class="rules-guide-link">
+        <span class="coach-portrait" id="rulesFace"></span>
+        <span><b>New here?</b> The Guide explains the same things one at a time,
+          in the order they come up. &rsaquo;</span>
+      </button>
       <div class="rule">
         <span class="rl-n">1</span>
         <div><b>Three ways to play</b><p><b>Daily</b> is the same fixed 5-section challenge for everyone, scored and recorded once a day. <b>Free Play</b> is endless and randomized. <b>Team Gauntlet</b> is a trainer rush: build any team of 6 for free, then fight trainer after trainer. Each mode has its own save slot, so one never blocks another.</p></div>
@@ -159,10 +197,50 @@
     </div>
   </section>
 
+  <!-- ===================== TRAINER SETUP ===================== -->
+  <!-- Identity BEFORE instruction: picking a sprite and typing a name costs
+       nothing, takes ten seconds, and buys the investment that makes someone
+       willing to read the first lesson at all. -->
+  <section id="screenSetup" hidden>
+    <div class="sub-head">
+      <button type="button" id="btnSetupBack" class="back-pill">Back</button>
+      <h2 class="scr-title">Who are you?</h2>
+    </div>
+    <div class="setup-wrap">
+      <button type="button" id="setupAvatar" class="setup-avatar" aria-label="Change sprite">
+        <img id="setupAvatarImg" src="" alt="">
+        <span class="setup-avatar-edit">Change</span>
+      </button>
+      <label class="setup-label" for="setupName">Your name</label>
+      <input id="setupName" class="search setup-name" type="text" maxlength="12"
+             autocomplete="off" spellcheck="false" placeholder="Trainer"/>
+
+      <div class="setup-experience">
+        <div class="setup-label">Played a Pokemon roguelike before?</div>
+        <div class="setup-choice">
+          <button type="button" class="setup-opt on" data-exp="new">
+            <b>I'm new to this</b><span>Show me the ropes as I play</span>
+          </button>
+          <button type="button" class="setup-opt" data-exp="pro">
+            <b>I know what I'm doing</b><span>No tips &mdash; just let me play</span>
+          </button>
+        </div>
+        <p class="hint center setup-note">You can change this any time in Profile,
+          and every tip stays readable in the Guide.</p>
+      </div>
+    </div>
+    <div class="x-battle-dock">
+      <button type="button" id="btnSetupGo" class="btn-primary x-battle-btn">
+        <span id="setupGoLabel">Begin</span>
+      </button>
+    </div>
+  </section>
+
   <!-- ===================== STARTER ===================== -->
   <section id="screenStarter" hidden>
     <h2 class="scr-title">Choose your first partner</h2>
-    <p class="hint center">Choose carefully. If it faints, it's gone.</p>
+    <p class="hint center" id="starterSub">Choose carefully. If it faints, it's gone.</p>
+    <div id="starterCoach" class="coach-inline" hidden></div>
     <div id="starterGrid" class="starter-grid"></div>
     <button type="button" id="btnStarterBack" class="btn-secondary wide" style="margin-top:16px">Back</button>
   </section>
@@ -311,6 +389,10 @@
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/town-map.png" alt="">
           <span class="mi-t"><b>Import save</b><em>Restore a backup file</em></span>
         </button>
+        <button type="button" id="btnMenuGuide" class="menu-item">
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/exp-share.png" alt="">
+          <span class="mi-t"><b>Guide</b><em id="miGuideSub">Learn the game, one idea at a time</em></span>
+        </button>
         <button type="button" id="btnMenuRules" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/tm-normal.png" alt="">
           <span class="mi-t"><b>How it works</b><em>The full rule set</em></span>
@@ -413,6 +495,45 @@
     </div>
   </div>
 
+  <!-- ===================== COACH (overlay) ===================== -->
+  <!-- One lesson at a time, in the professor's voice. Never chained: the
+       coach module refuses to open a second card while this one is up or
+       immediately after it closes. src/coach.js fills the card. -->
+  <div id="screenCoach" class="overlay coach-overlay" hidden>
+    <div class="overlay-card coach-card"></div>
+  </div>
+
+  <!-- ===================== MODE EXPLAINER (overlay) ===================== -->
+  <div id="screenModeInfo" class="overlay" hidden>
+    <div class="overlay-card mode-card">
+      <div class="coach-head">
+        <span class="coach-portrait" id="modeFace"></span>
+        <div class="coach-who"><b id="modeTitle">Mode</b><em>Before you start</em></div>
+      </div>
+      <p class="mode-lede" id="modeLede"></p>
+      <ul class="mode-points" id="modePoints"></ul>
+      <button type="button" id="btnModeGo" class="btn-primary wide">Let's go</button>
+      <button type="button" id="btnModeBack" class="btn-secondary wide">Back</button>
+    </div>
+  </div>
+
+  <!-- ===================== GUIDE ===================== -->
+  <!-- Every lesson, permanently re-readable. This is what licenses the game
+       to stop nagging: if someone gets stuck later, the answer is here rather
+       than on a wiki. -->
+  <section id="screenGuide" hidden>
+    <div class="sub-head">
+      <button type="button" id="btnGuideBack" class="back-pill">Back</button>
+      <h2 class="scr-title">Guide</h2>
+    </div>
+    <div class="guide-hero">
+      <span class="coach-portrait" id="guideFace"></span>
+      <p class="hint">Everything <b id="guideWho">the professor</b> explains during a run, in one place.
+         Tap any card to read it again.</p>
+    </div>
+    <div id="guideBody"></div>
+  </section>
+
   <!-- ===================== INSTALL HOW-TO (overlay) ===================== -->
   <!-- iOS/iPadOS and desktop Safari expose no install API, so the same pill
        opens this instead of calling prompt(). Steps are filled by src/pwa.js
@@ -507,6 +628,7 @@
        core.js        -> window.Core          (needs PS + PokeData)
        nuzlocke.js    -> window.Nuz           (needs Core)
        ...feature modules...
+       coach.js       -> window.Coach         (lessons + plain-language facts)
        savecode.js    -> window.SaveCode      (backup files)
        pwa.js         -> window.PWA           (service worker + install button)
        app.js         -> boots the game       (needs everything above)
@@ -529,6 +651,7 @@
 <script defer src="src/mega.js"></script>
 <script defer src="src/forme.js"></script>
 <script defer src="src/itemart.js"></script>
+<script defer src="src/coach.js"></script>
 <script defer src="src/tooltip.js"></script>
 <script defer src="src/battle.js"></script>
 <script defer src="src/savecode.js"></script>

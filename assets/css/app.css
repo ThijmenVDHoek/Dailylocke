@@ -1907,3 +1907,295 @@ body.modal-open { overflow:hidden; }
 .ts-item img { display:block; }
 .tslot.filled { position:relative; }
 .gb-item-results .btn-mini { display:inline-flex; align-items:center; gap:3px; }
+
+/* ============================================================================
+   ONBOARDING — the professor, lessons, coach marks and tip badges.
+
+   DESIGN RULE (from NN/g's coach-mark guidance): a hint must never be
+   mistakable for a control. Everything in here therefore shares one visual
+   register that appears nowhere else in the game:
+     * the advisor portrait is always present
+     * a violet accent rail on the left edge
+     * a slightly warmer, softer surface than the frosted-glass UI
+   Buttons inside a coach surface still look like buttons, because those ARE
+   interactive — the annotation is the frame around them, not the frame itself.
+   ========================================================================== */
+
+/* ---- the advisor ---- */
+.coach-face { display:block; image-rendering:auto; border-radius:50%; }
+.coach-portrait {
+  flex:0 0 auto; display:flex; align-items:center; justify-content:center;
+  border-radius:50%; background:radial-gradient(circle at 50% 35%, rgba(192,124,232,.28), rgba(192,124,232,.05) 70%);
+  box-shadow:inset 0 0 0 1px rgba(192,124,232,.35);
+  padding:3px;
+}
+.coach-head { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+.coach-who { display:flex; flex-direction:column; line-height:1.15; min-width:0; }
+.coach-who b { color:#fff; font-size:1.05rem; }
+.coach-who em {
+  font-style:normal; font-size:.64rem; letter-spacing:1.4px; text-transform:uppercase;
+  color:var(--violet);
+}
+
+/* ---- the modal lesson sheet ---- */
+.coach-card {
+  max-width:440px;
+  border-left:3px solid var(--violet);
+  background:linear-gradient(180deg, rgba(30,20,44,.97), rgba(14,18,32,.98));
+}
+.coach-title { margin:0 0 10px; font-size:1.35rem; color:#fff; line-height:1.15; }
+.coach-body { color:var(--ink-2); font-size:.98rem; line-height:1.55; }
+.coach-body b { color:#fff; }
+.coach-actions { margin-top:18px; }
+.coach-actions .btn-primary { margin-top:0; }
+.coach-skip {
+  display:block; width:100%; margin-top:10px; padding:8px;
+  background:none; border:none; cursor:pointer; font-family:inherit;
+  color:var(--ink-3); font-size:.82rem; letter-spacing:.4px;
+}
+.coach-skip:hover { color:var(--ink-2); text-decoration:underline; }
+
+/* An inline variant for screens where a modal would be a speed bump
+   (the starter picker: the advice belongs beside the choice, not over it). */
+.coach-inline {
+  display:flex; gap:11px; align-items:flex-start;
+  margin:0 0 14px; padding:12px 14px;
+  border-radius:var(--r-md); border-left:3px solid var(--violet);
+  background:rgba(192,124,232,.10);
+}
+.coach-inline[hidden] { display:none; }
+.coach-inline .coach-portrait { padding:2px; }
+.coach-inline p { margin:0; color:var(--ink-2); font-size:.88rem; line-height:1.5; }
+.coach-inline b { color:#fff; }
+
+/* ---- the anchored coach mark ---- */
+.coach-layer { position:fixed; inset:0; z-index:1300; pointer-events:none; }
+.coach-mark {
+  position:fixed; z-index:1301; pointer-events:auto;
+  display:flex; align-items:flex-start; gap:10px;
+  max-width:min(360px, calc(100vw - 20px));
+  padding:12px 13px; border-radius:var(--r-md);
+  border-left:3px solid var(--violet);
+  background:rgba(28,20,42,.98);
+  box-shadow:0 16px 44px rgba(0,0,0,.62);
+  opacity:0; transform:translateY(6px) scale(.97);
+  transition:opacity .16s ease-out, transform .16s ease-out;
+}
+.coach-mark.on { opacity:1; transform:translateY(0) scale(1); }
+.coach-mark::after {
+  content:''; position:absolute; left:28px; bottom:-6px;
+  width:12px; height:12px; background:rgba(28,20,42,.98); transform:rotate(45deg);
+}
+.coach-mark.below::after { bottom:auto; top:-6px; }
+.coach-mark .cm-face { flex:0 0 auto; }
+.coach-mark .cm-text { min-width:0; flex:1; }
+.coach-mark .cm-text b { display:block; color:#fff; font-size:.98rem; line-height:1.2; margin-bottom:3px; }
+.coach-mark .cm-text span { display:block; color:var(--ink-2); font-size:.84rem; line-height:1.45; }
+.coach-mark .cm-text span b { display:inline; color:#fff; font-size:inherit; margin:0; }
+.coach-mark .cm-ok {
+  flex:0 0 auto; align-self:center; margin-left:2px;
+  padding:7px 12px; border:none; border-radius:var(--r-pill); cursor:pointer;
+  font-family:inherit; font-size:.8rem; letter-spacing:.4px;
+  background:var(--violet); color:#1a1024;
+}
+.coach-mark .cm-ok:hover { filter:brightness(1.1); }
+
+/* The element being pointed at gets a matching halo so the link between the
+   annotation and its subject is unambiguous. */
+.coach-spot {
+  position:relative; z-index:1299;
+  box-shadow:0 0 0 3px rgba(192,124,232,.85), 0 0 26px rgba(192,124,232,.5) !important;
+  border-radius:var(--r-md);
+  animation:coachPulse 1.9s ease-in-out infinite;
+}
+@keyframes coachPulse {
+  0%,100% { box-shadow:0 0 0 3px rgba(192,124,232,.85), 0 0 22px rgba(192,124,232,.42); }
+  50%     { box-shadow:0 0 0 3px rgba(192,124,232,.95), 0 0 34px rgba(192,124,232,.68); }
+}
+@media (prefers-reduced-motion:reduce) {
+  .coach-spot { animation:none; }
+  .coach-mark { transition:none; }
+}
+
+/* ---- the ✦Tip badge ---- */
+/* Marks a thing worth choosing. Small, warm, and never on more than a couple
+   of items at once — a badge on everything is a badge on nothing. */
+.tip-badge {
+  display:inline-flex; align-items:center; gap:3px;
+  padding:1px 7px 1px 5px; border-radius:var(--r-pill);
+  background:rgba(192,124,232,.20); color:#e6c2ff;
+  font-size:.6rem; letter-spacing:1px; text-transform:uppercase;
+  box-shadow:inset 0 0 0 1px rgba(192,124,232,.4);
+  white-space:nowrap; vertical-align:middle;
+}
+.tip-badge i { font-style:normal; font-size:.7rem; line-height:1; }
+.shop-item .tip-badge { position:absolute; top:-7px; right:8px; background:#2a1c3a; }
+.shop-item { position:relative; }
+
+/* ---- move badges (STAB / weak stat / drawbacks) ---- */
+/* LAYER 1: these stay on forever, for everyone. They surface information the
+   game already had but never said out loud. */
+.mv-badge {
+  display:inline-flex; align-items:center;
+  padding:1px 6px; border-radius:var(--r-pill);
+  font-size:.56rem; letter-spacing:.7px; text-transform:uppercase;
+  white-space:nowrap; vertical-align:middle;
+}
+.mv-badge.stab { background:rgba(255,215,110,.18); color:var(--gold); box-shadow:inset 0 0 0 1px rgba(255,215,110,.32); }
+.mv-badge.warn { background:rgba(255,95,109,.16); color:#ffb3ba; box-shadow:inset 0 0 0 1px rgba(255,95,109,.3); }
+.mv-badge.good { background:rgba(74,222,128,.14); color:#9df0bd; box-shadow:inset 0 0 0 1px rgba(74,222,128,.28); }
+.mv-badge.off  { background:rgba(255,255,255,.08); color:var(--ink-3); }
+.mv-badges { display:flex; flex-wrap:wrap; gap:3px; margin-top:4px; }
+.mv-badges:empty { display:none; }
+
+/* ---- role / power labels on Pokemon cards ---- */
+.mon-role {
+  display:flex; flex-direction:column; gap:2px;
+  margin:8px 0 2px; padding:7px 9px;
+  background:rgba(255,255,255,.05); border-radius:var(--r-sm);
+}
+.mon-role .mr-top { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.mon-role .mr-label { color:#fff; font-size:.86rem; }
+.mon-role .mr-style {
+  margin-left:auto; font-size:.6rem; letter-spacing:.8px; text-transform:uppercase;
+  color:var(--blue); background:rgba(91,140,255,.14); padding:1px 7px; border-radius:var(--r-pill);
+}
+.mon-role .mr-note { color:var(--ink-3); font-size:.74rem; line-height:1.35; }
+.mon-power { display:flex; align-items:center; gap:8px; margin-top:6px; }
+.mon-power .mp-bar { flex:1; height:5px; border-radius:999px; background:rgba(0,0,0,.45); overflow:hidden; }
+.mon-power .mp-bar i { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,var(--blue),var(--gold)); }
+.mon-power .mp-txt { font-size:.68rem; color:var(--ink-3); letter-spacing:.5px; white-space:nowrap; }
+
+/* ---- plain-language item subtitle ---- */
+/* The canon name stays exactly as it is; this is the honest line underneath.
+   "Full Heal" in particular reads as "restores everything" to a casual
+   player, when it restores no HP at all. */
+.si-plain, .oi-plain {
+  display:block; margin-top:3px;
+  font-size:.7rem; color:var(--gold); opacity:.85; line-height:1.3;
+}
+.pick-plain { display:block; font-size:.68rem; color:var(--gold); opacity:.8; }
+
+/* ---- trainer setup ---- */
+.setup-wrap { max-width:420px; margin:0 auto; padding:6px 0 120px; text-align:center; }
+.setup-avatar {
+  position:relative; width:132px; height:132px; margin:6px auto 18px;
+  display:flex; align-items:center; justify-content:center;
+  border:none; border-radius:50%; cursor:pointer; padding:0;
+  background:radial-gradient(circle at 50% 35%, rgba(255,255,255,.14), rgba(255,255,255,.03) 70%);
+  box-shadow:var(--e3), inset 0 0 0 1px rgba(255,255,255,.14);
+  transition:transform .12s, box-shadow .15s;
+}
+.setup-avatar:hover { transform:translateY(-2px); box-shadow:var(--e4), inset 0 0 0 1px rgba(255,255,255,.26); }
+.setup-avatar img { width:96px; height:96px; object-fit:contain; image-rendering:pixelated; }
+.setup-avatar-edit {
+  position:absolute; bottom:-2px; left:50%; transform:translateX(-50%);
+  padding:3px 12px; border-radius:var(--r-pill);
+  background:rgba(10,13,24,.92); color:var(--ink-2);
+  font-size:.64rem; letter-spacing:1.2px; text-transform:uppercase;
+  box-shadow:0 2px 10px rgba(0,0,0,.5);
+}
+.setup-label {
+  display:block; text-align:left; margin:0 0 6px;
+  font-size:.66rem; letter-spacing:1.4px; text-transform:uppercase; color:var(--ink-3);
+}
+.setup-name { width:100%; text-align:center; font-size:1.25rem; }
+.setup-experience { margin-top:26px; text-align:left; }
+.setup-choice { display:grid; gap:8px; margin-top:2px; }
+.setup-opt {
+  display:flex; flex-direction:column; gap:2px; align-items:flex-start;
+  padding:12px 14px; border:none; border-radius:var(--r-md); cursor:pointer;
+  background:var(--surface); color:var(--ink); font-family:inherit; text-align:left;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.07);
+  transition:background-color .15s, box-shadow .15s;
+}
+.setup-opt:hover { background:var(--surface-hi); }
+.setup-opt b { color:#fff; font-size:1rem; }
+.setup-opt span { color:var(--ink-3); font-size:.78rem; }
+.setup-opt.on {
+  background:rgba(192,124,232,.14);
+  box-shadow:inset 0 0 0 1px var(--violet);
+}
+.setup-opt.on b { color:#fff; }
+.setup-note { margin-top:12px; font-size:.76rem; }
+
+/* ---- mode explainer ---- */
+.mode-card { max-width:420px; border-left:3px solid var(--violet); }
+.mode-lede { margin:0 0 14px; color:var(--ink-2); font-size:.95rem; line-height:1.5; }
+.mode-points { list-style:none; margin:0 0 18px; padding:0; display:grid; gap:10px; }
+.mode-points li {
+  display:flex; flex-direction:column; gap:2px;
+  padding:10px 12px; border-radius:var(--r-sm); background:rgba(255,255,255,.05);
+}
+.mode-points b { color:#fff; font-size:.9rem; }
+.mode-points span { color:var(--ink-3); font-size:.8rem; line-height:1.4; }
+
+/* ---- the guide ---- */
+.guide-hero { display:flex; gap:12px; align-items:center; margin:0 0 18px; }
+.guide-hero .hint { margin:0; }
+.guide-group { margin-bottom:20px; }
+.guide-group-title {
+  font-size:.66rem; letter-spacing:1.5px; text-transform:uppercase;
+  color:var(--ink-3); margin:0 0 8px;
+}
+.guide-card {
+  display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+  padding:12px 14px; margin-bottom:8px;
+  border:none; border-radius:var(--r-md); cursor:pointer; font-family:inherit;
+  background:var(--surface); color:var(--ink);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);
+  transition:background-color .15s, transform .1s;
+}
+.guide-card:hover { background:var(--surface-hi); transform:translateY(-1px); }
+.guide-card .gc-t { flex:1; min-width:0; }
+.guide-card .gc-t b { display:block; color:#fff; font-size:.98rem; }
+.guide-card .gc-t em { font-style:normal; color:var(--ink-3); font-size:.76rem; }
+.guide-card .gc-state {
+  flex:0 0 auto; font-size:.6rem; letter-spacing:1px; text-transform:uppercase;
+  padding:2px 8px; border-radius:var(--r-pill); color:var(--ink-3);
+  background:rgba(255,255,255,.06);
+}
+.guide-card .gc-state.seen { color:var(--green); background:rgba(74,222,128,.12); }
+
+/* ---- title screen: first-visit / resume blocks ---- */
+.title-first[hidden], #titleModes[hidden] { display:none; }
+.title-first { display:grid; gap:10px; }
+
+/* ---- training: the "hits harder with X" guide line ---- */
+.tc-guide {
+  margin:0 0 12px; padding:10px 12px;
+  border-radius:var(--r-sm); border-left:3px solid var(--violet);
+  background:rgba(192,124,232,.10);
+  color:var(--ink-2); font-size:.84rem; line-height:1.45;
+}
+.tc-guide b { color:#fff; }
+
+/* ---- evolution: the branch warning ---- */
+.evo-branch-note {
+  margin:0 0 8px; padding:8px 10px;
+  border-radius:var(--r-sm); background:rgba(255,215,110,.10);
+  color:var(--ink-2); font-size:.78rem; line-height:1.4;
+}
+.evo-branch-note b { color:var(--gold); }
+
+/* Badges must stay legible inside the compact chips they sit in. */
+.tc-slot .mv-badges, .move-card-inline .mv-badges { justify-content:center; margin-top:3px; }
+.pd-move .mv-badges { margin-top:3px; }
+.move-card .mv-badges { margin-top:6px; }
+
+/* A Pokemon that can still evolve is not "weak", it is early. Say so in a
+   colour that reads as potential rather than as a warning. */
+.mon-power.early .mp-txt { color:var(--green); }
+.mon-power.early .mp-bar i { background:linear-gradient(90deg,var(--blue),var(--green)); }
+
+/* Rules <-> Guide cross-link: two help surfaces that know about each other. */
+.rules-guide-link {
+  display:flex; align-items:center; gap:11px; width:100%; text-align:left;
+  margin:0 0 18px; padding:12px 14px;
+  border:none; border-radius:var(--r-md); cursor:pointer; font-family:inherit;
+  border-left:3px solid var(--violet); background:rgba(192,124,232,.10);
+  color:var(--ink-2); font-size:.88rem; line-height:1.45;
+  transition:background-color .15s;
+}
+.rules-guide-link:hover { background:rgba(192,124,232,.18); }
+.rules-guide-link b { color:#fff; }

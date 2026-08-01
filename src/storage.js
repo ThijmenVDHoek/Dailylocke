@@ -131,9 +131,18 @@
   }
 
   // ----------------------------------------------------------- PROFILE -----
+  // `name` and `coach` are part of the profile rather than a separate key on
+  // purpose: they are per-player, they outlive every run, and they must ride
+  // along in a backup so restoring on a new device does not re-teach someone
+  // who already finished the tutorial.
   function blankProfile() {
     return { __v: 1, shinies: [], history: [], totalRuns: 0, bestBattles: 0,
-             bestSection: 0, totalCaught: 0, totalKOs: 0, avatar: 'red', theme: 'default' };
+             bestSection: 0, totalCaught: 0, totalKOs: 0, avatar: 'red', theme: 'default',
+             name: '', coach: blankCoach() };
+  }
+
+  function blankCoach() {
+    return { seen: {}, off: false, badges: true, onboarded: false, modes: {}, prologue: false };
   }
 
   function loadProfile() {
@@ -143,12 +152,31 @@
       profile = raw ? JSON.parse(raw) : blankProfile();
     } catch (e) { profile = blankProfile(); }
     if (!profile || typeof profile !== 'object' || Array.isArray(profile)) profile = blankProfile();
+    // Note this BEFORE the defaults are filled in: blankProfile() supplies a
+    // coach block, so after the fill there is no way to tell "never had one"
+    // (a pre-coach save) from "has a fresh one" (a genuinely new player).
+    var coachWasMissing = !profile.coach || typeof profile.coach !== 'object' ||
+                          Array.isArray(profile.coach);
     // Tolerate a partially-written or hand-edited profile: fill every missing
     // field rather than letting one `undefined` propagate into the UI.
     var d = blankProfile();
     Object.keys(d).forEach(function (k) { if (profile[k] == null) profile[k] = d[k]; });
     if (!Array.isArray(profile.shinies)) profile.shinies = [];
     if (!Array.isArray(profile.history)) profile.history = [];
+    // An older profile predates the coach entirely. Give it the blank shape
+    // rather than letting `undefined` reach the lesson code.
+    if (!profile.coach || typeof profile.coach !== 'object' || Array.isArray(profile.coach)) {
+      profile.coach = blankCoach();
+    }
+    // Someone with runs behind them is NOT a first-time player. Mark them
+    // onboarded so the title keeps the full mode menu instead of demoting an
+    // existing player to the beginner screen on the next launch. Only ever
+    // done on the migration path, so a new player who happens to load a
+    // backup mid-tutorial is not silently skipped past it.
+    if (coachWasMissing && ((profile.history || []).length || profile.totalRuns > 0)) {
+      profile.coach.onboarded = true;
+    }
+    if (typeof profile.name !== 'string') profile.name = '';
     return profile;
   }
 
@@ -246,7 +274,8 @@
     available: available, keyFor: keyFor,
     snapshot: snapshot, saveRun: saveRun, loadRun: loadRun,
     clearRun: clearRun, putRun: putRun,
-    blankProfile: blankProfile, loadProfile: loadProfile, saveProfile: saveProfile,
+    blankProfile: blankProfile, blankCoach: blankCoach,
+    loadProfile: loadProfile, saveProfile: saveProfile,
     migrate: migrate, validate: validate,
     // low-level, for the few callers that own their own key
     read: read, write: write, drop: drop
