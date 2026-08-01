@@ -4531,18 +4531,27 @@
                   } },
     tutorialDamage: {
       resolve: function () {
+        // Anchor to an actual LEGAL DAMAGING move button, resolved fresh on
+        // every call (the HUD re-renders after every action and replaces the
+        // node). Never a status move and never a disabled slot -- in the
+        // tutorial, status moves are disabled, so the highlighted choice must
+        // be one of the damaging moves the player is meant to pick.
         var mbs = document.querySelectorAll('.battle-hud .mb');
+        var fallback = null;
         for (var i = 0; i < mbs.length; i++) {
-          var moveName = mbs[i].querySelector('.m-name');
-          if (moveName) {
-            var moveId = moveName.textContent.toLowerCase().replace(/[^a-z0-9]/g, '');
-            var d = Dex.moves.get(moveId);
-            if (d && d.exists && d.category !== 'Status') {
-              return mbs[i];
-            }
-          }
+          var mb = mbs[i];
+          if (mb.disabled) continue;
+          // data-status is set by the HUD render (1 for status moves). Skip
+          // those; the lesson is about choosing a DAMAGING move.
+          if (mb.getAttribute('data-status') === '1') continue;
+          var moveId = mb.getAttribute('data-move') || '';
+          var d = moveId ? Dex.moves.get(moveId) : null;
+          if (d && d.exists && d.category !== 'Status') return mb;
+          // No clean Dex match (e.g. an unknown custom move): a non-status,
+          // non-disabled button is still a legal damaging choice here.
+          if (!fallback) fallback = mb;
         }
-        return document.querySelector('.battle-hud .mb');
+        return fallback;
       }
     },
     tutorialCatch: {
@@ -4594,14 +4603,22 @@
     if (!CO || !tgt) return false;
     if (!tgt.resolve()) return false;   // no live subject yet: next request retries
     opts = opts || {};
+    var callerOnShow = opts.onShow;
     return CO.lesson(id, {
       surface: 'bubble',
       resolve: tgt.resolve,
       side: tgt.side,
       vital: !!opts.vital,
+      // bypassSeen keeps a scripted tutorial beat firing for THIS run even
+      // when the profile already marks it seen; the caller de-dups via a
+      // run-scoped flag set in onShow.
+      bypassSeen: !!opts.bypassSeen,
       stillValid: opts.stillValid,
       keepHalo: true,
-      onShow: function () { armTutBeat(id); }
+      onShow: function () {
+        armTutBeat(id);
+        if (callerOnShow) { try { callerOnShow(); } catch (e) {} }
+      }
     });
   }
 
@@ -4639,14 +4656,30 @@
     var requested = false;
     if (pro && run.section === 1) {
       if (n === 0 && isWild) {
+        // The capture encounter teaches two scripted beats: weaken, then
+        // catch. Both are scoped to THIS tutorial run via dedicated flags
+        // (run._tutorialDamageShown / _tutorialCatchShown) rather than the
+        // profile's seen state, so a player who already finished a prior
+        // tutorial run still gets them. bypassSeen keeps the coach from
+        // suppressing them on the profile, and the flag is set in onShow --
+        // only after the bubble has actually opened (so a beat that never
+        // displays is never marked done for the run).
         if (info && info.hpPct > 0.9) {
-          if (!CO.seen('tutorialDamage')) {
-            requested = teachInBattle('tutorialDamage', { vital: true, stillValid: stillHere });
+          if (!run._tutorialDamageShown) {
+            requested = teachInBattle('tutorialDamage', {
+              vital: true, bypassSeen: true, stillValid: stillHere,
+              onShow: function () { run._tutorialDamageShown = true; }
+            });
           }
         } else {
-          if (!CO.seen('tutorialCatch')) {
-            requested = teachInBattle('tutorialCatch', { vital: true, stillValid: stillHere });
-            CO.markSeen('catch');
+          if (!run._tutorialCatchShown) {
+            requested = teachInBattle('tutorialCatch', {
+              vital: true, bypassSeen: true, stillValid: stillHere,
+              onShow: function () {
+                run._tutorialCatchShown = true;
+                if (!CO.seen('catch')) CO.markSeen('catch');
+              }
+            });
           }
         }
       } else if (n === 1 && isWild && !CO.seen('effect')) {
@@ -4689,15 +4722,21 @@
         }
         info = battle.enemyInfo();
         if (info && info.hpPct > 0.9) {
-          if (!CO.seen('tutorialDamage')) {
-            if (teachInBattle('tutorialDamage', { vital: true, stillValid: stillHere })) clearInterval(retry);
+          if (!run._tutorialDamageShown) {
+            if (teachInBattle('tutorialDamage', {
+              vital: true, bypassSeen: true, stillValid: stillHere,
+              onShow: function () { run._tutorialDamageShown = true; }
+            })) clearInterval(retry);
           }
         } else {
-          if (!CO.seen('tutorialCatch')) {
-            if (teachInBattle('tutorialCatch', { vital: true, stillValid: stillHere })) {
-              CO.markSeen('catch');
-              clearInterval(retry);
-            }
+          if (!run._tutorialCatchShown) {
+            if (teachInBattle('tutorialCatch', {
+              vital: true, bypassSeen: true, stillValid: stillHere,
+              onShow: function () {
+                run._tutorialCatchShown = true;
+                if (!CO.seen('catch')) CO.markSeen('catch');
+              }
+            })) clearInterval(retry);
           }
         }
       }, 250);

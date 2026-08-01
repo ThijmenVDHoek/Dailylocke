@@ -1172,6 +1172,14 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   CO3.attach(window.Storage.blankProfile(), () => {});
   CO3.setOnboarded(true);
   CO3.setPrologue(true);
+  // Simulate a returning player whose profile ALREADY marks the weakening
+  // lesson seen from a prior guided run. The weakening bubble must STILL fire
+  // for THIS tutorial run (it is scoped to the active run now) -- without
+  // that, a player on their second guided run would never see it. The
+  // route-screen lessons are also marked seen so returning to the route after
+  // the catch cannot re-fire them and leak into later test blocks; `caught`
+  // is deliberately LEFT unseen so the catch-screen greeting still appears.
+  ['route', 'trainer', 'save', 'effect', 'switch', 'battleBag', 'tutorialDamage'].forEach((id) => CO3.markSeen(id));
   // A live guided run at section 1, stop 1: the Capture Encounter.
   const r3 = window.Game.run;
   r3.mode = 'free'; r3.over = false; r3.prologue = true;
@@ -1197,12 +1205,37 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     return cl && cl.textContent;
   }, 30000);
   check('the capture encounter pops the catch bubble in battle',
-    !!catchBubble && catchBubble === 'Weaken it first!',
+    !!catchBubble && catchBubble === 'Weaken Pikachu first',
     catchBubble || 'NO BUBBLE');
   check('no modal sheet freezes the battle for a battle beat',
     !window.Modal.isOpen('screenCoach'));
+  // The lesson body must explicitly name a damaging move, warn off status
+  // moves, say Pikachu cannot be knocked out, and tell the player to throw a
+  // Poke Ball once it is weakened.
+  const damageBody = window.document.querySelector('.coach-bubble:not([hidden]) .cb-body');
+  const damageBodyText = (damageBody && damageBody.textContent) || '';
+  check('the weakening lesson says to choose a damaging move', /damaging move/i.test(damageBodyText), damageBodyText.slice(0, 80));
+  check('the weakening lesson warns off status moves', /status moves/i.test(damageBodyText), damageBodyText.slice(0, 80));
+  check('the weakening lesson says Pikachu cannot be knocked out', /cannot be knocked out/i.test(damageBodyText), damageBodyText.slice(0, 80));
+  check('the weakening lesson points at throwing a Poke Ball', /poke ball/i.test(damageBodyText), damageBodyText.slice(0, 80));
   check('the move buttons glow while the bubble explains it',
     !!window.document.querySelector('#battleHost .mb.coach-spot'));
+  // The glowing move button must be a LEGAL DAMAGING move, never a (disabled)
+  // status move -- the lesson is about choosing a damaging move.
+  const glowMove = window.document.querySelector('#battleHost .mb.coach-spot');
+  const glowMoveId = glowMove ? glowMove.getAttribute('data-move') : '';
+  const glowMoveDef = glowMoveId ? window.PS.Dex.moves.get(glowMoveId) : null;
+  check('the glow sits on a legal damaging move button',
+    !!glowMove && !glowMove.disabled && glowMoveDef && glowMoveDef.exists &&
+      glowMoveDef.category !== 'Status',
+    glowMove ? `${glowMoveId}/${glowMoveDef && glowMoveDef.category}` : 'no glow');
+  // On turn 1 the tutorial disables every STATUS move, so none of the offered
+  // (enabled) move buttons may be a status move.
+  const enabledMoveIds = [...window.document.querySelectorAll('#battleHost .mb[data-i]:not([disabled])')]
+    .map((b) => b.getAttribute('data-move')).filter(Boolean);
+  const enabledStatus = enabledMoveIds.filter((id) => window.PS.Dex.moves.get(id).category === 'Status');
+  check('status moves are disabled on the tutorial turn 1', enabledStatus.length === 0,
+    enabledStatus.join(','));
   if (catchBubble) {
     const okBtn = window.document.querySelector('.coach-bubble [data-coach-ok]');
     if (okBtn) okBtn.click();
@@ -1226,6 +1259,12 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('the second turn pops the catch bubble', !!catchBubble2);
   check('the ball rail glows while the bubble explains it',
     !!window.document.querySelector('#battleHost .ballrail.coach-spot'));
+  // After the damage, the Poke Ball rail is available: the encounter stayed
+  // alive (Pikachu was not knocked out by the damaging move) and the rail
+  // now offers at least one throwable ball.
+  check('the Poke Ball rail becomes available after damaging the target',
+    !!window.document.querySelector('#battleHost .ballrail .br-btn'),
+    'no rail buttons after damage');
   if (catchBubble2) {
     const okBtn = window.document.querySelector('.coach-bubble [data-coach-ok]');
     if (okBtn) okBtn.click();
@@ -1792,6 +1831,139 @@ check('battle asked the player for moves', (battleResult.requests || 0) > 0,
 check('battle ran without engine errors', !battleResult.error, battleResult.error);
 check('battle reached a conclusion', !!battleResult.ended || !!battleResult.capped,
   battleResult.timeout ? 'TIMED OUT' : 'ok');
+
+// ============================================ TUTORIAL CAPTURE: NO PIKACHU FAINT
+// The capture encounter's whole point is "weaken, then catch". A single strong
+// move (Overheat), a critical hit, an OHKO move or residual chip must NEVER
+// knock out the tutorial Pikachu -- the player has to be able to throw a ball
+// afterwards. The damage cap that enforces this used to never install (the
+// staged start marked the whole injection done after only p1 existed, so the
+// p2 loop -- and the cap inside it -- never ran), so Overheat ended the
+// encounter in a faint and stranded the tutorial.
+//
+// Driven directly through RogueBattle so the cap is exercised against the real
+// engine (moves, crits, OHKO, residual) rather than a mock.
+{
+  const tut = async (playerId, playerMoves) => {
+    const player = await C.makeMon(playerId);
+    player.moves = playerMoves; player.name = 'Hero'; player.hpPct = 1; player.item = '';
+    player.pp = {}; for (const m of playerMoves) player.pp[m] = 999;
+    // The wild Pikachu carries only status moves so it cannot faint the player
+    // mid-test; the cap-under-test is about Pikachu surviving the player's hits.
+    const enemy = await C.makeMon('pikachu');
+    enemy.moves = ['growl']; enemy.name = 'Sparky'; enemy.hpPct = 1;
+    return new Promise((res) => {
+      let turns = 0; let resolved = false; let minHp = 1; let weakened = false; let fainted = false;
+      const timer = setTimeout(() => { if (!resolved) { resolved = true; res({ timeout: true, minHp, weakened }); } }, 12000);
+      const b = window.RogueBattle.startBattle({
+        playerMons: [player], enemyMons: [enemy],
+        isWild: true, isTutorialCapture: true, trainerName: 'Wild',
+        handlers: {
+          onLog() {},
+          onRequest() {
+            turns++;
+            const info = b.enemyInfo();
+            if (info.hpPct <= 0) fainted = true;
+            if (info.hpPct < 1 && info.hpPct > 0) weakened = true;
+            minHp = Math.min(minHp, info.hpPct);
+            if (turns >= 5) {
+              if (!resolved) { resolved = true; clearTimeout(timer); res({ ended: b.state.ended, enemyHpPct: info.hpPct, minHp, weakened, fainted, canPass: !b.state.ended }); }
+              return;
+            }
+            b.chooseMove(0, null);
+          },
+          onEnd(r) { if (!resolved) { resolved = true; clearTimeout(timer); res({ ended: true, result: r.result, minHp, weakened, fainted: true }); } },
+          onError(e) { if (!resolved) { resolved = true; clearTimeout(timer); res({ error: e.message }); } },
+        },
+      });
+    });
+  };
+
+  // 1. Overheat (130 BP STAB from Charizard) would OHKO an unguarded Pikachu.
+  const overheat = await tut('charizard', ['overheat']);
+  check('Overheat never knocks out the tutorial Pikachu', !(overheat.ended && overheat.result === 'win'), JSON.stringify(overheat));
+  check('the tutorial Pikachu stays alive through Overheat', !overheat.fainted && overheat.enemyHpPct > 0, `${overheat.enemyHpPct}`);
+  check('the tutorial Pikachu is weakened by Overheat', overheat.weakened && overheat.enemyHpPct < 1, `${overheat.enemyHpPct}`);
+  check('the tutorial Pikachu never drops below the 15% floor', (overheat.minHp || 0) >= 0.15 - 0.001, `${overheat.minHp}`);
+  // The encounter is still live, so the player can still act -> throw a ball.
+  // passTurn is exactly the ball-throw / item-use action in the engine.
+  check('the player can still act (throw a ball) after weakening the tutorial Pikachu', overheat.canPass === true, JSON.stringify(overheat));
+
+  // 2. An OHKO move routes target.maxhp straight through Pokemon.damage(); the
+  //    cap must hold it at the floor. OHKO accuracy is only 30%, so driving
+  //    real Fissure hits would be flaky -- instead feed a max-HP hit directly
+  //    into the guarded Pikachu, exactly the value an OHKO move hands to
+  //    damage(). Tested on the first request, after the guard has installed.
+  {
+    const player = await C.makeMon('garchomp');
+    player.moves = ['tackle']; player.name = 'Hero'; player.hpPct = 1; player.item = '';
+    player.pp = { tackle: 999 };
+    const enemy = await C.makeMon('pikachu');
+    enemy.moves = ['growl']; enemy.name = 'Sparky'; enemy.hpPct = 1;
+    const ohko = await new Promise((res) => {
+      let resolved = false;
+      const timer = setTimeout(() => { if (!resolved) { resolved = true; res({ timeout: true }); } }, 12000);
+      const b = window.RogueBattle.startBattle({
+        playerMons: [player], enemyMons: [enemy], isWild: true, isTutorialCapture: true, trainerName: 'Wild',
+        handlers: {
+          onLog() {},
+          onRequest() {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            const el = b.battle && b.battle.p2 && b.battle.p2.active[0];
+            if (!el) { b.destroy(); return res({ error: 'no enemy active' }); }
+            var max = el.maxhp;
+            // Simulate an OHKO: the engine passes target.maxhp into damage().
+            var dealt = el.damage(max);
+            var out = { max: max, after: el.hp, dealt: dealt, fainted: el.fainted || el.faintQueued, hpPctAfter: el.hp / el.maxhp };
+            b.destroy();
+            res(out);
+          },
+          onEnd() {}, onError(e) { if (!resolved) { resolved = true; clearTimeout(timer); res({ error: e.message }); } },
+        },
+      });
+    });
+    check('an OHKO-sized hit never faints the tutorial Pikachu', !ohko.fainted && ohko.after > 0, JSON.stringify(ohko));
+    check('the OHKO cap leaves the tutorial Pikachu at the 15% floor', ohko.hpPctAfter >= 0.15 - 0.001 && ohko.hpPctAfter < 0.16, JSON.stringify(ohko));
+  }
+
+  // 3. The cap is SCOPED: a NON-tutorial Pikachu faints normally to Overheat,
+  //    and a tutorial-capture encounter against a non-Pikachu target is not
+  //    protected either. Driven headless: keep attacking until it ends.
+  async function scopeBattle(isTutorial, enemyId) {
+    const p = await C.makeMon('charizard');
+    p.moves = ['overheat']; p.name = 'Hero'; p.hpPct = 1; p.item = '';
+    p.pp = { overheat: 999 };
+    const e = await C.makeMon(enemyId);
+    e.moves = ['growl']; e.name = 'Foe'; e.hpPct = 1;
+    return new Promise((res) => {
+      let turns = 0; let resolved = false;
+      const timer = setTimeout(() => { if (!resolved) { resolved = true; res({ timeout: true }); } }, 12000);
+      const b = window.RogueBattle.startBattle({
+        playerMons: [p], enemyMons: [e], isWild: true,
+        isTutorialCapture: !!isTutorial, trainerName: 'Wild',
+        handlers: {
+          onLog() {},
+          onRequest() {
+            turns++;
+            if (turns > 6) { if (!resolved) { resolved = true; clearTimeout(timer); res({ ended: b.state.ended }); } return; }
+            b.chooseMove(0, null);
+          },
+          onEnd(r) { if (!resolved) { resolved = true; clearTimeout(timer); res({ ended: true, result: r.result }); } },
+          onError(e2) { if (!resolved) { resolved = true; clearTimeout(timer); res({ error: e2.message }); } },
+        },
+      });
+    });
+  }
+
+  const nonTut = await scopeBattle(false, 'pikachu');
+  check('a NON-tutorial Pikachu CAN be knocked out (no protection)', nonTut.ended === true && nonTut.result === 'win', JSON.stringify(nonTut));
+  const nonPika = await scopeBattle(true, 'rattata');
+  // A tutorial-capture battle against a non-Pikachu target: only the mapped
+  // run mon id 'pikachu' is guarded, so a Rattata target faints normally.
+  check('the tutorial cap is only for the Pikachu target', nonPika.ended === true && nonPika.result === 'win', JSON.stringify(nonPika));
+}
 
 // ------------------------------------ identity survives a switch (REGRESSION)
 // Showdown REORDERS side.pokemon whenever anyone switches: the incoming mon is

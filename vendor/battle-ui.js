@@ -1311,7 +1311,7 @@ BattleUI.prototype.render = function(){
     else if(m.eff===0)eb='<span class="ef im">—</span>';
     var frac=m.max?m.pp/m.max:0;var col=frac>0.3?(TC[m.type]||'#fff'):'#ef4444';
     var dis=(m.disabled||this.s.locked)?'disabled':'';var pw=m.power?('Pow '+m.power):(m.type==='Status'?'Status':'');
-    mv+='<button class="mb" data-i="'+idx+'" '+dis+'>'+
+    mv+='<button class="mb" data-i="'+idx+'" data-move="'+(m.id||'')+'" data-status="'+(m.type==='Status'?1:0)+'" '+dis+'>'+
       '<div class="mt"><span class="mt-left">'+tb(m.type,true)+eb+'</span><span class="pw">'+pw+'</span></div>'+
       '<div class="mn">'+(m.name||'')+'</div>'+
       '<div class="pp"><div class="pt"><div class="pf" style="width:'+(frac*100)+'%;background:'+col+'"></div></div><span class="pn2">'+m.pp+'/'+m.max+'</span></div>'+
