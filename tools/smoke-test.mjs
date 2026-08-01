@@ -849,11 +849,14 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
   }
   check('the open dialog is never itself inert', !selfInert);
 
+  // `data-modal-overlay` nodes (the toast, the coach-mark layer) float ABOVE
+  // dialogs rather than behind them, so they are deliberately exempt.
   const siblingsInert = (() => {
     let n = menu, ok = true;
     while (n && n !== doc.body && n.parentElement) {
       for (const sib of n.parentElement.children) {
         if (sib === n || sib.tagName === 'SCRIPT' || sib.tagName === 'TEMPLATE') continue;
+        if (sib.hasAttribute('data-modal-overlay')) continue;
         if (sib.inert !== true && sib.getAttribute('aria-hidden') !== 'true') ok = false;
       }
       n = n.parentElement;
@@ -862,15 +865,46 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
   })();
   check('everything behind the dialog is inert', siblingsInert);
 
+  check('layers that float above dialogs are never inerted',
+    doc.getElementById('toast').inert !== true &&
+    doc.getElementById('toast').getAttribute('aria-hidden') !== 'true',
+    'a toast fired from inside a dialog has to stay readable');
+
   check('the controller tracks what is open', M.isOpen('screenMenu') && M.depth === 1);
 
   // Nesting: the picker can open above the menu.
   M.open('screenPicker');
   check('modals stack', M.depth === 2 && M.isOpen('screenPicker'));
+
+  // REGRESSION: a dialog opened ON TOP of another one used to arrive DEAD.
+  // The first modal inerts every sibling on the path to <body>, and the
+  // game's overlays are siblings -- so the second dialog had already been
+  // inerted before it was ever shown, and nothing brought it back. Its
+  // buttons swallowed taps and its scrim would not dismiss. Every
+  // second-level dialog in the game was affected; where it actually stranded
+  // people was onboarding, because the nickname prompt is deliberately
+  // escape-proof and scrim-proof and the coach fires a lesson over it on a
+  // timer. Inertness must therefore track the TOP of the stack, not the
+  // bottom.
+  const picker = doc.getElementById('screenPicker');
+  check('a dialog stacked on another one is not born inert',
+    picker.inert !== true && picker.getAttribute('aria-hidden') !== 'true',
+    'the second dialog opened unclickable');
+  check('the stacked dialog\'s controls are reachable',
+    !!M._focusables(picker.querySelector('.overlay-card') || picker)
+      .every((el) => !el.closest('[inert]')));
+  check('the dialog underneath is still inert while one sits on top',
+    menu.querySelector('.overlay-card').inert === true,
+    'focus must stay trapped in the top dialog');
+
   M.close('screenPicker');
   check('closing the top restores the one below',
     M.depth === 1 && M.isOpen('screenMenu') &&
     doc.getElementById('screenPicker').hidden === true);
+  check('the dialog below comes back to life when the top closes',
+    menu.inert !== true && menu.querySelector('.overlay-card').inert !== true);
+  check('the page behind is still inert while one dialog remains',
+    doc.getElementById('screenTitle').inert === true);
 
   M.close('screenMenu');
   check('closing hides the dialog and clears the body flag',
@@ -1894,6 +1928,106 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
     check('a lesson with a missing anchor falls back to a sheet',
       window.Modal.isOpen('screenCoach'));
     window.Modal.close('screenCoach');
+  }
+
+  // ---- the coach must never be able to silence itself -------------------
+  // `busy` gates every lesson, so any path that sets it without clearing it
+  // ends the onboarding for the rest of the session -- silently, with no
+  // visible cause and nothing the player can do. These pin every way that
+  // used to happen. The symptom was always the same: teaching just stopped.
+  if (CO) {
+    const settle = () => new Promise((r) => setTimeout(r, 700));
+    const freshCoach = async () => {
+      window.Modal.closeAll();
+      CO.clearMark();
+      CO.attach(window.Storage.blankProfile(), () => {});
+      await settle();
+    };
+    const shopBlock = window.document.getElementById('xShopBlock');
+
+    // 1. A dialog opening over a live mark buries the thing it points at.
+    await freshCoach();
+    CO.lesson('mart', { anchor: shopBlock });
+    await new Promise((r) => setTimeout(r, 60));
+    check('an anchored lesson marks the coach busy', CO.busy === true);
+    window.Modal.open('xTeamDetail');
+    await new Promise((r) => setTimeout(r, 60));
+    check('a dialog opening over a coach mark retires it', CO.busy === false);
+    check('retiring a mark leaves no orphaned halo',
+      window.document.querySelectorAll('.coach-spot').length === 0);
+    check('a lesson the UI cancelled unread is NOT counted as taught',
+      CO.seen('mart') === false,
+      'it would never be offered again, and the Guide would call it read');
+    window.Modal.close('xTeamDetail');
+    await settle();
+    check('the coach keeps teaching after a dialog interrupted a hint',
+      CO.lesson('mart', { anchor: shopBlock }) === true);
+    CO.clearMark();
+
+    // 2. A mark anchored INSIDE a sheet (the evolve lesson lives on the party
+    //    sheet) must not outlive the sheet it points into.
+    await freshCoach();
+    const detail = window.document.getElementById('xTeamDetail');
+    const detailCard = detail.querySelector('.overlay-card') || detail;
+    const savedCard = detailCard.innerHTML;
+    detailCard.innerHTML = '<h3>Kip</h3><div class="evo-box" id="probeEvoBox"><button>Evolve</button></div>';
+    window.Modal.open('xTeamDetail');
+    await new Promise((r) => setTimeout(r, 30));
+    CO.lesson('evolve', { anchor: window.document.getElementById('probeEvoBox') });
+    await new Promise((r) => setTimeout(r, 60));
+    check('a lesson can anchor to something inside an open sheet',
+      !!window.document.querySelector('.coach-mark'));
+    window.Modal.close('xTeamDetail');
+    await new Promise((r) => setTimeout(r, 260));
+    check('closing the sheet takes its coach mark with it',
+      !window.document.querySelector('.coach-mark'),
+      'the pill would otherwise float over the route pointing at nothing');
+    check('...and releases the coach', CO.busy === false);
+    detailCard.innerHTML = savedCard;
+
+    // 3. Two sheets in a row: Modal.open() is a no-op when the dialog is
+    //    already on the stack, so the onClose that clears `busy` was never
+    //    registered and the flag latched on forever.
+    await freshCoach();
+    CO.replay('welcome');
+    CO.replay('route');
+    await new Promise((r) => setTimeout(r, 60));
+    window.Modal.close('screenCoach');
+    await new Promise((r) => setTimeout(r, 40));
+    check('a second sheet opened over a live one cannot latch the coach',
+      CO.busy === false);
+    await settle();
+    check('lessons still fire after two sheets in a row',
+      CO.lesson('mart') === true);
+    window.Modal.closeAll();
+
+    // 4. Belt and braces: a sheet hidden without going through Modal.close()
+    //    leaves no onClose to run, so clearMark() self-heals the flag.
+    await freshCoach();
+    CO.lesson('welcome');
+    await new Promise((r) => setTimeout(r, 40));
+    window.Modal.closeAll();
+    window.document.getElementById('screenCoach').hidden = true;
+    CO.clearMark();
+    check('a busy flag left by a vanished sheet self-heals', CO.busy === false);
+
+    // 5. The onboarding beat that actually stranded players: showCatch()
+    //    fires the "caught" lesson on a timer while the MANDATORY nickname
+    //    prompt (no Escape, no scrim dismiss) is open. Both layers went inert
+    //    and there was nothing left to tap.
+    await freshCoach();
+    window.Modal.open('screenNickname', { escape: false, dismissOnScrim: false });
+    await new Promise((r) => setTimeout(r, 20));
+    CO.lesson('caught');
+    await new Promise((r) => setTimeout(r, 60));
+    const coachSheet = window.document.getElementById('screenCoach');
+    const gotIt = coachSheet.querySelector('[data-coach-ok]');
+    check('a lesson firing over the nickname prompt stays dismissible',
+      !coachSheet.hidden && coachSheet.inert !== true && !!gotIt &&
+      !gotIt.closest('[inert]'),
+      'this is the freeze: a mandatory prompt under an unclickable lesson');
+    window.Modal.closeAll();
+    await settle();
   }
 }
 
