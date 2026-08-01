@@ -133,6 +133,95 @@ async function playBattle(page, { maxTurns = 40 } = {}) {
   }, maxTurns);
 }
 
+// Drive the guided first run hands-free: battles play themselves, every
+// professor sheet is read (titles recorded in order) and dismissed, nickname
+// prompts are answered, and post-battle screens are tapped through. This is
+// the scripted tutorial's regression harness — "steps never appeared" was a
+// shipped bug, so the e2e now plays the script the way a player would.
+// opts: { catchIt, useItem, switchOnce, stopAt:'crossroads'|'summary' }
+async function driveGuided(page, opts = {}) {
+  return page.evaluate(async (o) => {
+    const seen = [];
+    const wait = (ms = 320) => new Promise((r) => setTimeout(r, ms));
+    const visible = (id) => { const el = document.getElementById(id); return el && !el.hidden; };
+    const click = (sel) => { const el = document.querySelector(sel); if (el && !el.disabled) { el.click(); return true; } return false; };
+    let startedBattle = false, settledRoute = 0, weakened = false, switched = false, itemTried = false, panelOpen = false;
+    for (let i = 0; i < 300; i++) {
+      // 1. A professor sheet is up: record its title, then dismiss it.
+      const coach = document.getElementById('screenCoach');
+      if (coach && !coach.hidden) {
+        const t = (document.getElementById('coachTitle') || {}).textContent || '';
+        if (t && seen[seen.length - 1] !== t) seen.push(t);
+        const ok = coach.querySelector('[data-coach-ok]');
+        if (ok) { ok.click(); await wait(420); }
+        continue;
+      }
+      // 2. The mandatory nickname prompt (starter + catches).
+      if (visible('screenNickname')) {
+        const input = document.getElementById('nickInput');
+        if (input && !input.value) input.value = 'Pal' + seen.length;
+        click('#btnNickOk'); await wait(); continue;
+      }
+      // 3. Post-battle screens, in flow order.
+      if (visible('screenCatch')) {
+        const done = document.getElementById('btnCatchDone');
+        if (done && !done.hidden) { done.click(); await wait(); }
+        else await wait();
+        continue;
+      }
+      if (visible('screenReward')) { click('#btnRewardDone'); await wait(); continue; }
+      if (visible('screenSummary')) {
+        if (o.stopAt === 'summary') return { seen, stop: 'summary' };
+        click('#btnSumNext'); await wait(); continue;
+      }
+      if (visible('screenGameOver')) return { seen, stop: 'wipe' };
+      // 4. The route screen: give route-level sheets a beat to appear and be
+      //    dismissed (the pre-boss heal warning fires here), then start the
+      //    battle exactly once.
+      if (visible('screenCrossroads')) {
+        if (startedBattle) return { seen, stop: 'crossroads' };
+        if (!settledRoute) { settledRoute = Date.now(); await wait(750); continue; }
+        if (Date.now() - settledRoute < 1400) { await wait(); continue; }
+        startedBattle = true;
+        click('#btnGoBattle');
+        await wait(600);
+        continue;
+      }
+      // 5. In battle.
+      if (visible('screenBattle')) {
+        const moves = [...document.querySelectorAll('#battleHost .mb[data-i]')].filter((b) => !b.disabled);
+        const rows = [...document.querySelectorAll('#battleHost .pitem')].filter((b) => !b.disabled);
+        const rail = [...document.querySelectorAll('#battleHost .br-btn')].filter((b) => !b.disabled);
+        if (rows.length) {
+          // A panel is open (bag list, party picker, or forced switch).
+          if (panelOpen === 'bag') { rows[0].click(); }
+          else rows.find((b) => !/\(out\)/.test(b.textContent))?.click();
+          panelOpen = false;
+          await wait(); continue;
+        }
+        if (o.switchOnce && !switched) {
+          if (click('#battleHost [data-a="switch"]')) { switched = true; panelOpen = 'party'; await wait(); continue; }
+        }
+        if (o.useItem && !itemTried) {
+          if (click('#battleHost [data-a="bag"]')) { itemTried = true; panelOpen = 'bag'; await wait(); continue; }
+        }
+        if (o.catchIt && rail.length) {
+          if (!weakened && moves.length) { moves[0].click(); weakened = true; await wait(); continue; }
+          rail[0].click(); await wait(900); continue;
+        }
+        // Prefer a super-effective move when one is presented (the tutorial
+        // battle teaches exactly this), otherwise the first legal move.
+        const se = moves.find((b) => b.querySelector('.ef.se'));
+        if (se) se.click();
+        else if (moves.length) moves[0].click();
+        await wait(400); continue;
+      }
+      await wait();
+    }
+    return { seen, stop: 'loop-cap' };
+  }, opts);
+}
+
 // ---------------------------------------------------------------- main ----
 const found = findBrowser();
 if (!found) {
@@ -483,35 +572,144 @@ try {
     await page.click('#btnNickOk');
     await page.waitForSelector('#screenCrossroads:not([hidden])', { timeout: 20000 });
 
-    // ---- the first coach mark, positioned by real layout ----
-    const marked = await page.waitForSelector('.coach-mark.on', { timeout: 10000 }).catch(() => null);
-    check('a coach mark appears on the route', !!marked);
-    if (marked) {
-      const box = await marked.boundingBox();
-      check('the coach mark is on screen and has a real size',
-        !!box && box.width > 40 && box.height > 20 &&
-        box.x >= -1 && box.x + box.width <= 391,
-        box && `${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)}`);
-      check('the mark highlights the thing it is talking about',
-        (await page.locator('.coach-spot').count()) === 1);
-      check('the mark is visually distinct from a button',
-        await page.locator('.coach-mark').evaluate((el) =>
-          getComputedStyle(el).borderLeftWidth === '3px'));
+    // ---- the first lesson: the professor's sheet, every time ----
+    // The tutorial uses ONE surface: the modal dialog sheet with the big
+    // professor portrait and the typewriter reveal. The retired small pill
+    // must never come back -- two visual registers for the same job kept
+    // confusing players about what was a lesson and what was a loose button.
+    await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 10000 });
+    check('the first lesson is the professor sheet, not a floating pill', true);
+    const firstSheet = await page.evaluate(() => {
+      const card = document.querySelector('#screenCoach .overlay-card');
+      return {
+        title: (document.getElementById('coachTitle') || {}).textContent || '',
+        portrait: !!card && !!card.querySelector('.coach-head.immersive img[width="88"]'),
+        reveal: !!card && !!card.querySelector('.coach-body.text-reveal'),
+        halo: document.querySelectorAll('.coach-spot').length,
+        pill: !!document.querySelector('.coach-mark'),
+        modal: !!card && card.getAttribute('aria-modal') === 'true',
+      };
+    });
+    check('the first lesson explains the route', firstSheet.title === 'The path', firstSheet.title);
+    check('the sheet carries the big professor portrait', firstSheet.portrait);
+    check('the sheet types its text out', firstSheet.reveal);
+    check('the sheet is a real modal dialog', firstSheet.modal);
+    check('the lesson halos the element it is about', firstSheet.halo === 1, `${firstSheet.halo}`);
+    check('no small coach-mark pill is used anywhere', !firstSheet.pill);
 
-      // ---- the no-chaining rule, in a real browser ----
-      await page.evaluate(() => {
-        window.Coach.lesson('mart');
-        window.Coach.lesson('trainer');
-        window.Coach.lesson('held');
-      });
-      check('no second card ever stacks on the first',
-        (await page.locator('.coach-mark').count()) === 1);
+    // ---- the no-chaining rule, in a real browser ----
+    const chaining = await page.evaluate(() => {
+      const a = window.Coach.lesson('mart');
+      const b = window.Coach.lesson('trainer');
+      const c = window.Coach.lesson('held');
+      return { a, b, c, queued: window.Coach.pendingCount };
+    });
+    check('no second lesson ever stacks on the first',
+      chaining.a === false && chaining.b === false && chaining.c === false && chaining.queued === 0,
+      JSON.stringify(chaining));
 
-      await page.click('.coach-mark .cm-ok');
-      await page.waitForTimeout(400);
-      check('dismissing a mark clears its highlight too',
-        (await page.locator('.coach-spot').count()) === 0);
+    // ---- the typewriter actually completes into the full text ----
+    await page.waitForFunction(() => {
+      const body = document.querySelector('#screenCoach .coach-body');
+      return body && /Trainer/.test(body.textContent);
+    }, null, { timeout: 15000 }).catch(() => null);
+    check('the typewriter reveal reaches the full lesson text',
+      await page.evaluate(() => /Trainer/.test(document.querySelector('#screenCoach .coach-body').textContent)));
+
+    await page.click('#screenCoach [data-coach-ok]');
+    await page.waitForTimeout(500);
+    check('dismissing the sheet clears its highlight too',
+      (await page.locator('.coach-spot').count()) === 0);
+    check('the sheet is really gone',
+      await page.evaluate(() => document.getElementById('screenCoach').hidden));
+
+    // ============================================ THE SCRIPTED TUTORIAL ==
+    // The whole guided run, end to end, exactly as scripted -- this is the
+    // regression suite for "many steps of the onboarding tutorial never
+    // showed up":
+    //   1. capture encounter   -> 'Catch your first!' / 'New friend!'
+    //   2. wild battle         -> 'Super effective!' (on a real weakness)
+    //   3. wild battle         -> 'How to Switch'
+    //   4. trainer battle      -> 'Heal first!' on the route, 'Items in battle' inside
+    //   5. section summary     -> 'Save your game'
+    //   6. section 2           -> Balls, Medicine, Held items, Evolution -- done.
+
+    // -- stop 1: the capture encounter ----
+    await page.click('#btnGoBattle');
+    const b1 = await driveGuided(page, { catchIt: true });
+    check('the capture encounter teaches catching',
+      b1.seen.includes('Catch your first!'), b1.seen.join(' | '));
+    check('catching works and the result is explained',
+      b1.seen.includes('New friend!'), b1.seen.join(' | '));
+    check('the caught Pokemon joined the team as a second member',
+      await page.evaluate(() => window.Game.run.party.length === 2));
+    check('the run is back on the route after the capture', b1.stop === 'crossroads', b1.stop);
+
+    // -- stop 2: super-effective damage, on a guaranteed live weakness ----
+    const weakInfo = await page.evaluate(() => {
+      const lead = window.Game.run.party[0];
+      const id = window.Game.run._nextWild && window.Game.run._nextWild.id;
+      const sp = id && window.PS.Dex.species.get(id);
+      const stab = lead.moves.map((m) => window.PS.Dex.moves.get(m))
+        .filter((d) => d.category !== 'Status' && lead.types.includes(d.type))
+        .map((d) => d.type);
+      return { id, stab, mult: sp ? Math.max(...stab.map((t) => window.Core.typeMod(t, sp.types))) : 0 };
+    });
+    check('the second battle pairs a wild the lead actually hits for 2x+',
+      weakInfo.mult >= 2, JSON.stringify(weakInfo));
+    const b2 = await driveGuided(page, {});
+    check('the second wild battle teaches super-effective damage',
+      b2.seen.includes('Super effective!'), b2.seen.join(' | '));
+    check('...and resolves back on the route', b2.stop === 'crossroads', b2.stop);
+
+    // -- stop 3: switching ----
+    const b3 = await driveGuided(page, { switchOnce: true });
+    check('the third wild battle teaches switching',
+      b3.seen.includes('How to Switch'), b3.seen.join(' | '));
+
+    // -- stop 4: the Trainer. The pre-boss warning fires on the route; the
+    //    heal lesson fires inside the fight. ----
+    const b4 = await driveGuided(page, { useItem: true, stopAt: 'summary' });
+    check('the route warns to heal first before the Trainer',
+      b4.seen.includes('Heal first!'), b4.seen.join(' | '));
+    check('the Trainer battle teaches using items in battle',
+      b4.seen.includes('Items in battle'), b4.seen.join(' | '));
+    check('beating the Trainer reaches the section summary', b4.stop === 'summary', b4.stop);
+
+    // -- the summary teaches saving ----
+    await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 8000 });
+    check('the section summary teaches saving',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent) === 'Save your game',
+      await page.evaluate(() => (document.getElementById('coachTitle') || {}).textContent));
+    check('the save button is haloed on the summary screen',
+      await page.evaluate(() => !!document.querySelector('#btnSumSave.coach-spot')));
+    await page.click('#screenCoach [data-coach-ok]');
+    await page.waitForTimeout(500);
+    check('the tutorial is still armed going into section 2',
+      await page.evaluate(() => window.Coach.inPrologue() && window.Game.run.prologue));
+    await page.click('#btnSumNext');
+    await page.waitForSelector('#screenCrossroads:not([hidden])', { timeout: 10000 });
+
+    // -- section 2: the Mart, shelf by shelf, then evolution, then done ----
+    const expected = ['Poke Mart: Balls', 'Poke Mart: Medicine', 'Poke Mart: Held items', 'Evolution'];
+    const chain = [];
+    for (let k = 0; k < expected.length; k++) {
+      await page.waitForSelector('#screenCoach:not([hidden])', { timeout: 9000 }).catch(() => null);
+      const got = await page.evaluate(() =>
+        document.getElementById('screenCoach').hidden
+          ? null : (document.getElementById('coachTitle') || {}).textContent);
+      chain.push(got);
+      if (got) await page.click('#screenCoach [data-coach-ok]');
+      await page.waitForTimeout(950);  // cooldown + queue pump between beats
     }
+    check('the shop is taught in order: balls, medicine, held items, evolution',
+      JSON.stringify(chain) === JSON.stringify(expected), chain.join(' | '));
+    check('the Mart is fully interactive during the section-2 shop tutorial',
+      await page.evaluate(() =>
+        !document.getElementById('screenCrossroads').classList.contains('prologue-dim') &&
+        document.querySelectorAll('#martGrid .shop-item').length > 0));
+    check('the evolution lesson CONCLUDES the tutorial',
+      await page.evaluate(() => !window.Coach.inPrologue() && !window.Game.run.prologue));
 
     // ---- honest item copy where it matters ----
     await page.evaluate(() => { window.Game.run.money = 12000; window.Game.redrawRoute(); });
@@ -523,6 +721,11 @@ try {
     });
     check('Full Heal is labelled as status-only in the shop',
       !!fullHeal && /no hp/i.test(fullHeal), fullHeal);
+    // The Full Heal name-trap lesson may now be up over the shop: that is
+    // post-tutorial contextual teaching. Leave it be... but close it before
+    // judging the opt-out, so it cannot skew what comes next.
+    await page.evaluate(() => window.Modal.close('screenCoach'));
+    await page.waitForTimeout(300);
 
     // ---- the opt-out is real and it sticks ----
     await page.evaluate(() => { window.Coach.setOff(true); });

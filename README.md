@@ -49,7 +49,7 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `mega.js` | `Mega` | mega evolution |
 | `forme.js` | `Forme` | forme changes |
 | `itemart.js` | `ItemArt` | item sprites |
-| `coach.js` | `Coach` | onboarding: the advisor, lessons, coach marks, plain-language facts |
+| `coach.js` | `Coach` | onboarding: the advisor, the lesson sheets, plain-language facts |
 | `audio.js` | `GameAudio` | music/SFX volume, battle-only randomised BGM |
 | `tooltip.js` | — | move/ability/item tooltips |
 | `ui-patch.js` | — | extends `BattleUI` with the run action bar + ball rail |
@@ -141,18 +141,43 @@ pick from a fixed Treecko / Charmander / Froakie trio → play a real Free Play
 run with the lessons switched on. Nothing about it is faked: same engine, same
 permadeath, same slot. Section 1 alone gets a safety net (friendly wilds with
 high catch rates, the gentlest trainer on the roster, a few extra balls) so the
-run cannot end before the lesson about catching has happened. From section 2 it
-is an ordinary run.
+run cannot end before the lesson about catching has happened.
 
-**3. Just-in-time coach marks.** ~18 lessons, each fired by an *interaction*,
-never a timer, and each anchored to the thing it is talking about. The rules,
-taken from Nielsen Norman Group's coach-mark research, are enforced by the
-module rather than by each call site:
+The guided run is a **scripted tutorial**, and every step is a vital beat
+(queue-backed, so a busy surface or an unlucky race can never swallow it):
+
+1. **The path** — how a section is shaped, on the route screen.
+2. **Capture encounter** (stop 1) — weaken it, then throw a ball. The catch
+   success is explained too.
+3. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
+   move the player's lead actually carries, so the ×2 tag the lesson points
+   at is always there to press.
+4. **Switching** (stop 3).
+5. **Items in battle** (stop 4, the Trainer) — healing from the Bag, with a
+   *heal first!* warning on the route just before.
+6. **Saving** (the section summary).
+7. **The Mart** (section 2, in order): Balls → Medicine → Held items,
+   including how to give one to a Pokémon.
+8. **Evolution** — and with it the tutorial concludes: the prologue flags
+   clear, the safety net is already gone (it only ever covered section 1),
+   and the run continues as an ordinary one with normal randomness.
+
+(*"Skip tips"* from any card, or turning tips off in Profile mid-run, also
+ends the tutorial and hands over the ordinary game.)
+
+**3. Just-in-time lessons.** 22 lessons, each fired by an *interaction*,
+never a timer, and every one rendered on **one surface: the professor's
+dialog sheet** — modal, the big portrait, a typewriter reveal. When a lesson
+is *about* an element (the ball rail, the Party button, the Save progress
+button) that element carries the violet halo for as long as the sheet is up.
+The rules, taken from Nielsen Norman Group's coach-mark research, are
+enforced by the module rather than by each call site:
 
 * one idea per card, never two;
-* **never chained** — a second card cannot open while one is up or immediately
-  after it closes, which is the single most-cited coach-mark antipattern;
-* a hint never looks like a button (advisor portrait, violet rail, its own
+* **never chained** — a second card cannot open while one is up; the single
+  deliberate exception is the tutorial's `vital` beats, which *queue* (never
+  stack) so the scripted sequence always plays in order;
+* a hint never looks like a button (advisor portrait, violet halo, its own
   visual register);
 * always skippable, and the choice is permanent and reversible.
 
@@ -183,16 +208,17 @@ catch flow: naming a Pokémon is mandatory (no Escape, no backdrop dismiss) and
 the coach fires a lesson over that prompt on a timer, so taking more than a
 moment to type a name left both layers dead with nothing on screen to tap.
 Inertness is therefore recomputed from the **top** of the modal stack on every
-open and close, and layers that intentionally float *above* dialogs — the
-toast, the coach-mark layer — opt out with `data-modal-overlay`.
+open and close, and the one layer that intentionally floats *above* dialogs —
+the toast — opts out with `data-modal-overlay`.
 
 **A lesson must never be able to silence the coach.** One `busy` flag gates
 every lesson, so any path that sets it without clearing it ends the teaching
 for the rest of the session — invisibly, with nothing the player can do. All
-the edges route through `setBusy()`, and an anchored hint retires itself when a
-dialog covers its subject or the sheet it was pointing into closes. A hint
-retired that way was never actually read, so it goes **back** into the syllabus
-rather than being recorded as taught.
+the edges route through `setBusy()`, and a sheet hidden without going through
+`Modal.close` self-heals on the next screen change. A scripted beat that is
+raced by another card is **queued**, and one whose context went stale mid-wait
+drops *unseen* — so the natural call site can re-request it at the next right
+moment instead of the game simply stopping teaching.
 
 ## Full-game backups
 

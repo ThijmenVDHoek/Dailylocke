@@ -254,6 +254,40 @@
                         'lillipup', 'sentret', 'poochyena', 'starly', 'bunnelby',
                         'yungoos', 'skwovet', 'wurmple', 'caterpie', 'weedle'];
 
+  // Extra gentle species considered ONLY for the prologue's second battle.
+  // That is the fight the coach uses to explain super-effective damage, so
+  // the wild must be weak to a move the player's lead actually carries for
+  // the lesson to make sense. Same bar as the main pool: base stat total at
+  // most 330, capture rate at least 150, nothing that can end the run.
+  var PROLOGUE_WEAK_POOL = ['sandshrew', 'geodude', 'diglett', 'psyduck', 'poliwag',
+                            'wooper', 'marill', 'oddish', 'bellsprout', 'slugma',
+                            'numel', 'vulpix'];
+
+  // The damaging STAB move types the player's lead can use right now. A
+  // wild is "teachable" for the super-effective lesson only when one of
+  // these hits it for 2x or more.
+  function leadStabTypes(run) {
+    var lead = run && run.party && run.party[0];
+    if (!lead) return [];
+    var types = lead.types && lead.types.length ? lead.types.slice() : [];
+    if (!types.length && lead.id) {
+      var sp0 = Dex.species.get(lead.id);
+      if (sp0 && sp0.exists) types = (sp0.types || []).slice();
+    }
+    var out = [];
+    (lead.moves || []).forEach(function (mv) {
+      var d = Dex.moves.get(mv);
+      if (!d || !d.exists || d.category === 'Status') return;
+      if (types.indexOf(d.type) < 0) return;
+      if (out.indexOf(d.type) < 0) out.push(d.type);
+    });
+    // Generated movesets always carry STAB, so this only matters for unusual
+    // saved data: fall back to the lead's own types, which is what a player
+    // reaches for first anyway.
+    if (!out.length) types.forEach(function (t) { if (out.indexOf(t) < 0) out.push(t); });
+    return out;
+  }
+
   function isPrologueSection(run) {
     return !!(run && run.prologue && run.section === 1);
   }
@@ -265,6 +299,21 @@
       // follow are drawn from the same friendly pool so the first section
       // cannot end the run before the player knows what a Poke Ball is.
       var pr = drand(run.seed + '|prologue|' + run.battleInSection);
+      // The SECOND battle teaches super-effective damage on a live target:
+      // prefer a species the lead's STAB actually hits for 2x+, so the
+      // lesson and the battle describe the same move.
+      if (run.battleInSection === 1) {
+        var weakTo = leadStabTypes(run);
+        if (weakTo.length) {
+          var wpool = PROLOGUE_WILDS.concat(PROLOGUE_WEAK_POOL).filter(function (id) {
+            var spw = Dex.species.get(id);
+            if (!spw || !spw.exists) return false;
+            if ((run.seenSpecies || {})[id]) return false;
+            return weakTo.some(function (t) { return C.typeMod(t, spw.types || []) >= 2; });
+          });
+          if (wpool.length) return C.pick(wpool, pr);
+        }
+      }
       var pool = PROLOGUE_WILDS.filter(function (id) {
         return Dex.species.get(id).exists && !(run.seenSpecies || {})[id];
       });

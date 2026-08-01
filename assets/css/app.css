@@ -1987,38 +1987,7 @@ body.modal-open { overflow:hidden; }
 .text-reveal { font-size:1.05rem; line-height:1.5; min-height:80px; }
 .coach-body.text-reveal { color:#f0e6ff; }
 
-/* ---- the anchored coach mark ---- */
-.coach-layer { position:fixed; inset:0; z-index:1300; pointer-events:none; }
-.coach-mark {
-  position:fixed; z-index:1301; pointer-events:auto;
-  display:flex; align-items:flex-start; gap:10px;
-  max-width:min(360px, calc(100vw - 20px));
-  padding:12px 13px; border-radius:var(--r-md);
-  border-left:3px solid var(--violet);
-  background:rgba(28,20,42,.98);
-  box-shadow:0 16px 44px rgba(0,0,0,.62);
-  opacity:0; transform:translateY(6px) scale(.97);
-  transition:opacity .16s ease-out, transform .16s ease-out;
-}
-.coach-mark.on { opacity:1; transform:translateY(0) scale(1); }
-.coach-mark::after {
-  content:''; position:absolute; left:28px; bottom:-6px;
-  width:12px; height:12px; background:rgba(28,20,42,.98); transform:rotate(45deg);
-}
-.coach-mark.below::after { bottom:auto; top:-6px; }
-.coach-mark .cm-face { flex:0 0 auto; }
-.coach-mark .cm-text { min-width:0; flex:1; }
-.coach-mark .cm-text b { display:block; color:#fff; font-size:.98rem; line-height:1.2; margin-bottom:3px; }
-.coach-mark .cm-text span { display:block; color:var(--ink-2); font-size:.84rem; line-height:1.45; }
-.coach-mark .cm-text span b { display:inline; color:#fff; font-size:inherit; margin:0; }
-.coach-mark .cm-ok {
-  flex:0 0 auto; align-self:center; margin-left:2px;
-  padding:7px 12px; border:none; border-radius:var(--r-pill); cursor:pointer;
-  font-family:inherit; font-size:.8rem; letter-spacing:.4px;
-  background:var(--violet); color:#1a1024;
-}
-.coach-mark .cm-ok:hover { filter:brightness(1.1); }
-
+/* ---- the violet halo on the element a lesson is about ---- */
 /* The element being pointed at gets a matching halo so the link between the
    annotation and its subject is unambiguous. */
 .coach-spot {
@@ -2033,7 +2002,6 @@ body.modal-open { overflow:hidden; }
 }
 @media (prefers-reduced-motion:reduce) {
   .coach-spot { animation:none; }
-  .coach-mark { transition:none; }
 }
 
 /* ---- the ✦Tip badge ---- */

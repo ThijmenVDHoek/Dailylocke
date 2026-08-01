@@ -71,6 +71,13 @@ window.HTMLElement.prototype.getBoundingClientRect = function () {
 };
 window.HTMLElement.prototype.getClientRects = function () { return [{ width: 800, height: 600 }]; };
 
+// JSDOM has no Web Animations API. The ball-throw FX calls
+// el.animate(keyframes, opts) but drives its sequence with setTimeout, so an
+// inert stub is enough for the catch flow to proceed.
+window.Element.prototype.animate = function () {
+  return { cancel() {}, play() {}, pause() {}, finish() {}, onfinish: null, oncancel: null, finished: Promise.resolve(), ready: Promise.resolve() };
+};
+
 // Minimal WebGL + media stubs.
 window.HTMLCanvasElement.prototype.getContext = function () { return null; };
 window.HTMLMediaElement.prototype.play = function () { return Promise.resolve(); };
@@ -1080,6 +1087,16 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   }
   const route = await waitFor(() => !window.document.getElementById('screenCrossroads').hidden);
   check('choosing a starter reaches the route', !!route);
+  // Every lesson is the professor's modal sheet now: the route beat ("The
+  // path") lands the moment the crossroads first appears. Play the player:
+  // read the title, dismiss the sheet, and only then act on what is under it.
+  const routeSheet = await waitFor(() => !window.document.getElementById('screenCoach').hidden, 4000);
+  check('the first route visit opens the professor sheet',
+    !!routeSheet &&
+    window.document.getElementById('coachTitle').textContent === 'The path');
+  if (routeSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  await new Promise((r) => setTimeout(r, 140));
+  check('dismissing the route sheet releases the dialog stack', window.Modal.depth === 0);
 
   if (route) {
     // Use a known one-step level evolution so the party sheet always offers a
@@ -1098,6 +1115,15 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
       stripSprite && stripSprite.getAttribute('style'));
 
     window.document.querySelector('#xTeam .tslot[data-i="0"]').click();
+    // The evolution lesson stacks over the party sheet as its own modal
+    // (every lesson is the professor's sheet now). Dismiss it before
+    // touching the sheet beneath, exactly like a player must.
+    const evoSheet = await waitFor(() => window.Modal.isOpen('screenCoach'), 4000);
+    check('inspecting an evolution opens its professor sheet',
+      !!evoSheet &&
+      window.document.getElementById('coachTitle').textContent === 'Evolution');
+    if (evoSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+    await new Promise((r) => setTimeout(r, 140));
     const evoButton = window.document.querySelector('#xTeamDetail .evo-btn.ready');
     const detailSprite = window.document.querySelector('#xTeamDetail .pd-art img');
     check('inspected Pokemon art is bounded before onload',
@@ -1124,6 +1150,203 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
       !window.document.getElementById('screenCrossroads').hidden &&
       window.Game.run.party[0].id === 'venusaur');
   }
+}
+
+// ======================================= THE CAPTURE BEAT, FOR REAL =====
+// Everything above proves the queue; this proves the GLUE. Drive a real
+// capture encounter through startNextBattle -> the engine -> the DOM: the
+// catch lesson must fire in battle, the ball throw must catch, and the
+// "caught" lesson must greet the new teammate on the Catch screen.
+{
+  const CO3 = window.Coach;
+  const until3 = async (fn, ms = 30000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      const v = fn();
+      if (v) return v;
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    return null;
+  };
+  window.Modal.closeAll();
+  CO3.attach(window.Storage.blankProfile(), () => {});
+  CO3.setOnboarded(true);
+  CO3.setPrologue(true);
+  // A live guided run at section 1, stop 1: the Capture Encounter.
+  const r3 = window.Game.run;
+  r3.mode = 'free'; r3.over = false; r3.prologue = true;
+  r3.section = 1; r3.battleInSection = 0;
+  r3.catchUsedThisSection = false; r3.catchMissed = false; r3.encounterSeen = false;
+  // A Master Ball rail: the first throw lands for sure. With ordinary balls
+  // the catch is dice, and dice do not belong in a test -- a string of
+  // break-outs lets the wild mon KO the only party member and WIPES the run
+  // mid-block (an intermittent party=0 caught=0 failure).
+  r3.bag = { masterball: 3 };
+  r3.money = 100;
+  // One dependable lead with a gentle touch (Tackle won't one-shot anything
+  // in the friendly pool).
+  const lead3 = await C.makeMon('rattata');
+  lead3.moves = ['tackle']; lead3.name = 'Scout'; lead3.hpPct = 1; lead3.item = '';
+  r3.party = [lead3]; window.Nuz.trackMon(r3, lead3);
+
+  window.Game.startNextBattle();
+
+  // 1. The catch lesson opens in battle, over the rails it describes.
+  const catchSheet = await until3(() =>
+    window.Modal.isOpen('screenCoach') &&
+      window.document.getElementById('coachTitle').textContent, 30000);
+  check('the capture encounter opens the catch lesson in battle',
+    !!catchSheet && window.document.getElementById('coachTitle').textContent === 'Catch your first!',
+    catchSheet ? window.document.getElementById('coachTitle').textContent : 'NO SHEET');
+  if (catchSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+
+  // 2. Moves render on the scripted battle, but none is clicked: the bag
+  //    holds only Master Balls and the throw goes FIRST, on the opening
+  //    decision. One guaranteed throw means the wild never acts at all -- a
+  //    test must not depend on the flakiness of the lead surviving a
+  //    counterattack from whatever level-100 wild the seed rolled (a Yungoos
+  //    Double-Edge legitimately one-shots a Rattata).
+  const moveBtn = await until3(() =>
+    [...window.document.querySelectorAll('#battleHost .mb[data-i]')].find((b) => !b.disabled), 20000);
+  check('the capture battle offers move buttons', !!moveBtn);
+  let ballClicks = 0;
+  const ballLabelsSeen = [];
+  const diary = [];
+  const t0 = Date.now();
+  const caught = await until3(() => {
+    if (diary.length < 500) {
+      diary.push([
+        Date.now() - t0,
+        'hp=' + (lead3.hpPct != null ? lead3.hpPct.toFixed(2) : '?'),
+        'msg=' + JSON.stringify(((window.Game.ui && window.Game.ui.s && window.Game.ui.s.msg) || '').slice(0, 54)),
+        'rail=' + window.document.querySelectorAll('#battleHost .br-btn').length,
+        'mv=' + window.document.querySelectorAll('#battleHost .mb[data-i]').length,
+        window.Modal.isOpen('screenCoach') ? 'SHEET' : '',
+      ].join(' '));
+    }
+    if (!window.document.getElementById('screenCatch').hidden) return true;
+    if (window.Modal.isOpen('screenCoach')) {
+      const ok = window.document.querySelector('#screenCoach [data-coach-ok]');
+      if (ok) ok.click();
+    }
+    const ball = [...window.document.querySelectorAll('#battleHost .br-btn')].find((b) => !b.disabled);
+    if (ball) {
+      if (ballClicks < 6) ballLabelsSeen.push(ball.textContent.trim().slice(0, 24));
+      ballClicks++;
+      ball.click();
+    }
+    return false;
+  }, 60000);
+  check('throwing balls on the rail lands the capture', !!caught, caught ? '' : [
+    'clicks=' + ballClicks,
+    'labels=' + JSON.stringify(ballLabelsSeen),
+    'bag=' + JSON.stringify(r3.bag),
+    'hp=' + r3.party.map((m) => m.id + ':' + m.hpPct.toFixed(2)).join(','),
+    'over=' + r3.over,
+    'screens=' + ['Battle', 'Catch', 'Summary', 'GameOver', 'Crossroads', 'Reward']
+      .map((s) => s + ':' + window.document.getElementById('screen' + s).hidden).join(' '),
+    'coachOpen=' + window.Modal.isOpen('screenCoach'),
+    'depth=' + window.Modal.depth,
+    'railBtns=' + window.document.querySelectorAll('#battleHost .br-btn').length,
+    'moveBtns=' + window.document.querySelectorAll('#battleHost .mb[data-i]').length,
+    'gameOverTxt=' + JSON.stringify((window.document.getElementById('screenGameOver').textContent || '').trim().slice(0, 160)),
+    'battleTxt=' + JSON.stringify((window.document.getElementById('battleHost').textContent || '').trim().slice(0, 160)),
+    'log=' + JSON.stringify((r3.log || []).slice(-4).map((e) => (typeof e === 'string' ? e : e.text || JSON.stringify(e)).slice(0, 60))),
+    'leadLvl=' + (lead3.level),
+    'DIARY: ' + diary.slice(-10).join(' /// '),
+  ].join(' | '));
+
+  // 3. The "caught" lesson greets the new teammate on the Catch screen.
+  const caughtSheet = await until3(() =>
+    window.Modal.isOpen('screenCoach') &&
+      window.document.getElementById('coachTitle').textContent === 'New friend!');
+  check('the catch is explained on the Catch screen', !!caughtSheet);
+  if (caughtSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+
+  // 4. The mandatory nickname, then Continue puts the run back on the route
+  //    with a two-Pokemon party.
+  const nickOk = await until3(() => !window.document.getElementById('screenNickname').hidden);
+  check('naming the catch is still mandatory', !!nickOk);
+  if (nickOk) {
+    window.document.getElementById('nickInput').value = 'Buddy';
+    window.document.getElementById('btnNickOk').click();
+  }
+  await until3(() => {
+    const done = window.document.getElementById('btnCatchDone');
+    return done && !done.hidden && done;
+  }, 8000);
+  window.document.getElementById('btnCatchDone').click();
+  const backOnRoute = await until3(() => !window.document.getElementById('screenCrossroads').hidden, 8000);
+  check('the captured Pokemon joined the party and the run is back on the route',
+    !!backOnRoute && r3.party.length === 2 && r3.caught === 1,
+    `party=${r3.party.length} caught=${r3.caught}`);
+
+  // tidy: back to a calm state for the blocks that follow
+  window.Modal.closeAll();
+}
+
+// ================================================== THE GUIDED RUN'S FINALE ==
+// The shop tutorial in section 2: balls -> medicine -> held items ->
+// evolution, each waiting for the previous to be dismissed, and the
+// evolution sheet ending the guided run. This entire sequence silently died
+// once -- the prologue flag was cleared a whole section early and nothing
+// chained the four beats -- which is why it is now pinned end to end.
+{
+  const CO2 = window.Coach;
+  const waitMs = (ms) => new Promise((r) => setTimeout(r, ms));
+  const until2 = async (fn, ms = 9000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      const v = fn();
+      if (v) return v;
+      await waitMs(40);
+    }
+    return null;
+  };
+  // A fresh profile entering section 2 of the guided run: tips on, still
+  // mid-prologue, and the section-1 lessons legitimately behind them.
+  window.Modal.closeAll();   // no stale card from an earlier block
+  CO2.attach(window.Storage.blankProfile(), () => {});
+  CO2.setOnboarded(true);
+  CO2.setPrologue(true);
+  ['route', 'trainer', 'save', 'catch', 'effect', 'switch', 'battleItem', 'caught']
+    .forEach((id) => CO2.markSeen(id));
+  // A live run parked at the start of section 2.
+  const g = window.Game.run;
+  g.mode = 'free'; g.over = false; g.prologue = true;
+  g.section = 2; g.battleInSection = 0; g.money = 5000;
+  g.party.forEach((m) => { m.hpPct = 1; });
+  window.document.getElementById('screenDailyResult').hidden = true;
+  window.document.getElementById('screenCrossroads').hidden = false;
+  window.Game.redrawRoute();
+
+  check('the section-2 Mart is not dimmed during the shop tutorial',
+    !window.document.getElementById('screenCrossroads').classList.contains('prologue-dim'));
+
+  const titles = [];
+  for (let k = 0; k < 4; k++) {
+    const up = await until2(() => !window.document.getElementById('screenCoach').hidden);
+    if (!up) break;
+    titles.push(window.document.getElementById('coachTitle').textContent);
+    window.document.querySelector('#screenCoach [data-coach-ok]').click();
+    await waitMs(760);                 // cooldown (550) + queue pump
+  }
+  const shopExpect = ['Poke Mart: Balls', 'Poke Mart: Medicine', 'Poke Mart: Held items', 'Evolution'];
+  check('the shop teaches balls, then medicine, then held items, then evolution',
+    JSON.stringify(titles) === JSON.stringify(shopExpect),
+    titles.join(' | ') + (JSON.stringify(titles) === JSON.stringify(shopExpect) ? '' :
+      ' || dbg=' + JSON.stringify({
+        busy: CO2.busy, pend: CO2.pendingCount, tips: CO2.tipsOn(), pro: CO2.inPrologue(),
+        gpro: g.prologue, sec: g.section, seenB: CO2.seen('shopBalls'),
+        coachHidden: window.document.getElementById('screenCoach').hidden,
+        xrHidden: window.document.getElementById('screenCrossroads').hidden })));
+  check('the evolution sheet concludes the guided run',
+    CO2.inPrologue() === false && g.prologue === false);
+  check('no tutorial beat was left dangling in the queue', CO2.pendingCount === 0);
+
+  // Put the run back into a sane state; nothing after this reads it, but
+  // leave it tidy anyway.
+  g.section = 1; g.battleInSection = 0;
 }
 
 // A wiped Daily may still have a zero-HP object in party during a simultaneous
@@ -1889,10 +2112,13 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
   check('the coach sheet is a modal overlay with a card',
     !!coachOverlay && !!coachOverlay.querySelector('.overlay-card'));
 
-  // ---- coach marks must survive a re-render ----
-  // BattleUI rebuilds its whole HUD on every render, so a mark anchored to a
-  // captured NODE loses its halo the moment the next frame lands. Marks are
-  // therefore anchored by SELECTOR and re-resolved as they reflow.
+  // ---- every lesson is the professor's sheet; anchors get the halo ----
+  // The small anchored coach-mark pill was retired: ONE surface renders
+  // every lesson -- the modal sheet with the big professor portrait and the
+  // typewriter reveal. When a caller names the element the lesson is about,
+  // that element carries the violet halo for as long as the sheet is open,
+  // including across the BattleUI HUD re-renders that used to orphan the
+  // pill's anchor mid-hint.
   if (CO) {
     const fresh2 = window.Storage.blankProfile();
     CO.attach(fresh2, () => {});
@@ -1903,30 +2129,39 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
     window.document.body.appendChild(holder);
     // `force` bypasses the seen/cooldown gates: earlier blocks in this file
     // drive a whole real run, so battleBar has legitimately already fired.
-    CO.lesson('battleBar', { anchorSel: '.probe-anchor', force: true });
+    check('an anchored lesson opens the professor sheet',
+      CO.lesson('battleBar', { anchorSel: '.probe-anchor', force: true }) === true &&
+      !window.document.getElementById('screenCoach').hidden);
     await new Promise((r) => setTimeout(r, 60));
-    check('a selector-anchored mark attaches its halo',
+    const sheetCard = window.document.querySelector('#screenCoach .overlay-card');
+    check('the sheet shows the big professor portrait',
+      !!sheetCard && !!sheetCard.querySelector('.coach-head.immersive img[width="88"]'));
+    check('the sheet types its text out',
+      !!sheetCard && !!sheetCard.querySelector('.coach-body.text-reveal'));
+    check('the lesson halos the element it is about',
       !!window.document.querySelector('.probe-anchor.coach-spot'));
-    // Simulate the HUD rebuilding itself under the mark.
+    // Simulate the HUD rebuilding itself under the halo.
     holder.innerHTML = '<button class="probe-anchor">A again</button>';
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 420));
     check('the halo follows the anchor across a re-render',
       !!window.document.querySelector('.probe-anchor.coach-spot'));
-    CO.clearMark();
-    await new Promise((r) => setTimeout(r, 40));
-    check('clearing a mark leaves no orphaned halo anywhere',
+    window.Modal.close('screenCoach');
+    await new Promise((r) => setTimeout(r, 60));
+    check('closing the sheet leaves no orphaned halo anywhere',
       window.document.querySelectorAll('.coach-spot').length === 0);
-    check('clearing a mark removes the pill', !window.document.querySelector('.coach-mark.on'));
     holder.remove();
 
-    // A lesson whose anchor does not exist must still be delivered, as a
-    // sheet, rather than silently vanishing.
+    // A lesson whose anchor does not exist must still be delivered: the
+    // sheet carries everything anyway, there is just nothing to halo.
     const fresh3 = window.Storage.blankProfile();
     CO.attach(fresh3, () => {});
+    window.Modal.closeAll();
     CO.lesson('effect', { anchorSel: '.definitely-not-here', force: true });
     await new Promise((r) => setTimeout(r, 60));
-    check('a lesson with a missing anchor falls back to a sheet',
+    check('a lesson with a missing anchor still shows its sheet',
       window.Modal.isOpen('screenCoach'));
+    check('...with no phantom halo',
+      window.document.querySelectorAll('.coach-spot').length === 0);
     window.Modal.close('screenCoach');
   }
 
@@ -1945,27 +2180,32 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
     };
     const shopBlock = window.document.getElementById('xShopBlock');
 
-    // 1. A dialog opening over a live mark buries the thing it points at.
+    // 1. A dialog opened over a live lesson sheet must neither retire the
+    //    sheet nor latch the coach. The retired pill had to give up here --
+    //    its subject was buried under a scrim -- but a sheet is a
+    //    self-contained modal: it waits on top of the stack, still readable.
     await freshCoach();
     CO.lesson('mart', { anchor: shopBlock });
     await new Promise((r) => setTimeout(r, 60));
-    check('an anchored lesson marks the coach busy', CO.busy === true);
+    check('a lesson sheet marks the coach busy', CO.busy === true);
     window.Modal.open('xTeamDetail');
     await new Promise((r) => setTimeout(r, 60));
-    check('a dialog opening over a coach mark retires it', CO.busy === false);
-    check('retiring a mark leaves no orphaned halo',
+    check('a dialog over the sheet leaves the sheet up (and the coach busy)',
+      CO.busy === true && window.Modal.isOpen('screenCoach'));
+    window.Modal.close('screenCoach');
+    await new Promise((r) => setTimeout(r, 60));
+    check('dismissing the buried sheet releases the coach', CO.busy === false);
+    check('...and sweeps its halo',
       window.document.querySelectorAll('.coach-spot').length === 0);
-    check('a lesson the UI cancelled unread is NOT counted as taught',
-      CO.seen('mart') === false,
-      'it would never be offered again, and the Guide would call it read');
     window.Modal.close('xTeamDetail');
     await settle();
-    check('the coach keeps teaching after a dialog interrupted a hint',
-      CO.lesson('mart', { anchor: shopBlock }) === true);
-    CO.clearMark();
+    check('the coach keeps teaching after a stacked dialog',
+      CO.lesson('held') === true);
+    window.Modal.closeAll();
 
-    // 2. A mark anchored INSIDE a sheet (the evolve lesson lives on the party
-    //    sheet) must not outlive the sheet it points into.
+    // 2. A lesson stacked over the party sheet (the evolution lesson's home)
+    //    must survive the party sheet closing beneath it: the sheet does not
+    //    depend on what happened to be under it.
     await freshCoach();
     const detail = window.document.getElementById('xTeamDetail');
     const detailCard = detail.querySelector('.overlay-card') || detail;
@@ -1975,15 +2215,67 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
     await new Promise((r) => setTimeout(r, 30));
     CO.lesson('evolve', { anchor: window.document.getElementById('probeEvoBox') });
     await new Promise((r) => setTimeout(r, 60));
-    check('a lesson can anchor to something inside an open sheet',
-      !!window.document.querySelector('.coach-mark'));
+    check('the evolution lesson stacks over the party sheet',
+      window.Modal.isOpen('screenCoach') && window.Modal.isOpen('xTeamDetail'));
     window.Modal.close('xTeamDetail');
-    await new Promise((r) => setTimeout(r, 260));
-    check('closing the sheet takes its coach mark with it',
-      !window.document.querySelector('.coach-mark'),
-      'the pill would otherwise float over the route pointing at nothing');
-    check('...and releases the coach', CO.busy === false);
+    await new Promise((r) => setTimeout(r, 60));
+    check('closing the party sheet leaves the lesson intact on top',
+      window.Modal.isOpen('screenCoach') && CO.busy === true);
     detailCard.innerHTML = savedCard;
+    window.Modal.close('screenCoach');
+    await new Promise((r) => setTimeout(r, 60));
+    check('...and closing the lesson releases the coach', CO.busy === false);
+
+    // 2b. The old failure these replace: a halo left over after the element
+    //     it decorated is gone. Closing any sheet sweeps every halo.
+    check('no halo outlives the sheets', window.document.querySelectorAll('.coach-spot').length === 0);
+
+    // 2c. THE VITAL QUEUE. A scripted tutorial beat that fires while the
+    //     surface is busy (or just closed) used to be dropped silently --
+    //     "many steps of the onboarding tutorial never showed up" was exactly
+    //     these drops. Vital beats must hold and play instead.
+    await freshCoach();
+    CO.lesson('route');                        // surface occupied
+    check('a vital beat fired over a busy surface is held, not shown',
+      CO.lesson('mart', { vital: true }) === false && CO.pendingCount === 1);
+    window.Modal.close('screenCoach');         // player dismisses the card
+    await settle();                            // cooldown elapses, queue pumps
+    check('the held beat appears once the surface frees',
+      window.Modal.isOpen('screenCoach') && CO.seen('mart'));
+    window.Modal.close('screenCoach');
+    await settle();
+
+    // 2d. ...but a held beat that has gone STALE must drop, not fire late
+    //     over a screen it was never meant for. It stays unseen, so the
+    //     natural call site can re-request it at the right moment.
+    await freshCoach();
+    let onBattleStop = true;
+    CO.lesson('route');
+    CO.lesson('battleItem', { vital: true, stillValid: () => onBattleStop });
+    check('a vital beat with a validity check is also held', CO.pendingCount === 1);
+    onBattleStop = false;                      // the player left the battle
+    window.Modal.close('screenCoach');
+    await settle();
+    check('a stale vital beat is dropped, not shown late',
+      !window.Modal.isOpen('screenCoach') && !CO.seen('battleItem'));
+    check('...and it can be re-requested at the right moment',
+      CO.lesson('battleItem') === true);
+    window.Modal.closeAll();
+
+    // 2e. ...and a beat queued while the surface is merely COOLING DOWN --
+    //     no sheet ever opens after it -- must still fire on its own. The
+    //     queue used to only pump when another sheet closed, so this beat
+    //     never played at all: the shop series and the route lessons died
+    //     exactly this way in real sessions.
+    await freshCoach();
+    CO.lesson('route');
+    window.Modal.close('screenCoach');         // cooldown begins; nothing
+    CO.lesson('mart', { vital: true });        //   else will touch the coach
+    check('a vital beat queued into the cooldown is held', CO.pendingCount === 1);
+    await settle();                            // no further interaction at all
+    check('...and it still plays without another sheet freeing the surface',
+      window.Modal.isOpen('screenCoach') && CO.seen('mart'));
+    window.Modal.closeAll();
 
     // 3. Two sheets in a row: Modal.open() is a no-op when the dialog is
     //    already on the stack, so the onClose that clears `busy` was never
@@ -2069,6 +2361,27 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
   probe.section = 3; plain.section = 3;
   check('past section 1 the trainer roster is untouched',
     N2.trainerFor(probe).sprite === N2.trainerFor(plain).sprite);
+
+  // ---- the super-effective battle is curated --------------------------------
+  // The guided run's SECOND wild battle is where the coach explains
+  // super-effective damage. The lesson names a \u00d72 button the player can
+  // press, so the wild MUST be weak to a move the lead actually carries --
+  // whatever starter type was chosen.
+  for (const starterId of ['treecko', 'charmander', 'froakie']) {
+    const p1 = N2.newRun(90210);
+    p1.prologue = true; p1.mode = 'free'; p1.section = 1; p1.battleInSection = 1;
+    const lead = await C.makeMon(starterId);
+    lead.name = 'Lead'; p1.party.push(lead); N2.trackMon(p1, lead);
+    const foeId = N2.pickWild(p1, {});
+    const foe = window.PS.Dex.species.get(foeId);
+    const stabTypes = lead.moves.map((mv) => window.PS.Dex.moves.get(mv))
+      .filter((d) => d.category !== 'Status' && lead.types.includes(d.type))
+      .map((d) => d.type);
+    const best = Math.max(...stabTypes.map((t) => C.typeMod(t, foe.types)));
+    check(`the super-effective battle pairs a weakness for the ${window.PS.Dex.species.get(starterId).name} lead`,
+      best >= 2 && C.bst(foeId) <= 330,
+      `${foeId} (${foe.types.join('/')}) takes \u00d7${best} from ${stabTypes.join('/')}`);
+  }
 
   // And a run that never opted into the prologue is unaffected from the start.
   plain.section = 1; plain.battleInSection = 0;
