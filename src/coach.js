@@ -162,7 +162,6 @@
     var slow = speed <= 0.8;
     var hitsHard = off >= 1.25;
     var beefy = bulk >= 1.2;
-    var frail = bulk <= 0.85;
 
     // Removed glass cannon - adds no useful info for new players. Just use fast attacker.
     if (hitsHard && fast) {
@@ -481,11 +480,18 @@
     { id: 'starter', where: 'basics', title: 'Choose your starter!', body: 'Pick one. It fights with you. Name it!' },
     { id: 'battleBar', where: 'battle', title: 'Battle buttons', body: 'Tap Moves to attack. Use a Ball to catch. Bag for items. Party to switch.' },
     { id: 'effect', where: 'battle', title: 'Super effective!', body: 'Look for \u00d72 on moves. That hurts the enemy a lot!' },
+    { id: 'switch', where: 'battle', title: 'How to Switch', body: 'Tap Party during battle to switch to a Pokemon with a better type match!' },
+    { id: 'battleItem', where: 'battle', title: 'Items in Battle', body: 'Tap Bag during battle to use potions and heal your active Pokemon!' },
     { id: 'catch', where: 'catching', title: 'Catch your first!', body: 'Weaken the wild Pokemon first. Then throw a Ball!' },
     { id: 'caught', where: 'catching', title: 'New friend!', body: 'It joins with the HP it had. Name it!' },
     { id: 'route', where: 'basics', title: 'The path', body: 'Capture one, fight two wilds for money, then the Trainer boss.' },
     { id: 'trainer', where: 'basics', title: 'Heal first!', body: 'Heal your team before the Trainer fight!' },
-    { id: 'mart', where: 'items', title: 'Buy balls!', body: 'Use money on Poke Balls and Potions.' }
+    { id: 'save', where: 'basics', title: 'Save your game', body: 'Tap Save progress to securely record your progress so you never lose your run.' },
+    { id: 'shopBalls', where: 'items', title: 'Poke Mart: Balls', body: 'Spend your prize money on Poke Balls so you can catch wild encounters.' },
+    { id: 'shopHeals', where: 'items', title: 'Poke Mart: Medicine', body: 'Buy Potions and healing items to restore HP between or during fights.' },
+    { id: 'shopHeld', where: 'items', title: 'Poke Mart: Held items', body: 'Buy held items for passive stat boosts or healing, and give them to your team via the party screen.' },
+    { id: 'mart', where: 'items', title: 'Buy balls!', body: 'Use money on Poke Balls and Potions.' },
+    { id: 'evolve', where: 'training', title: 'Evolution', body: 'Evolve your Pokémon using Rare Candies or items from your bag to make them much stronger!' }
   ];
 
   var LESSON_BY_ID = {};
@@ -572,7 +578,7 @@
     var el = document.getElementById('screenCoach');
     if (!el || !window.Modal) { if (opts.onDone) opts.onDone(); return; }
 
-    var isImmersive = !!opts.immersive || (window.Coach && window.Coach.inPrologue && window.Coach.inPrologue());
+    var isImmersive = true;
     var card = el.querySelector('.overlay-card');
 
     var portraitSize = isImmersive ? 88 : 52;
