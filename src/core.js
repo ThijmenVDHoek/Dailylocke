@@ -235,6 +235,49 @@
     return chain;
   }
 
+  var _championsLearnsetIndex = null;
+  function championsLearnsetIndex() {
+    if (_championsLearnsetIndex) return _championsLearnsetIndex;
+    var idx = { byId: {}, byNumForm: {} };
+    var src = window.ChampionsLearnsets;
+    var entries = src && src.entries;
+    if (!entries || !entries.length) return (_championsLearnsetIndex = idx);
+    function keyId(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); }
+    function formKey(num, form) { return String(num || '') + '|' + keyId(form || 'base'); }
+    entries.forEach(function (e) {
+      var name = e[0], num = e[1], form = e[2] || 'Base', moves = e[3] || [];
+      var rec = { name: name, num: num, form: form, moves: moves };
+      idx.byId[keyId(name)] = rec;
+      idx.byNumForm[formKey(num, form)] = rec;
+    });
+    return (_championsLearnsetIndex = idx);
+  }
+
+  function championsFormForSpecies(sp) {
+    if (!sp || !sp.exists) return 'Base';
+    var f = String(sp.forme || '').toLowerCase();
+    var n = String(sp.name || '').toLowerCase();
+    if (sp.isMega || /\bmega\b/.test(f) || /^mega /.test(n)) return 'Mega';
+    if (/alola|galar|hisui|paldea/.test(f) || /alolan|galarian|hisuian|paldean/.test(n)) return 'Regional';
+    return 'Base';
+  }
+
+  function championsMovesFor(speciesId) {
+    var src = window.ChampionsLearnsets;
+    if (!src || !src.entries) return [];
+    var idx = championsLearnsetIndex();
+    var sp = Dex.species.get(speciesId);
+    if (!sp || !sp.exists) return [];
+    var keyId = function (s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); };
+    var rec = idx.byId[sp.id] || idx.byId[keyId(sp.name)];
+    if (!rec) rec = idx.byNumForm[String(sp.num || '') + '|' + keyId(championsFormForSpecies(sp))];
+    if (!rec && sp.baseSpecies && sp.baseSpecies !== sp.name) {
+      var base = Dex.species.get(sp.baseSpecies);
+      if (base && base.exists) rec = idx.byNumForm[String(base.num || '') + '|base'] || idx.byId[base.id];
+    }
+    return rec && rec.moves ? rec.moves : [];
+  }
+
   // Every move the species can legally learn.
   // opts.all = true  -> the complete legal pool (used by the Move Tutor).
   // opts.all = false -> pool minus moves that break a simple AI/auto-set.
@@ -263,6 +306,18 @@
     }
     var chain = learnsetChain(speciesId);
     for (var i = 0; i < chain.length; i++) await addFrom(chain[i]);
+    // Pokemon Champions is the newest battle ruleset this app follows. Merge
+    // its verified move pools on top of the bundled Showdown Gen 9 learnsets
+    // so newly legal moves (for example Meganium's Dazzling Gleam / Earth
+    // Power / Weather Ball pool) appear in the tutor and generated sets.
+    var champ = championsMovesFor(speciesId);
+    for (var c = 0; c < champ.length; c++) {
+      var cm = Dex.moves.get(champ[c]);
+      if (!cm.exists || cm.gen > 9 || cm.isZ || cm.isMax || cm.realMove) continue;
+      if (!opts.all && BAD_MOVES[cm.id]) continue;
+      if (!opts.all && cm.category === 'Status' && cm.target === 'allySide') continue;
+      if (!seen[cm.id]) { seen[cm.id] = 1; out.push(cm.id); }
+    }
     if (!out.length) out = ['tackle', 'scratch', 'pound'];
     return out;
   }

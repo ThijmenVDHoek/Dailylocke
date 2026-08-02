@@ -5,6 +5,7 @@ Dailylocke distributes the following third-party software:
 | Component | Distributed file(s) | Copyright / source | License |
 | --- | --- | --- | --- |
 | `@pkmn/sim` 0.10.11 | `vendor/pkmn-sim.js`, `vendor/pkmn-learnsets.js` | Copyright © 2011–2026 Guangcong Luo and other Pokémon Showdown contributors; <https://github.com/pkmn/ps> | MIT |
+| Pokémon Champions Data v1.1.0 | `src/champions-learnsets.js` | Copyright © 2026 Pokemon Champions Data Contributors; <https://github.com/otterlyclueless/pokemon-champions-data> | CC BY 4.0 |
 | three.js r149 | `vendor/three.min.js` | Copyright © 2010–2023 three.js authors; <https://github.com/mrdoob/three.js> | MIT |
 | VT323 | `assets/fonts/vt323-*.woff2` | Copyright © 2011 The VT323 Project Authors (peter.hull@oikoi.com); <https://github.com/googlefonts/VT323> | SIL Open Font License 1.1 |
 
@@ -27,6 +28,11 @@ The MIT license for those components follows:
 > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
+
+Pokémon Champions Data is licensed under Creative Commons Attribution 4.0
+International. Dailylocke uses an adapted, compact move-ID extract of the
+learnsets dataset in `src/champions-learnsets.js`. Full license text:
+<https://creativecommons.org/licenses/by/4.0/legalcode>.
 
 VT323 is licensed under the SIL Open Font License, Version 1.1, whose full text
 is distributed alongside the font files in

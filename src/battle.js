@@ -325,6 +325,7 @@
       // even if p1's persistence was already injected on an earlier pass. It
       // is idempotent (a guarded Pokemon keeps the cap for the battle).
       if (cfg.isTutorialCapture) installTutorialCaptureGuard();
+      if (cfg.isTutorialSafe) installTutorialPlayerGuard();
     }
 
     // The teaching encounter's safety net. The player must be able to weaken
@@ -363,6 +364,30 @@
         var originalDamage = el.damage;
         el.damage = function (damage, source, effect) {
           var floor = Math.max(1, Math.round(this.maxhp * 0.15));
+          var incoming = Number(damage);
+          var safeDamage = Number.isFinite(incoming)
+            ? Math.min(Math.max(0, incoming), Math.max(0, this.hp - floor))
+            : 0;
+          return originalDamage.call(this, safeDamage, source, effect);
+        };
+      }
+    }
+
+    // Section 1 opponents now use real legal moves instead of Splash, so the
+    // battles feel like battles. Keep the tutorial promise separately: an
+    // unlucky crit or damage roll must not delete the player's Pokemon while
+    // the UI is still teaching required actions. The cap is scoped to the
+    // guided first section only (cfg.isTutorialSafe from app.js).
+    function installTutorialPlayerGuard() {
+      var b = stream.battle;
+      if (!b || !b.p1 || !b.p1.pokemon.length) return;
+      for (var k = 0; k < b.p1.pokemon.length; k++) {
+        var el = b.p1.pokemon[k];
+        if (el.__tutorialPlayerGuard) continue;
+        el.__tutorialPlayerGuard = true;
+        var originalDamage = el.damage;
+        el.damage = function (damage, source, effect) {
+          var floor = Math.max(1, Math.round(this.maxhp * 0.12));
           var incoming = Number(damage);
           var safeDamage = Number.isFinite(incoming)
             ? Math.min(Math.max(0, incoming), Math.max(0, this.hp - floor))
@@ -735,6 +760,7 @@
     streams.omniscient.write('>start ' + JSON.stringify(startMsg));
     streams.omniscient.write('>player p1 ' + JSON.stringify({ name: p1Name, team: Teams.pack(p1Team) }));
     injectPersistence();
+    if (cfg.isTutorialSafe) installTutorialPlayerGuard();
     streams.omniscient.write('>player p2 ' + JSON.stringify({ name: p2Name, team: Teams.pack(p2Team) }));
     // The enemy side now exists: arm the tutorial capture guard immediately
     // rather than waiting for the first streamed chunk to drive
@@ -742,6 +768,7 @@
     // the damage cap must be in place before any damage routes through the
     // enemy. Idempotent if the chunk-driven pass has already run.
     if (cfg.isTutorialCapture) installTutorialCaptureGuard();
+    if (cfg.isTutorialSafe) installTutorialPlayerGuard();
 
     // ---- public API -------------------------------------------------------
     var api = {

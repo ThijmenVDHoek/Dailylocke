@@ -1,5 +1,5 @@
 // ============================================================================
-// coach.js — the teaching layer: Professor Elm, lessons, coach marks and the
+// coach.js — the teaching layer: Professor Oak, lessons, coach marks and the
 // plain-language helpers that turn Pokemon jargon into something a casual
 // player can act on.
 //
@@ -23,8 +23,8 @@
 //      two seconds elapsed is not contextual, it is just early.
 //   4. A hint must never look like a button. Everything here carries the
 //      professor's portrait and the .coach- visual register.
-//   5. Always skippable, always replayable. "Skip all tips" is permanent and
-//      reversible from Profile; every lesson can be re-read from the Guide.
+//   5. Tutorial-only and replayable. Lessons can appear during the guided
+//      prologue; after that they stay quiet unless opened from the Guide.
 //
 // TWO SURFACES, ONE REGISTER
 //   Every lesson is the professor, the violet rail and the halo; which frame
@@ -59,12 +59,12 @@
   // ------------------------------------------------------------ ADVISOR ----
   // A professor reads instantly as "the person who explains things" — it
   // leans on knowledge every Pokemon player already has, which is exactly the
-  // "lean on what players already know" principle. Sycamore's Showdown sprite
-  // is friendly, modern and reads well at 40px against a dark UI.
+  // "lean on what players already know" principle. Oak's Showdown sprite is
+  // familiar, friendly and reads well at 40px against a dark UI.
   var ADVISOR = {
-    id: 'sycamore',
-    name: 'Professor Elm',
-    sprite: 'https://play.pokemonshowdown.com/sprites/trainers/sycamore.png'
+    id: 'oak',
+    name: 'Professor Oak',
+    sprite: 'https://play.pokemonshowdown.com/sprites/trainers/oak.png'
   };
 
   // Immersive dialogue: bigger portrait + typewriter + sound for tutorial
@@ -146,8 +146,8 @@
   }
   function persist() { if (saveFn) { try { saveFn(); } catch (e) {} } }
 
-  function tipsOn() { return !state().off; }
-  function badgesOn() { var c = state(); return !c.off && c.badges !== false; }
+  function tipsOn() { return !state().off && inPrologue(); }
+  function badgesOn() { var c = state(); return !c.off && c.badges !== false && inPrologue(); }
   function seen(id) { return !!state().seen[id]; }
   function markSeen(id) { state().seen[id] = 1; persist(); }
   // Forget a lesson was read. The guided run uses this to keep a FORCED step
@@ -524,27 +524,27 @@
     { id: 'welcome', where: 'basics', title: 'One life each',
       body: 'If a Pokemon faints, it is gone forever. No revives, no exceptions.' },
     { id: 'starter', where: 'basics', title: 'Choose your starter!',
-      body: 'The first starter card is the guided choice for this lesson. Tap its glowing <b>Choose</b> button, then give it a name.' },
+      body: 'The first starter card is the guided choice for this lesson. Tap <b>Choose</b> to pick it, then give it a name.' },
     { id: 'route', where: 'basics', title: 'The path',
-      body: 'This section starts with a <b>Capture Encounter</b>. Tap the glowing <b>Capture Encounter</b> button to begin.' },
+      body: 'This section starts with a <b>Capture Encounter</b>. Tap <b>Capture Encounter</b> to begin your one catch chance for this section.' },
     { id: 'battleBag', where: 'battle', title: 'Bag: heal mid-battle',
       body: 'Tap <b>Bag</b> and use a <b>Super Potion</b> to heal your active Pokemon. It costs your turn, so heal before a big hit lands — not after!' },
     { id: 'tutorialDamage', where: 'battle', title: 'Weaken Pikachu first',
-      body: 'Tap the one glowing damaging move. Status moves cannot weaken Pikachu, and Pikachu cannot be knocked out during this lesson. The other moves are locked until you do; then the Poke Ball will appear.' },
+      body: 'Tap the only available damaging move to weaken Pikachu. Status moves are locked for now, and Pikachu cannot be knocked out during this lesson; after the hit, the Poke Ball appears.' },
     { id: 'tutorialCatch', where: 'battle', title: 'Throw a Poke Ball!',
-      body: 'Pikachu is weakened. Tap the one glowing <b>Poke Ball</b> to catch it.' },
+      body: 'Pikachu is weakened. Tap <b>Poke Ball</b> on the catch rail to throw it and catch Pikachu.' },
     { id: 'catch', where: 'catching', title: 'Catch your first!',
       body: 'Weaken the wild Pokemon with attacks first \u2014 the lower its HP, the better your odds. Then tap a <b>Poke Ball</b> on the rail to catch it.' },
     { id: 'caught', where: 'catching', title: 'New friend!',
       body: 'It joins your team with the HP and status it had when caught \u2014 not at full health. Give it a name, then open its team card and use a <b>Potion</b> to heal it before the next battle.' },
     { id: 'effect', where: 'battle', title: 'Super effective!',
-      body: 'The glowing move has a <b>\u00d72</b> tag: it hits a weakness and deals double damage. Tap that one move; every other action is locked until you do.' },
+      body: 'The move with the <b>\u00d72</b> tag hits a weakness and deals double damage. Tap that move; the other actions stay locked until you use it.' },
     { id: 'switch', where: 'battle', title: 'How to Switch',
-      body: 'Tap the glowing <b>Party</b> button. It opens the switch list; the next lesson will point to the one Pokemon to choose.' },
+      body: 'Tap <b>Party</b>. It opens the switch list so you can choose a different Pokemon to send out.' },
     { id: 'switchPick', where: '_tutorial', title: 'Choose your switch',
-      body: 'Tap the one glowing <b>{NAME}</b> card to send it out. The other cards are locked.' },
+      body: 'Tap <b>{NAME}</b> to send it into battle. The other party cards stay locked for this lesson.' },
     { id: 'trainer', where: 'basics', title: 'Heal first!',
-      body: 'The first Trainer battle is next. Tap the glowing <b>Trainer Battle</b> button to start it; this guided fight only allows the steps on screen.' },
+      body: 'The first Trainer battle is next. Tap <b>Trainer Battle</b> to start it; this guided fight only allows the steps on screen.' },
     { id: 'skipping', where: 'basics', title: 'The middle stops are a budget',
       body: 'Every wild battle pays prize money, but costs HP and PP. If a fight goes badly, <b>Run</b> always works \u2014 it only costs you the reward.' },
     { id: 'save', where: 'saving', title: 'Save your game',
@@ -556,9 +556,9 @@
     { id: 'held', where: 'training', title: 'Free power, every turn',
       body: 'A held item works every turn without spending a move. If a \u2726Tip badge says one fits your Pokemon, it genuinely does.' },
     { id: 'evolve', where: 'training', title: 'Evolve your starter',
-      body: 'Evolution needs an item here. Tap the glowing <b>Rare Candy</b> tile to buy it.' },
+      body: 'Evolution needs an item here. Tap the <b>Rare Candy</b> shop tile to buy the item your starter needs.' },
     { id: 'evoOpen', where: '_tutorial', title: 'Open your starter',
-      body: 'The Rare Candy is ready. Tap the one glowing <b>{NAME}</b> card on your team.' },
+      body: 'The Rare Candy is ready. Tap <b>{NAME}</b> on your team to open the Pokemon that can evolve.' },
     { id: 'evoBranch', where: 'training', title: 'It can become more than one thing',
       body: 'This evolution branches, and the choice is permanent. Check what each form does before you commit.' },
     { id: 'moveChoice', where: 'training', title: 'Four moves, no take-backs',
@@ -571,23 +571,23 @@
     { id: 'makeLeadTap', where: '_tutorial', title: 'Make lead',
       body: 'Tap <b>Make lead</b> to put this Pokemon at the front of your team.' },
     { id: 'evoUse', where: '_tutorial', title: 'Use the Rare Candy',
-      body: 'Tap the one glowing <b>Ready to evolve</b> button.' },
+      body: 'Tap <b>Ready to evolve</b>. It spends the Rare Candy and evolves this Pokemon.' },
     { id: 'evoDone', where: '_tutorial', title: 'See the result',
-      body: 'Your starter evolved. Tap the one glowing <b>Continue</b> button to return to the route.' },
+      body: 'Your starter evolved. Tap <b>Continue</b> to return to the route.' },
     { id: 'trainOpen', where: '_tutorial', title: 'Time to train',
-      body: 'Tap the one glowing <b>{NAME}</b> card on your team.' },
+      body: 'Tap <b>{NAME}</b> on your team to open the Pokemon that needs training.' },
     { id: 'trainButton', where: '_tutorial', title: 'Open Training',
-      body: 'Tap the one glowing <b>Train Pokemon</b> button.' },
+      body: 'Tap <b>Train Pokemon</b>. It opens the training service for moves, ability, nature and Stat Points.' },
     { id: 'trainMovesSlot', where: '_tutorial', title: 'Pick a move slot',
-      body: 'Tap the one glowing move slot. That is the move this lesson will replace.' },
+      body: 'Tap the highlighted current move slot. That chooses which move this lesson will replace.' },
     { id: 'trainPickMove', where: '_tutorial', title: 'Learn this move',
-      body: 'Tap the one glowing move card to learn it.' },
+      body: 'Tap the highlighted move card to teach that move to your Pokemon.' },
     { id: 'trainAbilityTab', where: '_tutorial', title: 'Now your ability',
       body: 'Tap <b>Ability</b> to see and change your Pokemon\u2019s ability.' },
     { id: 'trainAbilityPick', where: '_tutorial', title: 'Pick this ability',
       body: 'Tap this ability \u2014 it changes how your Pokemon plays.' },
     { id: 'trainAbilityOnly', where: '_tutorial', title: 'Its only ability',
-      body: '{NAME} can only have <b>{ABILITY}</b>. Tap the glowing ability card to continue to Nature.' },
+      body: '{NAME} can only have <b>{ABILITY}</b>. Tap the ability card to confirm it and continue to Nature.' },
     { id: 'trainNatureTab', where: '_tutorial', title: 'Now your nature',
       body: 'Tap <b>Nature</b> \u2014 a nature boosts one stat and lowers another.' },
     { id: 'trainNaturePick', where: '_tutorial', title: 'Pick this nature',
@@ -595,9 +595,9 @@
     { id: 'trainStatsTab', where: '_tutorial', title: 'Now Stat Points',
       body: 'Tap <b>Stats</b> to spend the training points that shape its stats.' },
     { id: 'trainStatsTake', where: '_tutorial', title: 'Move a point out',
-      body: 'Drag the glowing <b>{TAKE}</b> slider down by one point.' },
+      body: 'Drag the <b>{TAKE}</b> Stat Point slider down by one point to free a point.' },
     { id: 'trainStatsGive', where: '_tutorial', title: 'Move a point in',
-      body: 'Drag the glowing <b>{GIVE}</b> slider up by one point.' },
+      body: 'Drag the <b>{GIVE}</b> Stat Point slider up by one point to spend the freed point.' },
     { id: 'trainDone', where: '_tutorial', title: 'All trained!',
       body: 'Tap <b>Done</b> to lock in your training. That is everything the service does.' }
   ];
@@ -880,7 +880,7 @@
     var head = '<div class="coach-head immersive">' +
         '<span class="coach-portrait">' + advisorImg(88) + '</span>' +
         '<div class="coach-who"><b>' + esc(ADVISOR.name) + '</b>' +
-          '<em>' + esc(opts.eyebrow || 'Professor Elm') + '</em></div>' +
+          '<em>' + esc(opts.eyebrow || 'Professor Oak') + '</em></div>' +
       '</div>';
 
     var bodyId = 'coachBodyReveal';
