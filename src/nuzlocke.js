@@ -306,6 +306,56 @@
     return !!(run && run.prologue && run.section === 1);
   }
 
+  async function tutorialOpponentMoves(speciesId) {
+    var legal = [];
+    try { legal = await C.legalMoves(speciesId, { all: true }); }
+    catch (e) { legal = []; }
+    var has = {};
+    legal.forEach(function (id) { has[id] = 1; });
+    var out = [];
+    function add(id) {
+      if (!id || !has[id] || out.indexOf(id) >= 0) return false;
+      var m = Dex.moves.get(id);
+      if (!m || !m.exists) return false;
+      out.push(m.id); return true;
+    }
+
+    // Prefer recognisable early-game moves when the species can legally learn
+    // them. The opponent should feel genuine, but not threatening.
+    var preferredAttack = ['tackle', 'scratch', 'pound', 'quickattack', 'peck',
+      'gust', 'watergun', 'ember', 'vinewhip', 'absorb', 'thundershock', 'mudslap'];
+    for (var i = 0; i < preferredAttack.length && !out.length; i++) add(preferredAttack[i]);
+
+    if (!out.length) {
+      var attacks = legal.filter(function (id) {
+        var m = Dex.moves.get(id);
+        if (!m || !m.exists || m.category === 'Status' || !m.basePower) return false;
+        if (m.selfdestruct || m.ohko || (m.flags && (m.flags.recharge || m.flags.charge))) return false;
+        var acc = m.accuracy === true ? 100 : Number(m.accuracy || 100);
+        return acc >= 85 && m.basePower <= 60;
+      }).sort(function (a, b) {
+        var A = Dex.moves.get(a), B = Dex.moves.get(b);
+        return (A.basePower || 0) - (B.basePower || 0);
+      });
+      if (attacks.length) add(attacks[0]);
+    }
+
+    var preferredStatus = ['leer', 'growl', 'tailwhip', 'sandattack', 'smokescreen',
+      'withdraw', 'harden', 'defensecurl', 'tickle'];
+    for (var j = 0; j < preferredStatus.length && out.length < 2; j++) add(preferredStatus[j]);
+
+    if (out.length < 2) {
+      for (var k = 0; k < legal.length && out.length < 2; k++) {
+        var d = Dex.moves.get(legal[k]);
+        if (!d || !d.exists || d.id === 'splash' || d.category === 'Status') continue;
+        if (d.basePower && d.basePower <= 60) add(d.id);
+      }
+    }
+
+    // Last-resort fallback keeps repaired/odd saves from creating an empty set.
+    return out.length ? out : ['tackle'];
+  }
+
   function pickWild(run, opts) {
     opts = opts || {};
     if (isPrologueSection(run)) {
@@ -401,12 +451,12 @@
       role = pickRoleFor({ roles: ['sweeper', 'wall', 'disruptor', 'pivot'] }, speciesId,
                          Math.floor(rr() * 4));
     }
-    // The first section is scripted end to end. Wild opponents use a harmless
-    // move so a player can learn the instructed action without an unrelated
-    // critical hit, status roll or AI choice ending the tutorial.
+    // The first section is scripted end to end. Wild opponents still use real
+    // legal low-power moves (not Splash), while battle.js caps tutorial damage
+    // so an unlucky roll cannot end the lesson.
     var mon = await C.makeMon(speciesId, {
       role: role,
-      moves: isTutorialCapture ? ['tickle'] : (isScriptedSection1 ? ['splash'] : null)
+      moves: isScriptedSection1 ? await tutorialOpponentMoves(speciesId) : null
     });
     applyTraining(run, mon, tr, false, speciesId);
     if (isTutorialCapture) {
@@ -611,10 +661,11 @@
       var role = pickRoleFor(strat, id, i);
       var mon = await C.makeMon(id, {
         role: role,
-        // Youngster Joey is still a real multi-Pokemon battle, but his first
-        // tutorial team must not defeat a learner while the UI is teaching
-        // the route. Section 2 restores the normal trainer moveset.
-        moves: isPrologueSection(run) ? ['splash'] : null
+        // Youngster Joey is still a real battle. During the guided first
+        // section, use legal low-power moves so it feels genuine; battle.js
+        // separately prevents those tutorial opponents from knocking out the
+        // player's Pokemon.
+        moves: isPrologueSection(run) ? await tutorialOpponentMoves(id) : null
       });
       applyTraining(run, mon, tr, true, id + '|' + i);
       // Ascension 2+: a slot may be elite, with one visible modifier.

@@ -199,6 +199,10 @@
     return mon.species || C.cleanName(mon.id);
   }
 
+  function monDisplayName(mon) {
+    return (mon && mon.name) || speciesOf(mon) || 'this Pokemon';
+  }
+
   // ---- plain-language helpers (LAYER 1: always on, for everyone) ----------
   // These add information the game always had but never said out loud. They
   // are NOT part of the tutorial and are never hidden by the tips toggle: a
@@ -690,7 +694,7 @@
     // apart. Someone mid-prologue gets one door back into it. Everyone else
     // gets the real menu.
     var firstBlock = $('titleFirst'), resumeBlock = $('titleResume'), modesBlock = $('titleModes');
-    var prologue = window.Coach && window.Coach.inPrologue();
+    var prologue = (window.Coach && window.Coach.inPrologue()) || !!(free && free.prologue);
     var veteran = hasAnyHistory();
     var mode = (prologue && free) ? 'resume' : (veteran ? 'modes' : 'first');
     if (firstBlock) firstBlock.hidden = mode !== 'first';
@@ -1559,7 +1563,7 @@
               return onRoute() && run.section === 1 && run.battleInSection === 2 &&
                 !!caughtMonInParty() && !caughtIsLead();
             },
-            template: { NAME: caughtMon.name },
+            template: { NAME: monDisplayName(caughtMon) },
             onShow: function () { if (!CO.seen('makeLead')) CO.markSeen('makeLead'); }
           });
         }
@@ -1567,8 +1571,9 @@
       }
 
       // 2. Before the boss: the route gives one explicit next action. The
-      // first guided trainer is deliberately harmless (its team uses Splash),
-      // so there is no hidden preparation choice to make here.
+      // first guided trainer uses legal low-power moves and cannot knock out
+      // the learner during the tutorial, so there is no hidden preparation
+      // choice to make here.
       if (pro && trainerNext && !run.tutorialTrainerDone) {
         CO.lesson('trainer', {
           anchor: $('btnGoBattle'), actionRequired: true, keepHalo: true,
@@ -1657,6 +1662,14 @@
     var i = run.party.indexOf(mon);
     if (i < 0) return null;
     return document.querySelector('#xTeam .tslot[data-i="' + i + '"]');
+  }
+
+  function scrollTeamSlotIntoView(mon) {
+    var slot = teamSlotFor(mon);
+    if (!slot) return null;
+    try { slot.scrollIntoView({ block: 'center', inline: 'nearest' }); }
+    catch (e) { try { slot.scrollIntoView(); } catch (_) {} }
+    return slot;
   }
 
   // ---- ASCENSION BANNER ----------------------------------------------------
@@ -1781,7 +1794,7 @@
         if (!run.bag.rarecandy && run.money < rcPrice) {
           run.money = rcPrice;
           saveGame();
-          toast('Professor Elm spotted you the cash for a Rare Candy.');
+          toast('Professor Oak spotted you the cash for a Rare Candy.');
         }
         if (!run.bag.rarecandy) {
           // One lesson, one tile. It remains the only permitted route action
@@ -1798,12 +1811,18 @@
         // Buying is a separate action from choosing the Pokemon. Point at the
         // starter's one team card instead of making the player infer the next
         // step from the item they just bought.
-        var starterSlot = teamSlotFor(starter);
+        var starterSlot = scrollTeamSlotIntoView(starter);
         if (starterSlot) {
+          // The player just bought the evolution item down in the Mart. Move
+          // the viewport back to the team grid and use a compact tooltip on
+          // the exact Pokemon that can evolve, instead of opening another
+          // full sheet over the shop they just used.
           CO.lesson('evoOpen', {
+            surface: 'bubble',
+            resolve: function () { return teamSlotFor(starterMon()); },
             anchor: starterSlot, actionRequired: true, keepHalo: true,
             bypassSeen: true, vital: true, stillValid: onRoute,
-            template: { NAME: starter.name },
+            template: { NAME: monDisplayName(starter) },
             onShow: function () { if (!CO.seen('evoOpen')) CO.markSeen('evoOpen'); }
           });
         }
@@ -1822,7 +1841,7 @@
             CO.lesson('trainOpen', {
               anchor: targetSlot, actionRequired: true, keepHalo: true,
               bypassSeen: true, vital: true, stillValid: onRoute,
-              template: { NAME: target.name },
+              template: { NAME: monDisplayName(target) },
               onShow: function () { if (!CO.seen('trainOpen')) CO.markSeen('trainOpen'); }
             });
           }
@@ -2016,8 +2035,8 @@
 
   // ---- the guided training choreography (tutorial, section 2) --------------
   // The tutorial does not just describe the Train service: it walks the
-  // player through it, one glowing element at a time — replace a move, pick
-  // an ability, pick a nature, move a Stat Point, press Done. Each step is a
+  // player through it, one highlighted control at a time — replace a move,
+  // pick an ability, pick a nature, move a Stat Point, press Done. Each step is a
   // coach BUBBLE anchored to the exact control, fired when the previous step
   // actually happened, so there is nothing to figure out along the way.
   var tutorGuide = null;   // { step: 'slot'|'pick'|'ability'|'nature'|'statsTake'|'statsGive'|'done' }
@@ -2089,13 +2108,13 @@
     if (!free) {
       if (!run.trainingPaidThisRound) {
         // The tutorial must never dead-end on the price: if the Rare Candy
-        // purchase left them short, Elm covers the fee so the guided
+        // purchase left them short, Oak covers the fee so the guided
         // training always goes ahead.
         if (run.money < SERVICE_PRICE) {
           if (run && run.prologue && run.section === 2 && !run.tutorialTrained) {
             run.money = SERVICE_PRICE;
             saveGame();
-            toast('Professor Elm spotted you the training fee.');
+            toast('Professor Oak spotted you the training fee.');
           } else {
             toast('Not enough money.'); return;
           }
@@ -2299,13 +2318,19 @@
     (opts.length < 2 ? '<p class="hint">This Pokemon has only one legal ability.</p>' : '');
     body.querySelectorAll('.opt-row').forEach(function (b) {
       b.addEventListener('click', function () {
+        var advanceGuide = tutorGuideActive() && tutorGuide.step === 'ability';
+        if (advanceGuide) {
+          // Advance BEFORE redraw. The redraw below re-enters drawTrainAbility;
+          // if the step still says "ability" it schedules a second ability
+          // bubble, which can sit in the vital queue and block Nature/Stats.
+          if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
+          tutorGuide.step = 'nature';
+        }
         mon.ability = b.dataset.a;
         toast(mon.name + '\u2019s ability is now ' + b.dataset.a + '.');
         drawTrainer(); if (run && !svc.free) saveGame();
         // Guided training: the ability is set — move on to Nature.
-        if (tutorGuideActive() && tutorGuide.step === 'ability') {
-          if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
-          tutorGuide.step = 'nature';
+        if (advanceGuide) {
           setTimeout(function () { tutorBubble('trainNatureTab', tutorTabBtn('nature')); }, 0);
         }
       });
@@ -2340,13 +2365,18 @@
     }).join('') + '</div>';
     body.querySelectorAll('.nat').forEach(function (b) {
       b.addEventListener('click', function () {
+        var advanceGuide = tutorGuideActive() && tutorGuide.step === 'nature';
+        if (advanceGuide) {
+          // Advance BEFORE redraw for the same reason as the ability step:
+          // avoid queuing a stale duplicate nature bubble ahead of Stats.
+          if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
+          tutorGuide.step = 'statsTake';
+        }
         mon.nature = b.dataset.n;
         toast(mon.name + ' is now ' + b.dataset.n + '.');
         drawTrainer(); if (run && !svc.free) saveGame();
         // Guided training: the nature is set — move on to Stat Points.
-        if (tutorGuideActive() && tutorGuide.step === 'nature') {
-          if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
-          tutorGuide.step = 'statsTake';
+        if (advanceGuide) {
           setTimeout(function () { tutorBubble('trainStatsTab', tutorTabBtn('stats')); }, 0);
         }
       });
@@ -3157,21 +3187,7 @@
     var shinies = profile.shinies.length, av = safeAvatar();
     var cur = run && !run.over ? '<div class="prof-now"><div class="pd-label">Current run</div><div class="prof-grid">' + statCard(run.battlesWon || 0, 'Battles won') + statCard('S' + (run.section || 1), 'Section') + statCard(run.caught || 0, 'Caught') + statCard('$' + (run.money || 0).toLocaleString(), 'Cash') + '</div></div>' : '<p class="hint center">No run in progress.</p>';
     var bf = profile.battlefield || 'dynamic';
-    var CO = window.Coach;
-    var tipsRow = CO
-      ? '<div class="profile-section">Help &amp; tips</div>' +
-        '<div class="bf-toggle">' +
-          '<button class="bf-btn' + (CO.tipsOn() ? ' on' : '') + '" data-tips="on"><b>Tips on</b><span>Explain things as they come up</span></button>' +
-          '<button class="bf-btn' + (CO.tipsOn() ? '' : ' on') + '" data-tips="off"><b>Tips off</b><span>Never interrupt me</span></button>' +
-        '</div>' +
-        '<div class="bf-toggle" style="margin-top:8px">' +
-          '<button class="bf-btn' + (CO.badgesOn() ? ' on' : '') + '" data-badges="on"><b>\u2726 Tip badges on</b><span>Mark items worth buying</span></button>' +
-          '<button class="bf-btn' + (CO.badgesOn() ? '' : ' on') + '" data-badges="off"><b>Badges off</b><span>No suggestions</span></button>' +
-        '</div>' +
-        '<button class="btn-secondary wide" id="btnResetTips" style="margin-top:10px">Reset all tips</button>'
-      : '';
     $('profBody').innerHTML = '<div class="profile-hero"><div class="profile-avatar"><img src="' + avatarUrl(av) + '" alt="Avatar"></div><div style="flex:1"><div class="profile-name">' + escapeHtml(profile.name || 'Trainer Profile') + '</div><div class="profile-sub">Customize your look and game theme</div></div><button id="editAvatar" class="btn-mini">Edit sprite</button></div>' +
-      tipsRow +
       '<div class="profile-section">Theme</div><div class="theme-grid">' + THEMES.map(function (t) { return '<button class="theme-choice' + (t.id === (profile.theme || 'default') ? ' on' : '') + '" data-theme="' + t.id + '" style="--theme-dot:' + t.dot + '"><span class="theme-dot"></span>' + t.name + '</button>'; }).join('') + '</div>' +
       '<div class="profile-section">Battlefield</div>' +
       '<div class="bf-toggle">' +
@@ -3185,28 +3201,6 @@
     // Full gallery is rendered only inside the dedicated sheet.
     $('profBody').querySelectorAll('[data-theme]').forEach(function (b) { b.onclick = function () { profile.theme = b.dataset.theme; saveProfile(); applyTheme(); showProfile(); }; });
     $('profBody').querySelectorAll('[data-bf]').forEach(function (b) { b.onclick = function () { profile.battlefield = b.dataset.bf; saveProfile(); showProfile(); }; });
-    $('profBody').querySelectorAll('[data-tips]').forEach(function (b) {
-      b.onclick = function () {
-        CO.setOff(b.dataset.tips === 'off');
-        // Turning tips OFF during the guided run abandons the tutorial, so
-        // end it cleanly rather than leaving the prologue half-armed.
-        if (b.dataset.tips === 'off') onCoachSkip();
-        showProfile();
-      };
-    });
-    $('profBody').querySelectorAll('[data-badges]').forEach(function (b) {
-      b.onclick = function () { CO.setBadges(b.dataset.badges === 'on'); showProfile(); };
-    });
-    var rt = $('btnResetTips');
-    if (rt) rt.onclick = function () {
-      CO.resetAll();
-      // resetAll() also clears `onboarded`, but a player who is deliberately
-      // replaying the tips from Profile has plainly already played -- putting
-      // them back on the beginner title screen would be a bug, not a feature.
-      CO.setOnboarded(true);
-      toast('Tips reset \u2014 they will appear again as you play.');
-      showProfile();
-    };
     show('Profile');
   }
 
@@ -3815,7 +3809,8 @@
         var t = N.trainerFor(run);
         var team = await N.makeTrainerTeam(run, t);
         beginBattle({ enemies: team, isWild: false, trainer: t, catchable: false,
-                      fieldEffect: N.fieldEffectFor(run, true), clause: t.clause || null });
+                      fieldEffect: N.fieldEffectFor(run, true), clause: t.clause || null,
+                      isTutorialSafe: !!(run && run.prologue && run.section === 1) });
       } else {
         var isFirst = run.battleInSection === 0;
         var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
@@ -3828,7 +3823,8 @@
         run.encounterSeen = run.encounterSeen || isFirst;
         beginBattle({ enemies: [mon], isWild: true, catchable: isFirst && !run.catchUsedThisSection,
                       fieldEffect: N.fieldEffectFor(run, false), isTutorialCapture: isTutorialCapture,
-                      isTutorialSE: isTutorialSE, isTutorialSwitch: isTutorialSwitch });
+                      isTutorialSE: isTutorialSE, isTutorialSwitch: isTutorialSwitch,
+                      isTutorialSafe: !!(run && run.prologue && run.section === 1) });
       }
     } catch (err) {
       // Anything in here (a bad species roll, the learnsets chunk failing to
@@ -3897,6 +3893,7 @@
       isTutorialCapture: !!cfg.isTutorialCapture,
       isTutorialSE: !!cfg.isTutorialSE,
       isTutorialSwitch: !!cfg.isTutorialSwitch,
+      isTutorialSafe: !!cfg.isTutorialSafe,
       trainer: cfg.trainer ? { name: cfg.trainer.name, tag: cfg.trainer.tag, sprite: cfg.trainer.sprite, boss: cfg.trainer.boss } : null,
       clause: cfg.clause || null
     };
@@ -4000,6 +3997,7 @@
       isWild: cfg.isWild,
       isTutorialCapture: !!cfg.isTutorialCapture,
       isTutorialSE: !!cfg.isTutorialSE,
+      isTutorialSafe: !!cfg.isTutorialSafe,
       trainerName: cfg.isWild ? 'Wild' : cfg.trainer.name,
       // Ascension: how far ahead the AI is allowed to look, and what is
       // already on the field when the fight starts.
@@ -4555,6 +4553,7 @@
       return;
     }
     if (!req.active) return;
+    var activeMonForRequest = battle.activeMon();
     var info = battle.enemyInfo();
     var foeTypes = info.types || ['Normal'];
     var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
@@ -4573,6 +4572,15 @@
     var moves = (req.active[0].moves || []).map(function (mv, idx) {
       var d = Dex.moves.get(mv.id || mv.move);
       var disabled = !!mv.disabled;
+      // Showdown's request object can omit pp/maxpp while a two-turn move is
+      // in its locked second turn (Dig, Phantom Force, Fly, etc.). The button
+      // still represents the same learned move, so fall back to the live run
+      // mon's PP and the move's max PP instead of rendering undefined/undefined.
+      var maxpp = mv.maxpp != null ? mv.maxpp :
+        (d && d.exists && d.pp ? Math.floor(d.pp * 1.6) : 0);
+      var curpp = mv.pp != null ? mv.pp :
+        (activeMonForRequest && activeMonForRequest.pp && d && d.id &&
+          activeMonForRequest.pp[d.id] != null ? activeMonForRequest.pp[d.id] : maxpp);
       if (isTutorialCapture) {
         if (isTurn1) {
           // Exactly one legal damaging move is presented. Status moves and
@@ -4596,12 +4604,12 @@
         disabled = true;
       }
       return { id: d.id, name: d.name, type: d.type, power: d.basePower || 0,
-               pp: mv.pp, max: mv.maxpp, disabled: disabled,
+               pp: curpp, max: maxpp, disabled: disabled,
                eff: d.category === 'Status' ? 1 : C.typeMod(d.type, foeTypes),
                _origIdx: idx };
     }).filter(function (m) { return m.id !== RB.IDLE_MOVE; });
 
-    var mon = battle.activeMon();
+    var mon = activeMonForRequest;
     ui.setMsg('What will ' + (mon ? mon.name : 'your Pokemon') + ' do?');
     ui.setPanel(null);
     // Mega Evolution: the engine tells us when it is available (the active mon
@@ -4763,7 +4771,13 @@
           if (!mb.disabled && bctx && bctx.tutorialMoveId &&
               mb.getAttribute('data-move') === bctx.tutorialMoveId) return mb;
         }
-        return null;
+        // First-frame fallback: the capture tutorial disables every move except
+        // the one legal damaging choice. If the stored move id has not been
+        // filled yet (or an old save disagrees), anchor the bubble to that one
+        // enabled move instead of dropping the very first lesson.
+        var open = [];
+        for (var j = 0; j < mbs.length; j++) if (!mbs[j].disabled) open.push(mbs[j]);
+        return open.length === 1 ? open[0] : null;
       }
     },
     tutorialCatch: {
@@ -4860,6 +4874,7 @@
       bypassSeen: !!opts.bypassSeen,
       stillValid: opts.stillValid,
       keepHalo: true,
+      template: opts.template,
       onShow: function () {
         armTutBeat(id);
         if (id === 'tutorialCatch') {
@@ -4933,7 +4948,7 @@
             vital: true, bypassSeen: true, stillValid: stillHere,
             template: (function () {
               var m = starterMon();
-              return m ? { NAME: m.name } : null;
+              return m ? { NAME: monDisplayName(m) } : null;
             }())
           });
         }
@@ -5082,7 +5097,7 @@
         '<div class="pd-art">' + bigSprite(m.id, '', 72, 72, 1, m.shiny) + '</div>' +
         '<div class="pd-id" style="min-width:0">' +
           '<div class="pd-species">' + speciesOf(m) + (m.shiny ? ' \u2728' : '') + '</div>' +
-          '<div class="pd-name" style="font-size:1.1rem">' + escapeHtml(m.name) + '</div>' +
+          '<div class="pd-name" style="font-size:1.1rem">' + escapeHtml(monDisplayName(m)) + '</div>' +
           '<div class="types" style="margin-top:2px">' + typeChips(m.types) + '</div>' +
         '</div>' +
       '</div>' +
@@ -5092,7 +5107,7 @@
           (liveStatus ? '<span class="battle-st-badge" style="margin-left:6px;background:' + stCol + ';color:' + stTxtCol + ';padding:2px 6px;border-radius:999px;font-size:.62rem">' + liveStatus.toUpperCase() + '</span>' : '') +
         '</div>';
       return {
-        name: escapeHtml(m.name),
+        name: monDisplayName(m),
         species: speciesOf(m),
         hp: liveHp,
         fainted: C.isFainted(m),
@@ -6320,6 +6335,7 @@
       N.trackMon(r, m);
     });
     if (!r.sectionStats) N.resetSectionStats(r);
+    if (window.Coach) window.Coach.setPrologue(!!r.prologue);
     // Ensure _nextWild is cleared so it will be recomputed deterministically
     // via pickWild (which is now hash-based, not rand-based) after refresh.
     if (r._nextWild) delete r._nextWild;
@@ -6642,6 +6658,8 @@
             isTutorialCapture: !!cfg.isTutorialCapture,
             isTutorialSE: !!cfg.isTutorialSE,
             isTutorialSwitch: !!cfg.isTutorialSwitch,
+            isTutorialSafe: cfg.isTutorialSafe != null ? !!cfg.isTutorialSafe :
+              !!(run && run.prologue && run.section === 1),
             trainer: cfg.trainer || null,
             clause: cfg.clause || null,
             // The field effect is deterministic per seed/section/battle, so it
