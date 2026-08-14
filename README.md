@@ -153,11 +153,11 @@ professor's card is dismissed until that control is actually used. Reloading
 mid-run uses the run's own tutorial state rather than the account's lesson
 history, so an old profile can never skip a required action.
 
-The whole onboarding is **one conversation with Professor Oak, in 13 linear
+The whole onboarding is **one conversation with Professor Oak, in 14 linear
 steps**. Every card speaks with two voices: a short, warm line of dialogue
 (*say*) and the single thing to do next (*body*), so nothing ever reads like a
 manual and nothing ever asks for two actions at once. Each scripted card also
-carries a **Step N of 13** marker, so the player always knows where they are
+carries a **Step N of 14** marker, so the player always knows where they are
 on the path. The copy is written for any age and any experience level: no
 jargon before it has been explained, no gendered language, short sentences.
 
@@ -187,23 +187,27 @@ not available until the script reaches them.
    very next step opens its team card and uses a Potion. The next battle
    button stays locked until the heal has actually happened: catch → heal →
    battle 2, one line with no branches.
-6. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
+6. **Onward** — once the partner is healed (or arrived at full HP, so there
+   is nothing to heal), the route glows the battle button and asks the player
+   to start Wild Battle 1. Healing and continuing are two separate beats, so
+   the path never leaves the player staring at a route with no next action.
+7. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
    move the party *lead* carries (the starter, at this point of the script),
    so the ×2 tag the lesson points at is always there to press — whichever
    starter was chosen, and even if the player reordered the party early.
-7. **Your new lead** — a step teaches making the caught Pokémon the lead,
+8. **Your new lead** — a step teaches making the caught Pokémon the lead,
    right before the switching lesson that pairs with it.
-8. **Switching** (stop 3). The Trainer battle itself has no Bag step — the
+9. **Switching** (stop 3). The Trainer battle itself has no Bag step — the
    route's *heal first!* warning covers it.
-9. **Saving** (the section summary) — the only place the Save button appears,
-   and the lesson is honest: the run lives in this browser session, the
-   backup file is what survives a cleared browser.
-10. **Evolution** (section 2) — *forced*: buy the Rare Candy from the Mart and
+10. **Saving** (the section summary) — the only place the Save button appears,
+    and the lesson is honest: the run lives in this browser session, the
+    backup file is what survives a cleared browser.
+11. **Evolution** (section 2) — *forced*: buy the Rare Candy from the Mart and
     actually use it to evolve your starter before the tutorial lets go.
-11. **Training** (section 2) — a hand-held walkthrough through the Train
+12. **Training** (section 2) — a hand-held walkthrough through the Train
     service: replace a move, pick an ability, pick a nature, move a Stat
     Point, press Done.
-12. **Graduation** — Oak's farewell card closes the tutorial the way it
+13. **Graduation** — Oak's farewell card closes the tutorial the way it
     opened: with the professor talking to the player. The prologue flags
     clear in section 2 and the run continues as an ordinary one with normal
     randomness, without any section-3 lesson repetition.

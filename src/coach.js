@@ -97,21 +97,42 @@
     } catch (e) { /* audio blocked: text reveal still works */ }
   }
 
-  function typeText(el, text, speed, onDone) {
-    el.textContent = '';
-    var i = 0;
-    var timer = setInterval(function () {
-      if (i >= text.length) {
-        clearInterval(timer);
-        if (onDone) onDone();
-        return;
+  // Typewriter reveal over the FINAL markup. The styled DOM (bolded action
+  // words and any inline emphasis) is laid out up front and only the glyphs
+  // are revealed in order, so nothing is swapped in when the animation ends
+  // and the sheet never reflows. The old version typed a plain string and
+  // then replaced it with the styled markup, which made Oak's line suddenly
+  // render as a quoted block and visibly shift the card.
+  function typeText(el, html, speed, onDone) {
+    el.innerHTML = html;
+    // Collect the text nodes in document order, then reveal them character by
+    // character across node boundaries (a bold word stays bold while typed).
+    var nodes = [];
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    var n;
+    while ((n = walker.nextNode())) nodes.push(n);
+    var full = nodes.map(function (x) { return x.nodeValue; });
+    var total = 0;
+    for (var i = 0; i < full.length; i++) total += full[i].length;
+    function paint(limit) {
+      var acc = 0;
+      for (var k = 0; k < nodes.length; k++) {
+        var len = full[k].length;
+        nodes[k].nodeValue = full[k].slice(0, Math.max(0, Math.min(len, limit - acc)));
+        acc += len;
       }
-      el.textContent += text[i];
+    }
+    if (!total) { if (onDone) onDone(); return function () {}; }
+    nodes.forEach(function (x) { x.nodeValue = ''; });
+    var pos = 0;
+    var timer = setInterval(function () {
+      paint(pos);
+      if (pos >= total) { clearInterval(timer); if (onDone) onDone(); return; }
       // One soft blip per character, quiet enough to sit under the words.
       playTextSound();
-      i++;
+      pos++;
     }, speed || 34);
-    return function skip() { clearInterval(timer); el.textContent = text; if (onDone) onDone(); };
+    return function skip() { clearInterval(timer); paint(total); if (onDone) onDone(); };
   }
 
   function advisorImg(px) {
@@ -563,6 +584,9 @@
     { id: 'healUse', where: '_tutorial', title: 'Use a Potion',
       say: 'There it is. One Potion, and your partner is ready for the next battle.',
       body: 'Tap the glowing <b>Use Potion</b> button to heal <b>{NAME}</b>.' },
+    { id: 'onward', where: '_tutorial', title: 'Onward!',
+      say: 'Well done! Your new friend is healed and ready. Now, back to the trail.',
+      body: 'Tap the glowing <b>Wild Battle 1</b> button to begin the next battle.' },
     { id: 'effect', where: 'battle', title: 'Super effective!',
       say: 'Here is a secret every champion knows: every type is strong against some types and weak against others. Hitting a weakness doubles your damage.',
       body: 'The move with the <b>\u00d72</b> tag hits this wild Pokemon\u2019s weakness. Tap that move; the other actions stay locked until you use it.' },
@@ -758,6 +782,13 @@
     // only valid next step.
     if (isCoachSurface(e.target)) return;
     var target = actionTarget(actionLock.opts);
+    // The taught control is gone (a re-render replaced it, or the screen it
+    // lived on was left). The step is moot: release the lock so a stale arm
+    // can never swallow unrelated controls with no visible cause.
+    if (!target || !target.isConnected) {
+      releaseActionLock();
+      return;
+    }
     if (sameActionTarget(e.target, target)) {
       // Slider lessons validate the value in their input handler. Keep the
       // lock through pointerdown/input/change so dragging the wrong way does
@@ -955,12 +986,12 @@
 
     if (window.Modal.isOpen(el)) window.Modal.close(el);
 
-    // Dialogue first, instruction second: Oak's spoken line (`say`) leads,
-    // styled as speech, and the single actionable step follows. Both live in
-    // one reveal block so the typewriter reads them as one flowing sentence.
+    // Dialogue first, instruction second: Oak's spoken line (`say`) leads
+    // into the single actionable step (`body`, with the important word in
+    // bold). Both live in one reveal block and read as one flowing sentence —
+    // no quote styling, so finishing the typewriter changes nothing.
     var filled = fillTemplate(
-      (lesson.say ? '<span class="coach-say">' + esc(lesson.say) + '</span>' : '') +
-      lesson.body,
+      (lesson.say ? esc(lesson.say) + ' ' : '') + lesson.body,
       opts.template);
 
     // A sheet anchors to an element on the page behind it: scroll that
@@ -987,16 +1018,12 @@
     if (opts.onShow) { try { opts.onShow(); } catch (e) {} }
 
     // The typewriter reveal: text appears character by character with a soft
-    // blip, and a tap finishes the line immediately. When the typing ends on
-    // its own, swap the plain text for the styled markup so the dialogue
-    // reads as Oak's speech and the bolded action stands out.
+    // blip, and a tap finishes the line immediately. The final markup is
+    // already in place, so the bolded action simply appears as it is typed.
     var bodyDiv = card.querySelector('#' + bodyId);
-    var raw = filled.replace(/<[^>]*>/g, '');
     bodyDiv.classList.add('text-reveal');
-    var skip = typeText(bodyDiv, raw, 34, function () {
-      bodyDiv.innerHTML = filled;
-    });
-    bodyDiv.onclick = function () { skip(); bodyDiv.innerHTML = filled; bodyDiv.onclick = null; };
+    var skip = typeText(bodyDiv, filled, 34);
+    bodyDiv.onclick = function () { skip(); bodyDiv.onclick = null; };
 
     card.querySelector('[data-coach-ok]').addEventListener('click', function () {
       window.Modal.close(el);
@@ -1102,7 +1129,7 @@
       '<div class="cb-main">' +
         '<b class="cb-title">' + esc(lesson.title) + '</b>' +
         '<p class="cb-body">' +
-          (lesson.say ? '<span class="coach-say">' + esc(lesson.say) + '</span>' : '') +
+          (lesson.say ? esc(lesson.say) + ' ' : '') +
           fillTemplate(lesson.body, opts.template) +
         '</p>' +
         '<button type="button" class="cb-ok" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>' +
@@ -1202,7 +1229,7 @@
     var l = lessonById(id);
     if (!l) return false;
     // Scripted tutorial beats (bypassSeen) carry a progress marker — "Step 4
-    // of 13" — derived from the live run, so the onboarding always reads as
+    // of 14" — derived from the live run, so the onboarding always reads as
     // one linear path with a visible position on it.
     if (!opts.force && opts.bypassSeen && !opts.eyebrow &&
         window.Game && typeof window.Game.tutorialStepLabel === 'function') {
