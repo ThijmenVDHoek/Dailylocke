@@ -788,7 +788,7 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
   // throws SecurityError -- which is also exactly what Safari private mode
   // does, and why every storage call in the game is wrapped. Fall back to an
   // in-memory stand-in: what matters here is the KEY LAYOUT, not the browser's
-  // storage implementation (tools/e2e/run.mjs covers the real thing).
+  // storage implementation.
   let ls;
   try {
     ls = window.localStorage;
@@ -827,8 +827,9 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
 }
 
 // ---------------------------------------------------------------- modal ----
-// One controller, WAI dialog pattern. Focus behaviour needs a real browser
-// (see tools/e2e/run.mjs); these cover the parts JSDOM can see.
+// One controller, WAI dialog pattern. These cover the parts JSDOM can see;
+// real-browser focus behaviour is deliberately out of scope here (the sandbox
+// and CI cannot run a browser, so this suite is the whole gate).
 {
   const M = window.Modal;
   const doc = window.document;
@@ -1152,6 +1153,121 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   }
 }
 
+// ====================================== THE STARTER IS A FREE CHOICE ======
+// The guided run's very first lesson used to action-lock the FIRST starter
+// card, which made Treecko the only Pokemon a first-time player could pick
+// -- Charmander and Froakie were literally unclickable. The tutorial must
+// accept any of the three and adapt (the super-effective wild, the switch
+// target, the evolution and the training steps all follow whichever one was
+// actually chosen).
+{
+  const waitFor = async (fn, ms = 20000) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      const value = fn();
+      if (value) return value;
+      await new Promise((res) => setTimeout(res, 25));
+    }
+    return null;
+  };
+  window.Modal.closeAll();
+  window.Coach.clearMark();
+
+  // JSDOM's file:// origin has no working localStorage, so profile state (like
+  // a lesson marked read) would be lost between loadProfile() calls and the
+  // step counter would mislabel the starter beat. A real browser persists the
+  // profile; give the test the same behaviour with an in-memory store.
+  const starterMem = new Map();
+  const starterRealLS = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (k) => (starterMem.has(k) ? starterMem.get(k) : null),
+      setItem: (k, v) => starterMem.set(k, String(v)),
+      removeItem: (k) => starterMem.delete(k),
+      clear: () => starterMem.clear(),
+    },
+  });
+
+  // A brand-new trainer walks the real first-run doors.
+  window.document.getElementById('btnFreshGame').click();
+  const setup = await waitFor(() => !window.document.getElementById('screenSetup').hidden);
+  check('the guided run starts at trainer setup', !!setup);
+
+  // The tutorial's FIRST beat is Professor Oak introducing himself over the
+  // setup screen — dialogue first, one action after.
+  const welcomeSheet = await waitFor(() => !window.document.getElementById('screenCoach').hidden, 8000);
+  check('Professor Oak welcomes the new trainer at setup', !!welcomeSheet &&
+    (window.document.getElementById('coachTitle') || {}).textContent === 'Welcome!',
+    welcomeSheet ? (window.document.getElementById('coachTitle') || {}).textContent : 'NO WELCOME');
+  if (welcomeSheet) {
+    const welcomeTyped = await waitFor(() => {
+      const b = window.document.getElementById('coachBodyReveal');
+      return b && /Professor Oak/.test(b.textContent);
+    }, 6000);
+    check('the welcome is spoken by Professor Oak', !!welcomeTyped);
+    check('the very first beat is labelled Step 1 of 13',
+      /Step 1 of 13/.test(
+        (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent || ''));
+    window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  }
+  if (setup) {
+    window.document.getElementById('setupName').value = 'Tipster';
+    window.document.getElementById('btnSetupGo').click();
+  }
+  const cards = await waitFor(() =>
+    window.document.querySelectorAll('#starterGrid .starter-card').length === 3, 40000);
+  check('the guided run offers the fixed trio', !!cards);
+
+  // The starter lesson halos the grid but must NOT action-lock a card: all
+  // three Choose buttons stay live.
+  const sheet = await waitFor(() => !window.document.getElementById('screenCoach').hidden, 10000);
+  check('the starter lesson opens over the trio', !!sheet &&
+    window.document.getElementById('coachTitle').textContent === 'Choose your starter!',
+    sheet ? window.document.getElementById('coachTitle').textContent : 'NO SHEET');
+  check('the starter lesson shows its place on the linear path',
+    !!sheet && /Step 2 of 13/.test(
+      (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent || ''),
+    sheet ? (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent : '');
+  check('no starter card is action-locked by the lesson',
+    !window.Coach.actionLocked() &&
+    !window.document.body.classList.contains('coach-action-locked'));
+
+  // The free choice is an informed one: every prologue card names a role and
+  // an attack style.
+  check('the guided trio cards name a role and an attack style',
+    [...window.document.querySelectorAll('#starterGrid .starter-card')]
+      .every((c) => !!c.querySelector('.mr-label') && !!c.querySelector('.mr-style')));
+
+  if (sheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+
+  // Pick the SECOND card on purpose: the old lock made only the first card
+  // (Treecko) clickable, so this is the regression itself.
+  const second = window.document.querySelectorAll('#starterGrid .pick-btn')[1];
+  check('a non-first starter card is clickable during the tutorial', !!second);
+  if (second) second.click();
+  const nick = await waitFor(() => !window.document.getElementById('screenNickname').hidden, 8000);
+  if (nick) {
+    window.document.getElementById('nickInput').value = 'Cinder';
+    window.document.getElementById('btnNickOk').click();
+  }
+  const route = await waitFor(() => !window.document.getElementById('screenCrossroads').hidden, 20000);
+  check('choosing the second starter reaches the route', !!route);
+  check('the run tracks the ACTUALLY chosen starter',
+    window.Game.run && window.Game.run.prologue === true &&
+    window.Game.run.party[0].id === 'charmander' &&
+    String(window.Game.run.tutorialStarterUid) === String(window.Game.run.party[0].uid),
+    window.Game.run && (window.Game.run.party[0] && window.Game.run.party[0].id));
+
+  // Tidy: the blocks that follow build their own runs and coach state. A
+  // beat or two may still be settling, so drain them.
+  await new Promise((r) => setTimeout(r, 900));
+  window.Modal.closeAll();
+  window.Coach.clearMark();
+  window.Game.run.tutorialStarterUid = null;
+  Object.defineProperty(window, 'localStorage', starterRealLS);
+}
+
 // ======================================= THE CAPTURE BEAT, FOR REAL =====
 // Everything above proves the queue; this proves the GLUE. Drive a real
 // capture encounter through startNextBattle -> the engine -> the DOM: the
@@ -1189,7 +1305,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // the catch is dice, and dice do not belong in a test -- a string of
   // break-outs lets the wild mon KO the only party member and WIPES the run
   // mid-block (an intermittent party=0 caught=0 failure).
-  r3.bag = { masterball: 3 };
+  r3.bag = { masterball: 3, potion: 3, superpotion: 2 };
   r3.money = 100;
   // One dependable lead with a gentle touch (Tackle won't one-shot anything
   // in the friendly pool).
@@ -1348,6 +1464,42 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     !!backOnRoute && r3.party.length === 2 && r3.caught === 1,
     `party=${r3.party.length} caught=${r3.caught}`);
 
+  // 5. The next linear beat: heal the new partner before battle 2. The next
+  //    battle button stays locked until the Potion is actually used.
+  const healSheet = await until3(() =>
+    window.Modal.isOpen('screenCoach') &&
+    (window.document.getElementById('coachTitle') || {}).textContent === 'Heal your new friend', 10000);
+  check('the route teaches healing the new partner before battle 2', !!healSheet,
+    healSheet ? '' : (window.document.getElementById('coachTitle') || {}).textContent);
+  if (healSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  await new Promise((r) => setTimeout(r, 300));
+  const caughtSlot = window.document.querySelector('#xTeam .tslot[data-i="1"]');
+  check('the heal lesson points at the new partner\u2019s team card', !!caughtSlot);
+  if (caughtSlot) caughtSlot.click();
+  const healBubble = await until3(() => {
+    const b = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return b && b.textContent === 'Use a Potion' ? b : null;
+  }, 8000);
+  check('the party sheet points at the Potion button', !!healBubble);
+  if (healBubble) window.document.querySelector('.coach-bubble [data-coach-ok]').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const potionBtn = window.document.querySelector('#xTeamDetail .pd-potion-btn');
+  check('a Potion button is armed for the new partner', !!potionBtn);
+  const hpBefore = (() => {
+    const m = r3.party.find((mm) => String(mm.uid) === String(r3._tutCatchUid));
+    return m ? m.hpPct : null;
+  })();
+  if (potionBtn) potionBtn.click();
+  await new Promise((r) => setTimeout(r, 250));
+  const hpAfter = (() => {
+    const m = r3.party.find((mm) => String(mm.uid) === String(r3._tutCatchUid));
+    return m ? m.hpPct : null;
+  })();
+  check('using the Potion completes the heal step',
+    r3.tutorialHealDone === true && hpAfter != null && hpBefore != null &&
+    hpAfter > hpBefore,
+    `healDone=${r3.tutorialHealDone} hp=${hpBefore}->${hpAfter}`);
+
   // tidy: back to a calm state for the blocks that follow
   window.Modal.closeAll();
 }
@@ -1412,6 +1564,14 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('the tutorial concludes in section 2 once evolution AND training are done',
     CO2.inPrologue() === false && g.prologue === false);
   check('no tutorial beat was left dangling in the queue', CO2.pendingCount === 0);
+
+  // The bookend: Oak says goodbye with the graduation sheet, and the Guide is
+  // named as the place every lesson stays readable.
+  const farewell = window.Modal.isOpen('screenCoach') &&
+    (window.document.getElementById('coachTitle') || {}).textContent === 'You are ready!';
+  check('the tutorial ends with Professor Oak\u2019s farewell', !!farewell,
+    (window.document.getElementById('coachTitle') || {}).textContent);
+  if (window.Modal.isOpen('screenCoach')) window.Modal.close('screenCoach');
 
   // Put the run back into a sane state; nothing after this reads it, but
   // leave it tidy anyway.
@@ -1535,6 +1695,10 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     return null;
   };
 
+  // A player who can see the Gauntlet button has finished onboarding (or has
+  // history) -- the beginner title hides the mode grid. Model that: it is
+  // what keeps the title in "modes" state after the run is abandoned below.
+  window.Coach.setOnboarded(true);
   window.Game.show('Title');
   const gBtn = doc.getElementById('btnGauntlet');
   check('the title offers the Team Gauntlet', !!gBtn && /team gauntlet/i.test(gBtn.textContent));
@@ -2605,6 +2769,27 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
       .map((d) => d.type);
     const best = Math.max(...stabTypes.map((t) => C.typeMod(t, foe.types)));
     check(`the super-effective battle pairs a weakness for the ${window.PS.Dex.species.get(starterId).name} lead`,
+      best >= 2 && C.bst(foeId) <= 330,
+      `${foeId} (${foe.types.join('/')}) takes \u00d7${best} from ${stabTypes.join('/')}`);
+  }
+
+  // A player who makes the caught Pokemon the lead BEFORE the super-effective
+  // battle still gets a wild their ACTUAL lead hits for 2x: the taught move
+  // and the pinned species must describe the same Pokemon, or the scripted
+  // battle disables every move and soft-locks.
+  {
+    const p3 = N2.newRun(90210);
+    p3.prologue = true; p3.mode = 'free'; p3.section = 1; p3.battleInSection = 1;
+    const sparky = await C.makeMon('pikachu');
+    sparky.name = 'Sparky';
+    p3.party.push(sparky); N2.trackMon(p3, sparky);
+    const foeId = N2.pickWild(p3, {});
+    const foe = window.PS.Dex.species.get(foeId);
+    const stabTypes = sparky.moves.map((mv) => window.PS.Dex.moves.get(mv))
+      .filter((d) => d.category !== 'Status' && sparky.types.includes(d.type))
+      .map((d) => d.type);
+    const best = Math.max(...stabTypes.map((t) => C.typeMod(t, foe.types)));
+    check('an early lead swap still pairs a 2x weakness for the ACTIVE lead',
       best >= 2 && C.bst(foeId) <= 330,
       `${foeId} (${foe.types.join('/')}) takes \u00d7${best} from ${stabTypes.join('/')}`);
   }

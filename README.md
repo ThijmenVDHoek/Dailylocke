@@ -137,11 +137,13 @@ too:
   names are untouched; the gold line underneath tells the truth.
 
 **2. A guided first run.** `Start a fresh game` → pick a sprite and a name →
-pick from a fixed Treecko / Charmander / Froakie trio → play a real Free Play
-run with the lessons switched on. Nothing about it is faked: same engine, same
-permadeath, same slot. Section 1 alone gets a safety net (friendly wilds with
-high catch rates, the gentlest trainer on the roster, a few extra balls) so the
-run cannot end before the lesson about catching has happened.
+pick one of a fixed Treecko / Charmander / Froakie trio (any of the three —
+the choice is free, and every later step adapts to the starter actually
+chosen) → play a real Free Play run with the lessons switched on. Nothing
+about it is faked: same engine, same permadeath, same slot. Section 1 alone
+gets a safety net (friendly wilds with high catch rates, the gentlest trainer
+on the roster, a few extra balls) so the run cannot end before the lesson
+about catching has happened.
 
 The guided run is a **scripted tutorial**, and every step is a vital beat
 (queue-backed, so a busy surface or an unlucky race can never swallow it). A
@@ -151,6 +153,14 @@ professor's card is dismissed until that control is actually used. Reloading
 mid-run uses the run's own tutorial state rather than the account's lesson
 history, so an old profile can never skip a required action.
 
+The whole onboarding is **one conversation with Professor Oak, in 13 linear
+steps**. Every card speaks with two voices: a short, warm line of dialogue
+(*say*) and the single thing to do next (*body*), so nothing ever reads like a
+manual and nothing ever asks for two actions at once. Each scripted card also
+carries a **Step N of 13** marker, so the player always knows where they are
+on the path. The copy is written for any age and any experience level: no
+jargon before it has been explained, no gendered language, short sentences.
+
 Section 1 is deterministic: the first encounter is Pikachu, the second wild is
 chosen from a fixed starter-specific weakness, the third is Bidoof, and the
 trainer is the friendly scripted Youngster. The first wild battle exposes one
@@ -159,43 +169,57 @@ The second battle exposes one ×2 move. The third exposes Party and then one
 specific switch target. Bag, running, extra moves, and alternate switches are
 not available until the script reaches them.
 
-1. **Choose your starter** — the very first card is the professor's immersive
-   dialog sheet (big portrait, typewriter reveal), setting the register for
-   the whole tutorial.
-2. **The path** — how a section is shaped, on the route screen. During
+1. **Welcome** (setup) — Professor Oak introduces himself and walks through
+   sprite, name and the experience choice. The first beat of the path.
+2. **Choose your starter** — the professor's immersive dialog sheet (big
+   portrait, typewriter reveal), setting the register for the whole tutorial.
+   The sheet explains the choice and halos the grid, but never forces a card:
+   Treecko, Charmander and Froakie are all pickable, and each card names its
+   role and attack style so the choice is informed. Naming the partner is
+   part of the same conversation — Oak speaks inside the naming dialog too.
+3. **The path** — how a section is shaped, on the route screen. During
    section 1 the Mart is hidden entirely; the route is just your team, your
    Bag and the battle button.
-3. **Capture encounter** (stop 1) — the lesson pops the moment the battle
+4. **Capture encounter** (stop 1) — the lesson pops the moment the battle
    opens (no waiting a turn): weaken it, then throw a ball. The catch
    success is explained too.
-4. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
-   move the *starter* carries, so the ×2 tag the lesson points at is always
-   there to press.
-5. **Your new lead** — a step teaches making the caught Pokémon the lead,
+5. **Heal your new friend** — the caught partner joins at catch HP, so the
+   very next step opens its team card and uses a Potion. The next battle
+   button stays locked until the heal has actually happened: catch → heal →
+   battle 2, one line with no branches.
+6. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
+   move the party *lead* carries (the starter, at this point of the script),
+   so the ×2 tag the lesson points at is always there to press — whichever
+   starter was chosen, and even if the player reordered the party early.
+7. **Your new lead** — a step teaches making the caught Pokémon the lead,
    right before the switching lesson that pairs with it.
-6. **Switching** (stop 3). The Trainer battle itself has no Bag step — the
+8. **Switching** (stop 3). The Trainer battle itself has no Bag step — the
    route's *heal first!* warning covers it.
-7. **Saving** (the section summary) — the only place the Save button appears,
+9. **Saving** (the section summary) — the only place the Save button appears,
    and the lesson is honest: the run lives in this browser session, the
    backup file is what survives a cleared browser.
-8. **Evolution** (section 2) — *forced*: buy the Rare Candy from the Mart and
-   actually use it to evolve your starter before the tutorial lets go.
-9. **Training** (section 2) — a hand-held walkthrough through the Train
-   service: replace a move, pick an ability, pick a nature, move a Stat
-   Point, press Done. With that, the tutorial concludes in section 2: the
-   prologue flags clear and the run continues as an ordinary one with normal
-   randomness, without any section-3 lesson repetition.
+10. **Evolution** (section 2) — *forced*: buy the Rare Candy from the Mart and
+    actually use it to evolve your starter before the tutorial lets go.
+11. **Training** (section 2) — a hand-held walkthrough through the Train
+    service: replace a move, pick an ability, pick a nature, move a Stat
+    Point, press Done.
+12. **Graduation** — Oak's farewell card closes the tutorial the way it
+    opened: with the professor talking to the player. The prologue flags
+    clear in section 2 and the run continues as an ordinary one with normal
+    randomness, without any section-3 lesson repetition.
 
 (*"Skip tips"* from any card, or turning tips off in Profile mid-run, also
 ends the tutorial and hands over the ordinary game.)
 
-**3. Just-in-time lessons.** 17 lessons, each fired by an *interaction*,
-never a timer, and every one rendered on **one surface: the professor's
-dialog sheet** — modal, the big portrait, a typewriter reveal. When a lesson
-is *about* an element (the ball rail, the Party button, the Save progress
-button) that element carries the violet halo for as long as the sheet is up.
-The rules, taken from Nielsen Norman Group's coach-mark research, are
-enforced by the module rather than by each call site:
+**3. Just-in-time lessons.** Every remaining lesson fires on an
+*interaction*, never a timer, and all of them render on the same surfaces as
+the tutorial: the professor's **dialog sheet** out of battle (modal, big
+portrait, typewriter reveal, dialogue first, one action after) and the
+**anchored bubble** in battle. When a lesson is *about* an element (the ball
+rail, the Party button, the Save progress button) that element carries the
+violet halo for as long as the card is up. The rules, taken from Nielsen
+Norman Group's coach-mark research, are enforced by the module rather than by
+each call site:
 
 * one idea per card, never two;
 * **never chained** — a second card cannot open while one is up; the single
@@ -222,7 +246,7 @@ The research behind these choices, and the mapping onto this codebase, is in
 ### Two rules a lesson must never break
 
 Both of these shipped broken once and stranded players mid-onboarding, so they
-are pinned by tests in `tools/smoke-test.mjs` and `tools/e2e/run.mjs`.
+are pinned by tests in `tools/smoke-test.mjs`.
 
 **A lesson must never be able to appear on top of a dialog and be
 unclickable.** `Modal` makes the page behind a dialog `inert`, and the game's
@@ -438,43 +462,34 @@ npm run build     # regenerates vendor/pkmn-sim.js + vendor/pkmn-learnsets.js
 
 ### Quality checks
 
-Two suites, because they see different things.
+One suite, one gate.
 
 **`tools/smoke-test.mjs` (JSDOM)** loads `index.html` using the real script
 order, boots the game and fights an actual battle through the engine. It covers
 module wiring, the trimmed bundle's data, on-demand learnsets, the install
 button on every platform path, subpath-safe PWA paths, backup export/import
-round-tripping (including rejection of malformed files), and now the Daily's
+round-tripping (including rejection of malformed files), the Daily's
 date/streak/share logic, the ascension curve, role-based movesets, the AI's
-situational scoring and the modal controller.
+situational scoring, the modal controller and the whole guided tutorial flow.
 
-**`tools/e2e/run.mjs` (Playwright)** drives a real browser, which is the only
-way to test what JSDOM stubs: a WebGL battle, focus management, layout at phone
-sizes, and the service worker. It covers starting a Daily, choosing a starter,
-completing a battle, reloading and restoring the save, opening every modal
-(dialog semantics, focus trap, Escape, inert background), iPhone/Android
-viewports, reduced motion, an **offline reload after the worker installs**, and
-the full Daily endpoint including the share card.
+A real-browser (Playwright) suite used to exist for WebGL/focus/layout
+coverage, but it was removed: this project is developed in a sandbox that
+cannot download a browser, so the suite could never run there or in CI. The
+JSDOM suite is therefore the complete quality gate and must stay green on its
+own.
 
 ```sh
 npm ci --prefix tools
 npm run check --prefix tools        # lint + JSDOM + service-worker revision
-npm run test:e2e --prefix tools     # real browser
-npm run check:all --prefix tools    # everything
 ```
-
-The E2E suite needs a Chromium. It uses Playwright's own download if present,
-otherwise a system browser, otherwise `DAILYLOCKE_CHROMIUM=/path/to/chromium` —
-and **skips cleanly** rather than failing when none is available.
 
 ### CI (one manual step left)
 
 A ready-to-use GitHub Actions workflow lives at
 [`tools/ci/check.yml`](tools/ci/check.yml). It runs lint + the JSDOM suite +
-the service-worker revision guard, and a second job for the Playwright suite
-on Chromium. It is **staged, not active**: GitHub rejects pushes that touch
-`.github/workflows/` from an app without `workflows` permission. A maintainer
-with normal permissions activates it in one move:
+the service-worker revision guard. It is **staged, not active**: GitHub rejects
+pushes that touch `.github/workflows/` from an app without `workflows`
+permission. A maintainer with normal permissions activates it in one move:
 
 ```sh
 mkdir -p .github/workflows && git mv tools/ci/check.yml .github/workflows/
@@ -483,10 +498,6 @@ mkdir -p .github/workflows && git mv tools/ci/check.yml .github/workflows/
 Worth doing: `static.yml` currently deploys `main` to Pages with no checks at
 all, so nothing today stops a broken build from going live (the workflow above
 is exactly what plugs that hole).
-
-```sh
-npx playwright install chromium --prefix tools
-```
 
 ### The service-worker revision
 
@@ -520,9 +531,8 @@ The app shell works offline, and so does everything the UI's *shape* depends on.
   megabytes; neither is ever precached wholesale, because a quota eviction would
   take the app shell with it.
 * **`manifest.json` ships narrow + wide screenshots**, which browsers use to
-  show a richer, app-store-like install dialog. They are captured from the real
-  app by `DAILYLOCKE_SHOTS=1 npm run test:e2e --prefix tools`, so they can't go
-  stale.
+  show a richer, app-store-like install dialog. The screenshots are committed
+  assets (`assets/screenshots/`), captured from the real app.
 
 ## Pokémon Champions
 

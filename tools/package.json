@@ -9,16 +9,13 @@
   "scripts": {
     "build": "node build-sim.mjs",
     "build:sw": "node build-sw.mjs",
-    "lint": "cd .. && tools/node_modules/.bin/eslint src/*.js vendor/battle-ui.js sw.js tools/*.mjs tools/e2e/*.mjs eslint.config.mjs --config eslint.config.mjs --max-warnings 0",
+    "lint": "cd .. && tools/node_modules/.bin/eslint src/*.js vendor/battle-ui.js sw.js tools/*.mjs eslint.config.mjs --config eslint.config.mjs --max-warnings 0",
     "test": "node smoke-test.mjs",
-    "test:e2e": "node e2e/run.mjs",
-    "check": "npm run lint && npm test && node build-sw.mjs --check",
-    "check:all": "npm run check && npm run test:e2e"
+    "check": "npm run lint && npm test && node build-sw.mjs --check"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@pkmn/sim": "0.10.11",
-    "@playwright/test": "^1.62.0",
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
     "globals": "^17.8.0",

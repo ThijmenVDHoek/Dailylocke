@@ -511,6 +511,22 @@
       b.classList.toggle('on', (b.dataset.exp === 'new') === setupWantsTips);
     });
     show('Setup');
+    // The tutorial's first beat: Professor Oak introduces himself over the
+    // setup screen and walks the player through sprite, name and the
+    // experience choice, so the onboarding reads as one conversation from
+    // the very first tap.
+    var CO = window.Coach;
+    if (CO && CO.tipsOn() && !CO.isOnboarded() && !CO.seen('welcome')) {
+      setTimeout(function () {
+        if ($('screenSetup').hidden) return;
+        CO.lesson('welcome', {
+          anchor: $('setupAvatar'),
+          eyebrow: 'Step 1 of ' + TUTORIAL_STEP_TOTAL,
+          vital: true,
+          stillValid: function () { return !$('screenSetup').hidden; }
+        });
+      }, 0);
+    }
   }
 
   function initSetup() {
@@ -878,12 +894,17 @@
     // The advice is the professor's immersive dialog sheet with the typewriter
     // reveal — the same surface the rest of the tutorial uses, so the very
     // first lesson sets the register for everything that follows.
+    //
+    // The choice itself is FREE: the lesson points at the grid as a whole and
+    // never action-locks a specific card. Forcing the first card (the old
+    // behaviour) made the tutorial pick Treecko for the player — Charmander
+    // and Froakie were literally unclickable — and the rest of the guided run
+    // is built to adapt to whichever starter is actually chosen.
     if (CO && CO.tipsOn() && run && run.prologue && !run.tutorialStarterShown) {
       setTimeout(function () {
         if ($('screenStarter').hidden) return;
         CO.lesson('starter', {
-          resolve: function () { return $('starterGrid').querySelector('.pick-btn'); },
-          actionRequired: true,
+          anchor: g,
           keepHalo: true,
           bypassSeen: true,
           vital: true,
@@ -904,10 +925,14 @@
       var isPro = run && run.prologue;
       card.className = 'card starter-card' + (isPro ? ' simple' : '');
       if (isPro) {
+        // The guided trio still keeps the simple layout, but each card names
+        // what the Pokemon is (role, attack style, power bar) so a first-time
+        // player can compare the three instead of picking on looks alone.
         card.innerHTML =
           '<div class="sprite-box">' + bigSprite(mon.id, '', 112, 150, 1, mon.shiny) + '</div>' +
           '<div class="sc-name">' + escapeHtml(mon.name) + '</div>' +
           '<div class="types" style="justify-content:center;margin:6px 0">' + typeChips(mon.types) + '</div>' +
+          monRoleHtml(mon) +
           '<button class="btn-primary pick-btn">Choose</button>';
       } else {
         card.innerHTML =
@@ -1546,7 +1571,31 @@
         return;
       }
 
-      // 1b. After the capture (before battle 2 of section 1): teach the
+      // 1b. After the capture (before battle 2 of section 1): heal the new
+      //     partner. It joins the team at catch HP, and learning to open a
+      //     team card and use a Potion is the most-used skill in the game.
+      //     The next battle button stays locked until the Potion is used, so
+      //     the path stays linear: catch -> heal -> battle 2.
+      if (pro && run.section === 1 && run.battleInSection === 1 && !run.tutorialHealDone) {
+        var caughtMonH = caughtMonInParty();
+        var caughtSlotH = caughtMonH && caughtMonH.hpPct < 1 ? teamSlotFor(caughtMonH) : null;
+        if (caughtMonH && caughtSlotH) {
+          CO.lesson('healOpen', {
+            anchor: caughtSlotH, actionRequired: true, keepHalo: true,
+            bypassSeen: true, vital: true,
+            stillValid: function () {
+              return onRoute() && run.section === 1 && run.battleInSection === 1 &&
+                !!caughtMonInParty() && !run.tutorialHealDone &&
+                caughtMonInParty().hpPct < 1;
+            },
+            template: { NAME: monDisplayName(caughtMonH) },
+            onShow: function () { if (!CO.seen('healOpen')) CO.markSeen('healOpen'); }
+          });
+        }
+        return;
+      }
+
+      // 1c. After the capture (before battle 2 of section 1): teach the
       //     player to make the new Pokemon their lead. It lands here, after
       //     the super-effective battle, so battle 2 pairs a fresh lead with
       //     the switch lesson that comes with it. The first card is the only
@@ -1625,6 +1674,36 @@
   // evolutions and party reordering.
   function tutorialSection1() {
     return !!(run && run.prologue && run.section === 1);
+  }
+
+  // The guided run is one linear path of 13 steps. This derives the current
+  // position from the run's own tutorial flags (plus the two profile-scoped
+  // lessons), so the label is correct for fresh players AND for a run resumed
+  // halfway. The coach stamps it onto every scripted beat as "Step N of 13".
+  var TUTORIAL_STEP_TOTAL = 13;
+  function tutorialStepLabel() {
+    if (!run || !run.prologue) return null;
+    var CO = window.Coach;
+    var caught = caughtMonInParty();
+    var healed = !!(run.tutorialHealDone || !caught || (caught && caught.hpPct >= 1));
+    var steps = [
+      !!(CO && (CO.seen('welcome') || run.tutorialStarterShown)),
+      !!run.tutorialStarterShown,
+      !!run.tutorialRouteDone,
+      !!run.tutorialDamageDone,
+      !!run.tutorialCatchDone,
+      healed,
+      !!run.tutorialEffectDone,
+      caughtIsLead(),
+      !!run.tutorialSwitchDone,
+      !!run.tutorialTrainerDone,
+      !!(CO && CO.seen('save')),
+      !!run.tutorialEvolved,
+      !!run.tutorialTrained
+    ];
+    var n = 1;
+    while (n <= steps.length && steps[n - 1]) n++;
+    return 'Step ' + Math.min(n, steps.length) + ' of ' + TUTORIAL_STEP_TOTAL;
   }
 
   function starterMon() {
@@ -1899,7 +1978,19 @@
     }
     if (CO && CO.inPrologue()) CO.setPrologue(false);
     if (run && run.prologue) { run.prologue = false; saveGame(); }
-    if (!opts.silent) toast('Tutorial complete \u2014 the rest of the run is all yours.');
+    // The bookend: Professor Oak says goodbye and points at the Guide. A
+    // sheet, not a toast, so the tutorial ends the way it began — with the
+    // professor talking to the player.
+    if (!opts.silent) {
+      if (CO && CO.tipsOn()) {
+        CO.lesson('graduate', {
+          vital: true,
+          stillValid: function () { return !!(run && !run.prologue); }
+        });
+      } else {
+        toast('Tutorial complete \u2014 the rest of the run is all yours.');
+      }
+    }
   }
 
   // "Skip tips" anywhere during the guided run means the player is opting
@@ -2068,22 +2159,47 @@
   // Which stat the guided stats step moves where. Derive this from the live
   // spread instead of assuming an old save or a particular species: the
   // source must have a point to give and the destination must have room.
+  //
+  // The destination prefers a stat the Pokemon actually wants -- its better
+  // attacking stat, then Speed, then the defensive stats -- so the walkthrough
+  // never teaches a special attacker to move points into Attack. The old
+  // version always picked the first non-maxed stat, which for every guided
+  // starter (all special attackers) meant the useless Atk slider.
   function tutorStatTargets(mon) {
     C.ensureSP(mon);
-    var take = null, give = null;
+    var keyFor = function (key) {
+      for (var i = 0; i < STAT_KEYS.length; i++) {
+        if (STAT_KEYS[i][0] === key) return STAT_KEYS[i];
+      }
+      return null;
+    };
+    var take = null;
     for (var i = 0; i < STAT_KEYS.length; i++) {
       if ((mon.sp[STAT_KEYS[i][0]] || 0) > 0) {
         take = STAT_KEYS[i]; break;
       }
     }
-    for (var j = 0; j < STAT_KEYS.length; j++) {
-      var key = STAT_KEYS[j][0];
-      if (key !== (take && take[0]) && (mon.sp[key] || 0) < C.SP_MAX) {
-        give = STAT_KEYS[j]; break;
+    var takeKey = take ? take[0] : 'hp';
+    var want = [];
+    try {
+      var style = window.Coach ? window.Coach.attackStyle(mon.id) : null;
+      if (style && style.key === 'Physical') want.push('atk');
+      else if (style && style.key === 'Special') want.push('spa');
+    } catch (e) {}
+    want.push('spe', 'def', 'spd', 'hp');
+    var give = null;
+    for (var w = 0; w < want.length && !give; w++) {
+      var key = want[w];
+      if (key !== takeKey && (mon.sp[key] || 0) < C.SP_MAX) give = keyFor(key);
+    }
+    if (!give) {
+      for (var j = 0; j < STAT_KEYS.length; j++) {
+        var k2 = STAT_KEYS[j][0];
+        if (k2 !== takeKey && (mon.sp[k2] || 0) < C.SP_MAX) { give = STAT_KEYS[j]; break; }
       }
     }
     return {
-      takeKey: take ? take[0] : 'hp',
+      takeKey: takeKey,
       take: take ? take[1] : 'HP',
       giveKey: give ? give[0] : 'def',
       give: give ? give[1] : 'Def'
@@ -2788,6 +2904,18 @@
       if (got <= 0) { toast('Already at full HP.'); return; }
       N.useItem(run, itemId);
       mon.hpPct = Math.min(1, mon.hpPct + got / mx);
+      // The guided run's heal step is complete the moment the new partner is
+      // healed out of battle — this is the taught action, not just a card
+      // read.
+      var COheal = window.Coach;
+      if (COheal && run && run.prologue && run.section === 1 &&
+          run.battleInSection === 1 && !run.tutorialHealDone &&
+          mon === caughtMonInParty()) {
+        run.tutorialHealDone = true;
+        if (!COheal.seen('healOpen')) COheal.markSeen('healOpen');
+        if (!COheal.seen('healUse')) COheal.markSeen('healUse');
+        try { COheal.clearMark(); } catch (e) {}
+      }
       toast(mon.name + ' recovered ' + got + ' HP!');
       saveGame(); drawPartyDetail(); drawTeamStrip(); renderHud();
     });
@@ -2889,8 +3017,13 @@
         // the lesson fires here instead. The tutorial itself only concludes
         // once the starter has ACTUALLY evolved and training is done, so
         // dismissing this card never ends the prologue on its own.
+        //
+        // Section 1 is deliberately excluded: its scripted beats (heal the
+        // new friend, make it the lead) own the party sheet, and this sheet
+        // used to fire over them and stall the queue mid-step. Evolution
+        // belongs to section 2.
         var which = pro
-          ? (!CO.seen('evolve') ? 'evolve' : null)
+          ? ((run.section === 2 && !CO.seen('evolve')) ? 'evolve' : null)
           : ((branching && !CO.seen('evoBranch')) ? 'evoBranch'
             : (!CO.seen('evolve') ? 'evolve' : null));
         if (which) {
@@ -2916,6 +3049,30 @@
   function tutorialPartyDetailCoach(mon) {
     var CO = window.Coach;
     if (!CO || !CO.tipsOn() || !run || !run.prologue) return;
+
+    // Section 1, before battle 2: the "heal your new friend" bubble on the
+    // actual Potion button inside the new partner's card.
+    if (run.section === 1 && run.battleInSection === 1 && !run.tutorialHealDone &&
+        !!caughtMonInParty() && mon === caughtMonInParty() && mon.hpPct < 1 &&
+        partySel > 0) {
+      var potionBtn = document.querySelector('#xTeamDetail .pd-potion-btn');
+      if (potionBtn) {
+        setTimeout(function () {
+          if (!window.Modal.isOpen('xTeamDetail')) return;
+          CO.lesson('healUse', {
+            surface: 'bubble', anchor: potionBtn, actionRequired: true,
+            bypassSeen: true, vital: true, keepHalo: true,
+            stillValid: function () {
+              return window.Modal.isOpen('xTeamDetail') && run && run.prologue &&
+                run.section === 1 && run.battleInSection === 1 && !run.tutorialHealDone;
+            },
+            template: { NAME: monDisplayName(mon) },
+            onShow: function () { if (!CO.seen('healUse')) CO.markSeen('healUse'); }
+          });
+        }, 0);
+      }
+      return;
+    }
 
     // Section 1, before battle 2: the "make it your lead" bubble on the
     // actual Make lead button.
@@ -3323,7 +3480,7 @@
         html += '<button type="button" class="guide-card" data-lesson="' + l.id + '">' +
           '<span class="coach-portrait">' + CO.advisorImg(30) + '</span>' +
           '<span class="gc-t"><b>' + escapeHtml(l.title) + '</b>' +
-            '<em>' + escapeHtml(stripTags(l.body).slice(0, 74)) + '\u2026</em></span>' +
+            '<em>' + escapeHtml(stripTags((l.say ? l.say + ' ' : '') + l.body).slice(0, 74)) + '\u2026</em></span>' +
           '<span class="gc-state' + (read ? ' seen' : '') + '">' + (read ? 'Read' : 'New') + '</span>' +
           '</button>';
       });
@@ -3492,7 +3649,16 @@
     input.value = '';
     input.placeholder = species;
     input.maxLength = 12;
-    $('nickHint').textContent = 'Give it a name you will remember. It only gets one life.';
+    // The naming step is part of the same conversation: a small Professor
+    // Oak line rides inside the dialog, so no onboarding moment is a bare
+    // system prompt.
+    var hint = $('nickHint');
+    if (hint) {
+      hint.innerHTML = '<span class="coach-portrait">' +
+        (window.Coach ? window.Coach.advisorImg(30) : '') + '</span>' +
+        '<span class="nick-oak-line">A wonderful choice! Every great trainer ' +
+        'gives their Pokemon a name to remember.</span>';
+    }
     // Naming is mandatory -- there is no cancel -- so Escape and a backdrop
     // click must NOT dismiss this one.
     var el = $('screenNickname');
@@ -4592,11 +4758,14 @@
           disabled = true;
         }
       }
-      if (isTutorialSE && isTurn1SE) {
-        var eff = d.category === 'Status' ? 1 : C.typeMod(d.type, foeTypes);
-        if (d.category === 'Status' || (forcedSEId ? d.id !== forcedSEId : eff < 2)) {
-          disabled = true;
-        }
+      if (isTutorialSE && isTurn1SE && forcedSEId) {
+        // Exactly one legal super-effective move is presented; everything
+        // else stays locked until it is used. Deliberately gated on
+        // `forcedSEId` existing: if no move hits the foe for 2x (a lead the
+        // player reordered into a strange matchup), the battle unlocks
+        // normally instead of disabling every button -- the lesson simply
+        // stays quiet rather than soft-locking the fight.
+        if (d.category === 'Status' || d.id !== forcedSEId) disabled = true;
       }
       if (isTutorialSwitch && !run.tutorialSwitchDone) {
         // The third wild starts with a single prescribed switch. Move buttons
@@ -4693,12 +4862,26 @@
           bctx.tutorialSwitchOpen = true;
           var reqNow = battle.state.lastRequest;
           var choices = battle.switchableFromRequest(reqNow);
+          // The scripted switch sends in the starter when it is a legal
+          // switch-in. If the starter is already the active mon (the player
+          // skipped making the catch their lead), the only selectable card
+          // is the first OTHER legal switch-in -- and the lesson must name
+          // THAT Pokemon, not one whose card is locked.
           var wanted = starterMon();
           var wantedIndex = wanted ? run.party.indexOf(wanted) : -1;
           var only = choices.filter(function (o) { return o.partyIndex === wantedIndex; });
           if (!only.length) only = choices.slice(0, 1);
-          bctx.tutorialSwitchTargetUid = only.length && run.party[only[0].partyIndex]
-            ? run.party[only[0].partyIndex].uid : null;
+          var switchTarget = only.length ? run.party[only[0].partyIndex] : null;
+          if (!switchTarget) {
+            // Nothing to switch to at all: the switch lesson cannot be
+            // taught in this battle. Unlock the fight rather than stranding
+            // the player on an empty, all-disabled panel.
+            run.tutorialSwitchDone = true;
+            saveGame();
+            showPartyPanel(false);
+            return;
+          }
+          bctx.tutorialSwitchTargetUid = switchTarget.uid;
           showPartyPanel(true, only);
           setTimeout(function () { runBattleCoach(true); }, 0);
         } else {
@@ -4946,8 +5129,19 @@
         } else if (!run.tutorialSwitchPickDone) {
           requested = teachInBattle('switchPick', {
             vital: true, bypassSeen: true, stillValid: stillHere,
+            // Name the card that is actually selectable -- the armed switch
+            // target -- not the starter. They differ whenever the player
+            // skipped making the catch their lead, and naming a locked card
+            // would teach the opposite of what the screen allows.
             template: (function () {
-              var m = starterMon();
+              var uid = bctx && bctx.tutorialSwitchTargetUid;
+              var m = null;
+              if (uid != null) {
+                for (var pi = 0; pi < run.party.length; pi++) {
+                  if (String(run.party[pi].uid) === String(uid)) { m = run.party[pi]; break; }
+                }
+              }
+              if (!m) m = starterMon();
               return m ? { NAME: monDisplayName(m) } : null;
             }())
           });
@@ -6809,6 +7003,9 @@
 
   window.Game = { get run() { return run; }, show: show, startNextBattle: startNextBattle,
                   startGauntlet: startGauntlet,
+                  // The guided run's position on its linear 13-step path. The
+                  // coach stamps it onto every scripted beat ("Step N of 13").
+                  tutorialStepLabel: tutorialStepLabel,
                   // The guided training walkthrough's current step (tests).
                   get tutorGuide() { return tutorGuide; },
                   // Sprite helpers (tests + console debugging).
