@@ -1966,15 +1966,6 @@ body.modal-open { overflow:hidden; }
 .coach-title { margin:0 0 10px; font-size:1.35rem; color:#fff; line-height:1.15; }
 .coach-body { color:var(--ink-2); font-size:.98rem; line-height:1.55; }
 .coach-body b { color:#fff; }
-
-/* Oak's spoken line inside a lesson: dialogue first, the single action after.
-   The gold italic reads as speech while the instruction stays plain white. */
-.coach-say {
-  display:block; margin:0 0 12px; padding-left:12px;
-  border-left:2px solid rgba(192,124,232,.45);
-  color:#ffd76a; font-style:italic; line-height:1.5;
-}
-.coach-say b { color:#ffe08a; }
 .coach-actions { margin-top:18px; }
 .coach-actions .btn-primary { margin-top:0; }
 .coach-skip {
@@ -2039,11 +2030,6 @@ body.coach-sheet-open .coach-spot { z-index:850; }
 .cb-title { display:block; color:#fff; font-size:.95rem; margin-bottom:2px; }
 .cb-body { margin:0; color:var(--ink-2); font-size:.84rem; line-height:1.45; }
 .cb-body b { color:#fff; }
-.cb-body .coach-say {
-  margin:0 0 6px; padding-left:8px;
-  border-left:2px solid rgba(192,124,232,.45);
-  color:#ffd76a; font-style:italic; font-size:.8rem;
-}
 .cb-ok {
   margin-top:8px; padding:5px 16px; border:none; border-radius:var(--r-pill);
   background:var(--violet); color:#fff; font-family:inherit; font-size:.78rem;
