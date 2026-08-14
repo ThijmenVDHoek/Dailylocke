@@ -563,6 +563,9 @@
     { id: 'healUse', where: '_tutorial', title: 'Use a Potion',
       say: 'There it is. One Potion, and your partner is ready for the next battle.',
       body: 'Tap the glowing <b>Use Potion</b> button to heal <b>{NAME}</b>.' },
+    { id: 'onward', where: '_tutorial', title: 'Onward!',
+      say: 'Well done! Your new friend is healed and ready. Now, back to the trail.',
+      body: 'Tap the glowing <b>Wild Battle 1</b> button to begin the next battle.' },
     { id: 'effect', where: 'battle', title: 'Super effective!',
       say: 'Here is a secret every champion knows: every type is strong against some types and weak against others. Hitting a weakness doubles your damage.',
       body: 'The move with the <b>\u00d72</b> tag hits this wild Pokemon\u2019s weakness. Tap that move; the other actions stay locked until you use it.' },
@@ -758,6 +761,13 @@
     // only valid next step.
     if (isCoachSurface(e.target)) return;
     var target = actionTarget(actionLock.opts);
+    // The taught control is gone (a re-render replaced it, or the screen it
+    // lived on was left). The step is moot: release the lock so a stale arm
+    // can never swallow unrelated controls with no visible cause.
+    if (!target || !target.isConnected) {
+      releaseActionLock();
+      return;
+    }
     if (sameActionTarget(e.target, target)) {
       // Slider lessons validate the value in their input handler. Keep the
       // lock through pointerdown/input/change so dragging the wrong way does
@@ -1202,7 +1212,7 @@
     var l = lessonById(id);
     if (!l) return false;
     // Scripted tutorial beats (bypassSeen) carry a progress marker — "Step 4
-    // of 13" — derived from the live run, so the onboarding always reads as
+    // of 14" — derived from the live run, so the onboarding always reads as
     // one linear path with a visible position on it.
     if (!opts.force && opts.bypassSeen && !opts.eyebrow &&
         window.Game && typeof window.Game.tutorialStepLabel === 'function') {

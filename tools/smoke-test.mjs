@@ -1206,8 +1206,8 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
       return b && /Professor Oak/.test(b.textContent);
     }, 6000);
     check('the welcome is spoken by Professor Oak', !!welcomeTyped);
-    check('the very first beat is labelled Step 1 of 13',
-      /Step 1 of 13/.test(
+    check('the very first beat is labelled Step 1 of 14',
+      /Step 1 of 14/.test(
         (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent || ''));
     window.document.querySelector('#screenCoach [data-coach-ok]').click();
   }
@@ -1226,7 +1226,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     window.document.getElementById('coachTitle').textContent === 'Choose your starter!',
     sheet ? window.document.getElementById('coachTitle').textContent : 'NO SHEET');
   check('the starter lesson shows its place on the linear path',
-    !!sheet && /Step 2 of 13/.test(
+    !!sheet && /Step 2 of 14/.test(
       (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent || ''),
     sheet ? (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent : '');
   check('no starter card is action-locked by the lesson',
@@ -1490,6 +1490,11 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     return m ? m.hpPct : null;
   })();
   if (potionBtn) potionBtn.click();
+  // The heal completing must synchronously release the heal step's action lock
+  // (the onward beat arms its OWN lock on the next beat, after the coach
+  // cooldown pumps its vital queue).
+  check('the heal completes and releases its action lock',
+    window.Coach.actionLocked() === false);
   await new Promise((r) => setTimeout(r, 250));
   const hpAfter = (() => {
     const m = r3.party.find((mm) => String(mm.uid) === String(r3._tutCatchUid));
@@ -1500,8 +1505,32 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     hpAfter > hpBefore,
     `healDone=${r3.tutorialHealDone} hp=${hpBefore}->${hpAfter}`);
 
-  // tidy: back to a calm state for the blocks that follow
+  // The heal completing must hand the player the NEXT scripted beat
+  // ("continue to the next battle") instead of leaving them on the route with
+  // nothing glowing and no instruction.
+  const onwardSheet = await until3(() =>
+    window.Modal.isOpen('screenCoach') &&
+    (window.document.getElementById('coachTitle') || {}).textContent === 'Onward!', 10000);
+  check('healing is followed by a "continue to the next battle" beat', !!onwardSheet,
+    onwardSheet ? '' : (window.document.getElementById('coachTitle') || {}).textContent);
+  check('the onward beat halos the battle button',
+    !!window.document.querySelector('#btnGoBattle.coach-spot'));
+  if (onwardSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  await new Promise((r) => setTimeout(r, 120));
+  window.document.getElementById('btnGoBattle').click();
+  // Stop 2 must actually build its battle, not just flip the screen. An
+  // enabled move button means the engine's first request has been rendered.
+  const nextMoveBtn = await until3(() =>
+    [...window.document.querySelectorAll('#battleHost .mb[data-i]')].find((b) => !b.disabled), 20000);
+  check('pressing the glowing battle button starts stop 2 with a move to choose',
+    !!nextMoveBtn);
+
+  // tidy: tear the battle down and reset the run so the blocks that follow
+  // (which reconfigure window.Game.run) start from a calm route, not a live
+  // super-effective battle.
   window.Modal.closeAll();
+  window.Game.show('Crossroads');
+  r3._inBattle = false; r3._battleCfg = null;
 }
 
 // ================================================== THE GUIDED RUN'S FINALE ==
@@ -1598,6 +1627,76 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('a dead Daily team cannot bypass the hidden continuation action',
     !window.document.getElementById('screenDailyResult').hidden &&
     window.Game.run.mode === 'daily' && window.Game.run.over === true);
+}
+
+// ================================================== BATTLE FAILURE RECOVERY ==
+// A renderer that refuses to mount must surface the retry panel (not a dead
+// button), the start latch must clear, and "Try again" must retry from scratch.
+{
+  const wait6 = async (fn, ms = 20000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      const v = fn();
+      if (v) return v;
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    return null;
+  };
+  window.Modal.closeAll();
+  const r6 = window.Game.run;
+  const lead6 = await C.makeMon('rattata');
+  lead6.moves = ['tackle']; lead6.name = 'Scout'; lead6.hpPct = 1; lead6.item = '';
+  r6.mode = 'free'; r6.over = false; r6.prologue = false;
+  r6.section = 1; r6.battleInSection = 0;
+  r6.catchUsedThisSection = false; r6.catchMissed = false; r6.encounterSeen = false;
+  r6.bag = { pokeball: 3, potion: 2 }; r6.money = 100;
+  r6.party = [lead6]; window.Nuz.trackMon(r6, lead6);
+
+  const RealBattleUI2 = window.BattleUI;
+  window.BattleUI = class { mount() { throw new Error('synthetic WebGL renderer failure'); } };
+  await window.Game.startNextBattle();
+  check('a renderer that fails to mount surfaces the retry panel',
+    !!window.document.querySelector('#battleHost .battle-error'));
+  check('a failed start releases the battle latch',
+    window.Game.battleStarting === false);
+  check('a failed mount clears the zombie mount flag',
+    window.document.getElementById('battleHost')._bm == null);
+  window.BattleUI = RealBattleUI2;
+
+  const retryBtn = window.document.getElementById('btnBattleRetry');
+  if (retryBtn) retryBtn.click();
+  // "Try again" must build a full battle, not just flip the screen. Wait for
+  // an ENABLED move button: that is the moment the engine's first request has
+  // been rendered, which also guarantees the retry did not silently fail into
+  // a second error panel.
+  const recoveredMove = await wait6(() =>
+    [...window.document.querySelectorAll('#battleHost .mb[data-i]:not([disabled])')][0], 20000);
+  check('"Try again" starts the battle from scratch', !!recoveredMove);
+
+  // tidy: back to a calm route for the blocks that follow.
+  window.Modal.closeAll();
+  window.Game.show('Crossroads');
+  r6._inBattle = false; r6._battleCfg = null;
+}
+
+// ====================================================== STALE COACH LOCK =====
+// A lock whose taught target left the DOM must release on the next click
+// instead of silently swallowing unrelated controls.
+{
+  const sr = window.Game.run;
+  sr.over = true;
+  sr.party = [];
+  window.Coach.clearActionLock();
+  window.Modal.closeAll();
+  const detached = window.document.createElement('div');
+  window.Coach.lesson('route', { anchor: detached, actionRequired: true, force: true });
+  check('an action lock on a detached target arms', window.Coach.actionLocked() === true);
+  window.document.getElementById('btnGoBattle').click();
+  check('a stale lock releases instead of swallowing the battle button',
+    window.Coach.actionLocked() === false);
+  window.Coach.clearActionLock();
+  window.Modal.closeAll();
+  sr.over = false;
 }
 
 // ------------------------------------------------------- team gauntlet ----
@@ -2266,6 +2365,85 @@ try {
 check('setupBattle() before mount() does not throw', !threw, threw);
 check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.biomeKey,
   `biome=${ui2.s.biomeKey}`);
+
+// ================================================== RENDERER LIFECYCLE =====
+// The renderer must give its WebGL context back on unmount (forceContextLoss),
+// and a mount that dies halfway must not leave partial DOM or a zombie mount
+// flag behind.
+{
+  const RealWebGLRenderer = window.THREE.WebGLRenderer;
+  const RealGroup = window.THREE.Group;
+  // A recording stub renderer: proves the context-release path runs on every
+  // teardown, and still builds the same scene as the base stub.
+  window.THREE.WebGLRenderer = class {
+    constructor() {
+      this.domElement = window.document.createElement('canvas');
+      this.shadowMap = {};
+      this._forceContextLossCalls = 0;
+    }
+    setPixelRatio() {} setSize() {} render() {} dispose() {}
+    forceContextLoss() { this._forceContextLossCalls++; }
+    getContext() { return null; }
+  };
+  const goodHost = window.document.createElement('div');
+  window.document.body.appendChild(goodHost);
+  const goodUi = new window.BattleUI();
+  goodUi.mount(goodHost);
+  check('a BattleUI mounts on a clean host', goodUi.s.mounted === true);
+  const goodRenderer = goodUi.r;
+  goodUi.unmount();
+  check('unmount releases the WebGL context (forceContextLoss called)',
+    !!goodRenderer && goodRenderer._forceContextLossCalls === 1,
+    goodRenderer && String(goodRenderer._forceContextLossCalls));
+  check('unmount removes the canvas/sprites/HUD it created',
+    goodHost.querySelectorAll('canvas, .bm-sprites, .battle-hud').length === 0);
+
+  // A renderer whose constructor throws must rethrow a descriptive error,
+  // leave the host empty, and clear its mount flag.
+  window.THREE.WebGLRenderer = class { constructor() { throw new Error('synthetic WebGL failure'); } };
+  const badHost = window.document.createElement('div');
+  window.document.body.appendChild(badHost);
+  const badUi = new window.BattleUI();
+  let mountErr = null;
+  try { badUi.mount(badHost); } catch (e) { mountErr = e; }
+  check('a renderer failure rethrows a descriptive error',
+    !!mountErr && /could not mount/i.test(mountErr && mountErr.message),
+    mountErr && mountErr.message);
+  check('a renderer failure leaves no partial DOM in the host',
+    badHost.querySelectorAll('canvas, .bm-sprites, .battle-hud').length === 0);
+  check('a renderer failure clears the host mount flag', badHost._bm == null);
+
+  // A scene-build failure after the canvas/sprites/HUD were appended must
+  // remove that partial DOM too, not just the renderer-creation case above.
+  window.THREE.WebGLRenderer = class {
+    constructor() {
+      this.domElement = window.document.createElement('canvas');
+      this.shadowMap = {};
+      this._forceContextLossCalls = 0;
+    }
+    setPixelRatio() {} setSize() {} render() {} dispose() {}
+    forceContextLoss() { this._forceContextLossCalls++; }
+    getContext() { return null; }
+  };
+  window.THREE.Group = class { constructor() { throw new Error('synthetic WebGL scene failure'); } };
+  const midHost = window.document.createElement('div');
+  window.document.body.appendChild(midHost);
+  const midUi = new window.BattleUI();
+  let midErr = null;
+  try { midUi.mount(midHost); } catch (e) { midErr = e; }
+  check('a scene-build failure rethrows a descriptive error',
+    !!midErr && /could not mount/i.test(midErr && midErr.message),
+    midErr && midErr.message);
+  check('a scene-build failure removes the partial canvas/sprites/HUD',
+    midHost.querySelectorAll('canvas, .bm-sprites, .battle-hud').length === 0);
+  check('a scene-build failure clears the host mount flag', midHost._bm == null);
+
+  window.THREE.WebGLRenderer = RealWebGLRenderer;
+  window.THREE.Group = RealGroup;
+  goodHost.remove();
+  badHost.remove();
+  midHost.remove();
+}
 
 // ============================================================== ONBOARDING ==
 // The teaching layer has three jobs and each one is worth guarding:

@@ -850,6 +850,8 @@
     // halfway through still gets the exact next action.
     run.tutorialStarterShown = false;
     run.tutorialRouteDone = false;
+    run.tutorialHealDone = false;
+    run.tutorialOnwardDone = false;
     run.tutorialTrainerDone = false;
     run.tutorialDamageDone = false;
     run.tutorialCatchDone = false;
@@ -1576,7 +1578,7 @@
       //     team card and use a Potion is the most-used skill in the game.
       //     The next battle button stays locked until the Potion is used, so
       //     the path stays linear: catch -> heal -> battle 2.
-      if (pro && run.section === 1 && run.battleInSection === 1 && !run.tutorialHealDone) {
+      if (pro && run.section === 1 && run.battleInSection === 1 && !tutorialHealed()) {
         var caughtMonH = caughtMonInParty();
         var caughtSlotH = caughtMonH && caughtMonH.hpPct < 1 ? teamSlotFor(caughtMonH) : null;
         if (caughtMonH && caughtSlotH) {
@@ -1585,13 +1587,32 @@
             bypassSeen: true, vital: true,
             stillValid: function () {
               return onRoute() && run.section === 1 && run.battleInSection === 1 &&
-                !!caughtMonInParty() && !run.tutorialHealDone &&
-                caughtMonInParty().hpPct < 1;
+                !tutorialHealed();
             },
             template: { NAME: monDisplayName(caughtMonH) },
             onShow: function () { if (!CO.seen('healOpen')) CO.markSeen('healOpen'); }
           });
+          return;
         }
+        // The new partner arrived at full HP (or there is nothing to heal):
+        // there is no Potion to press. Fall through to the onward beat below
+        // instead of stranding the player on the route with no next action.
+      }
+
+      // 1b2. Healed. The route now has exactly one next action: press the
+      //      battle button for stop 2. This is its own beat, not part of the
+      //      heal card, so the player is never left looking at a route with
+      //      nothing glowing after the Potion (or after a full-HP catch).
+      if (pro && run.section === 1 && run.battleInSection === 1 && tutorialHealed()) {
+        CO.lesson('onward', {
+          anchor: $('btnGoBattle'), actionRequired: true, keepHalo: true,
+          bypassSeen: true, vital: true,
+          stillValid: function () {
+            return onRoute() && run.section === 1 && run.battleInSection === 1 &&
+              tutorialHealed();
+          },
+          onShow: function () { if (!CO.seen('onward')) CO.markSeen('onward'); }
+        });
         return;
       }
 
@@ -1676,23 +1697,30 @@
     return !!(run && run.prologue && run.section === 1);
   }
 
-  // The guided run is one linear path of 13 steps. This derives the current
+  // The guided run is one linear path of 14 steps. This derives the current
   // position from the run's own tutorial flags (plus the two profile-scoped
   // lessons), so the label is correct for fresh players AND for a run resumed
-  // halfway. The coach stamps it onto every scripted beat as "Step N of 13".
-  var TUTORIAL_STEP_TOTAL = 13;
+  // halfway. The coach stamps it onto every scripted beat as "Step N of 14".
+  var TUTORIAL_STEP_TOTAL = 14;
+  // The heal step is complete once the Potion was actually used, OR when the
+  // new partner never needed one (it arrived at full HP). Both the route
+  // branch and the onward beat's `stillValid` share this single definition.
+  function tutorialHealed() {
+    if (run && run.tutorialHealDone) return true;
+    var caught = caughtMonInParty();
+    return !caught || caught.hpPct >= 1;
+  }
   function tutorialStepLabel() {
     if (!run || !run.prologue) return null;
     var CO = window.Coach;
-    var caught = caughtMonInParty();
-    var healed = !!(run.tutorialHealDone || !caught || (caught && caught.hpPct >= 1));
     var steps = [
       !!(CO && (CO.seen('welcome') || run.tutorialStarterShown)),
       !!run.tutorialStarterShown,
       !!run.tutorialRouteDone,
       !!run.tutorialDamageDone,
       !!run.tutorialCatchDone,
-      healed,
+      tutorialHealed(),
+      !!run.tutorialOnwardDone,
       !!run.tutorialEffectDone,
       caughtIsLead(),
       !!run.tutorialSwitchDone,
@@ -2904,6 +2932,7 @@
       if (got <= 0) { toast('Already at full HP.'); return; }
       N.useItem(run, itemId);
       mon.hpPct = Math.min(1, mon.hpPct + got / mx);
+      toast(mon.name + ' recovered ' + got + ' HP!');
       // The guided run's heal step is complete the moment the new partner is
       // healed out of battle — this is the taught action, not just a card
       // read.
@@ -2915,8 +2944,14 @@
         if (!COheal.seen('healOpen')) COheal.markSeen('healOpen');
         if (!COheal.seen('healUse')) COheal.markSeen('healUse');
         try { COheal.clearMark(); } catch (e) {}
+        saveGame();
+        // Close the party sheet and return to the route immediately so the
+        // next scripted beat ("continue to the next battle") appears now,
+        // rather than waiting for the player to dismiss the sheet themselves.
+        window.Modal.close('xTeamDetail');
+        renderCrossroads();
+        return;
       }
-      toast(mon.name + ' recovered ' + got + ' HP!');
       saveGame(); drawPartyDetail(); drawTeamStrip(); renderHud();
     });
     // Ether button
@@ -3900,6 +3935,12 @@
     // sprites, no moves).
     void host.offsetHeight;
     ui = new window.BattleUI(); ui.mount(host);
+    // A lost GPU context is a recoverable "battle failed to load", never a
+    // silently white canvas. Route it into the same retry panel as any other
+    // mount failure.
+    ui.onContextLost = function () {
+      battleFailed(new Error('The 3D renderer lost its context.'));
+    };
     // Keep tutorial annotations glued across HUD re-renders: any redraw
     // (sprites loading, HP bars settling, ...) replaces the exact nodes a
     // coach glow or bubble points at. Re-pinning only per battle request
@@ -3960,17 +4001,23 @@
     // route beat complete only when that exact button was actually used.
     if (tutorialSection1()) {
       if (run.battleInSection === 0) run.tutorialRouteDone = true;
+      if (run.battleInSection === 1) run.tutorialOnwardDone = true;
       if (N.nextIsTrainer(run)) run.tutorialTrainerDone = true;
       saveGame();
     }
     // A fresh battle must never re-apply stale resume overrides.
     resumePending = false;
     battleStarting = true;
-    var isTrainer = N.nextIsTrainer(run);
-    show('Battle');
-    var u = ensureUI();
-    u.setMsg('Loading\u2026');
     try {
+      var isTrainer = N.nextIsTrainer(run);
+      // These MUST live inside the try: show() / ensureUI() can throw (most
+      // commonly BattleUI.mount() failing to create a WebGL context), and a
+      // throw outside the try used to reject the async function with the
+      // finally never running -- `battleStarting` stayed true forever and
+      // every later battle-button click was silently swallowed.
+      show('Battle');
+      var u = ensureUI();
+      u.setMsg('Loading\u2026');
       if (isTrainer) {
         var t = N.trainerFor(run);
         var team = await N.makeTrainerTeam(run, t);
@@ -3994,8 +4041,9 @@
       }
     } catch (err) {
       // Anything in here (a bad species roll, the learnsets chunk failing to
-      // download) used to reject silently and strand the player on an empty
-      // battle screen. Surface it and offer a way out instead.
+      // download, a renderer that refused to mount) used to reject silently
+      // and strand the player on an empty battle screen. Surface it and offer
+      // a way out instead.
       console.error('[battle] failed to start', err);
       battleFailed(err);
     } finally {
@@ -4009,6 +4057,13 @@
     teardownBattleUI();
     var host = $('battleHost');
     if (!host) return;
+    // A half-mounted renderer can leave its canvas and its mount flag behind
+    // even when teardownBattleUI() found no live `ui` to unmount (the throw
+    // happened inside BattleUI.mount() before it was fully wired). Clear both
+    // so "Try again" mounts a fresh scene instead of tripping the
+    // "already mounted" guard on a zombie canvas.
+    host._bm = null;
+    host.querySelectorAll('canvas, .bm-sprites, .battle-hud').forEach(function (n) { n.remove(); });
     host.innerHTML =
       '<div class="battle-error panel center">' +
       '<h2>Battle failed to load</h2>' +
@@ -7003,8 +7058,12 @@
 
   window.Game = { get run() { return run; }, show: show, startNextBattle: startNextBattle,
                   startGauntlet: startGauntlet,
-                  // The guided run's position on its linear 13-step path. The
-                  // coach stamps it onto every scripted beat ("Step N of 13").
+                  // True while startNextBattle is still assembling a battle.
+                  // Exposed so tests can assert the "dead button" latch is
+                  // released after a failed start.
+                  get battleStarting() { return battleStarting; },
+                  // The guided run's position on its linear 14-step path. The
+                  // coach stamps it onto every scripted beat ("Step N of 14").
                   tutorialStepLabel: tutorialStepLabel,
                   // The guided training walkthrough's current step (tests).
                   get tutorGuide() { return tutorGuide; },

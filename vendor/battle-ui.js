@@ -149,44 +149,75 @@ BattleUI.prototype.mount = function(host){
   this._mountAttempts=0;
   host._bm=this;host.innerHTML='';
   host.style.cssText='position:absolute;inset:0;overflow:hidden;';
-  // Layer 0: WebGL canvas (scenery only)
-  var isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-  // Safari can terminate a WebGL context when a high-DPR canvas grows behind
-  // its browser chrome. Cap its backing buffer more conservatively.
-  var dpr=Math.min(window.devicePixelRatio||1,isiOS?1.5:2);
-  var r=new T.WebGLRenderer({antialias:false,alpha:false});
-  r.setPixelRatio(dpr);r.setSize(w,h,false);
-  r.outputColorSpace=T.SRGBColorSpace;r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.1;
-  r.domElement.style.cssText='display:block;position:absolute;inset:0;width:100%;height:100%;z-index:1;';
-  host.appendChild(r.domElement);this.r=r;
-  var sc=new T.Scene();this.sc=sc;sc.background=new T.Color(0x70c3e8);
-  var cam=new T.PerspectiveCamera(45,w/Math.max(1,h),0.1,200);
-  cam.position.set(0,4.8,10.5);cam.lookAt(0,1.2,0);this.cam=cam;
-  // Layer 1: Sprite container (projected <img> elements, z-index between canvas and HUD)
-  var sp=document.createElement('div');sp.className='bm-sprites';
-  sp.style.cssText='position:absolute;inset:0;z-index:2;pointer-events:none;overflow:visible;';
-  host.appendChild(sp);this.sprites=sp;
-  // Layer 2: HUD (glass UI + floaters)
-  var hud=document.createElement('div');hud.className='battle-hud';
-  hud.style.cssText='position:absolute;inset:0;pointer-events:none;font-family:VT323,"Courier New",monospace;color:#fff;overflow:visible;z-index:3;';
-  host.appendChild(hud);this.hud=hud;
-  injectCSS();
-  ['b','p','e','w','f'].forEach(function(k){this.g[k]=new T.Group();sc.add(this.g[k]);},this);
-  // Build ENEMY first, then PLAYER, so player (closer to camera) is added later
-  // in both the 3D scene and the DOM — DOM paints later siblings on top, which
-  // is what we want: closer (player) renders in front of farther (enemy).
-  buildShadow(this,'e');buildShadow(this,'p');
-  buildSpriteDom(this,'e');buildSpriteDom(this,'p');
-  buildWeather(this);buildField(this);this.buildBiome('meadow');
   var self=this;
-  setTimeout(function(){if(self.r){try{self.r.shadowMap.enabled=true;self.r.shadowMap.type=T.PCFSoftShadowMap;}catch(_){}}},200);
-  window.addEventListener('resize',this._onResize);
-  this.s.mounted=true;
-  this._raf=requestAnimationFrame(this._anim);
-  this.render();
-  requestAnimationFrame(function(){self._onResize();});
-  // Replay anything the game asked for while we were still waiting on layout.
-  this._flushPending();
+  try{
+    // Layer 0: WebGL canvas (scenery only)
+    var isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+    // Safari can terminate a WebGL context when a high-DPR canvas grows behind
+    // its browser chrome. Cap its backing buffer more conservatively.
+    var dpr=Math.min(window.devicePixelRatio||1,isiOS?1.5:2);
+    var r=new T.WebGLRenderer({antialias:false,alpha:false});
+    r.setPixelRatio(dpr);r.setSize(w,h,false);
+    r.outputColorSpace=T.SRGBColorSpace;r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.1;
+    r.domElement.style.cssText='display:block;position:absolute;inset:0;width:100%;height:100%;z-index:1;';
+    host.appendChild(r.domElement);this.r=r;
+    // A lost GPU context must never leave a silently white canvas: stop the
+    // loop and hand the failure to the app (which surfaces the retry panel).
+    r.domElement.addEventListener('webglcontextlost',function(ev){
+      if(ev&&ev.preventDefault)ev.preventDefault();
+      if(self._raf){cancelAnimationFrame(self._raf);self._raf=null;}
+      self.s.mounted=false;
+      if(self.onContextLost){try{self.onContextLost();}catch(_){}}
+    });
+    r.domElement.addEventListener('webglcontextrestored',function(){
+      // A fresh battle mounts a fresh context; there is nothing to restore in
+      // place. The listener exists so the canvas never silently sits white.
+    });
+    var sc=new T.Scene();this.sc=sc;sc.background=new T.Color(0x70c3e8);
+    var cam=new T.PerspectiveCamera(45,w/Math.max(1,h),0.1,200);
+    cam.position.set(0,4.8,10.5);cam.lookAt(0,1.2,0);this.cam=cam;
+    // Layer 1: Sprite container (projected <img> elements, z-index between canvas and HUD)
+    var sp=document.createElement('div');sp.className='bm-sprites';
+    sp.style.cssText='position:absolute;inset:0;z-index:2;pointer-events:none;overflow:visible;';
+    host.appendChild(sp);this.sprites=sp;
+    // Layer 2: HUD (glass UI + floaters)
+    var hud=document.createElement('div');hud.className='battle-hud';
+    hud.style.cssText='position:absolute;inset:0;pointer-events:none;font-family:VT323,"Courier New",monospace;color:#fff;overflow:visible;z-index:3;';
+    host.appendChild(hud);this.hud=hud;
+    injectCSS();
+    ['b','p','e','w','f'].forEach(function(k){this.g[k]=new T.Group();sc.add(this.g[k]);},this);
+    // Build ENEMY first, then PLAYER, so player (closer to camera) is added later
+    // in both the 3D scene and the DOM — DOM paints later siblings on top, which
+    // is what we want: closer (player) renders in front of farther (enemy).
+    buildShadow(this,'e');buildShadow(this,'p');
+    buildSpriteDom(this,'e');buildSpriteDom(this,'p');
+    buildWeather(this);buildField(this);this.buildBiome('meadow');
+    setTimeout(function(){if(self.r){try{self.r.shadowMap.enabled=true;self.r.shadowMap.type=T.PCFSoftShadowMap;}catch(_){}}},200);
+    window.addEventListener('resize',this._onResize);
+    this.s.mounted=true;
+    this._raf=requestAnimationFrame(this._anim);
+    this.render();
+    requestAnimationFrame(function(){self._onResize();});
+    // Replay anything the game asked for while we were still waiting on layout.
+    this._flushPending();
+  }catch(err){
+    // Transactional mount: a throw halfway through must not leave a
+    // half-built scene (canvas, sprites, HUD) or a zombie mount flag that
+    // blocks the next battle. Clean up, mark disposed, and let the app own
+    // the error UX via battleFailed().
+    try{
+      if(this._raf){cancelAnimationFrame(this._raf);this._raf=null;}
+      window.removeEventListener('resize',this._onResize);
+      if(this.r){try{this.r.dispose();}catch(_){}if(this.r.domElement&&this.r.domElement.parentNode)this.r.domElement.parentNode.removeChild(this.r.domElement);}
+      if(this.sprites&&this.sprites.parentNode)this.sprites.parentNode.removeChild(this.sprites);
+      if(this.hud&&this.hud.parentNode)this.hud.parentNode.removeChild(this.hud);
+      if(host)host._bm=null;
+    }catch(_){}
+    this.r=null;this.sc=null;this.cam=null;this.sprites=null;this.hud=null;this.host=null;
+    this._disposed=true;this._pending=[];
+    console.error('[BattleUI] mount failed',err);
+    throw new Error('BattleUI could not mount: '+((err&&err.message)||String(err)),{cause:err});
+  }
 };
 
 BattleUI.prototype.unmount = function(){
@@ -196,7 +227,23 @@ BattleUI.prototype.unmount = function(){
   if(this._raf)cancelAnimationFrame(this._raf);
   if(this._momentTouts){this._momentTouts.forEach(function(t){clearTimeout(t);});}this._momentTouts=[];
   window.removeEventListener('resize',this._onResize);
-  if(this.r){try{this.r.dispose();}catch(_){}if(this.r.domElement&&this.r.domElement.parentNode)this.r.domElement.parentNode.removeChild(this.r.domElement);}
+  if(this.r){
+    try{this.r.dispose();}catch(_){}
+    // dispose() frees three.js resources but does NOT release the WebGL
+    // context. Return the context to the browser pool so contexts stop piling
+    // up (one per title visit, one per battle) -- mobile browsers, iOS Safari
+    // especially at high DPR, eventually refuse to create more and leave a
+    // pale white battle screen.
+    try{
+      if(typeof this.r.forceContextLoss==='function')this.r.forceContextLoss();
+      else if(this.r.getContext){
+        var gl=this.r.getContext();
+        var ext=gl&&gl.getExtension&&gl.getExtension('WEBGL_lose_context');
+        if(ext&&ext.loseContext)ext.loseContext();
+      }
+    }catch(_){}
+    if(this.r.domElement&&this.r.domElement.parentNode)this.r.domElement.parentNode.removeChild(this.r.domElement);
+  }
   if(this.sprites&&this.sprites.parentNode)this.sprites.parentNode.removeChild(this.sprites);
   if(this.hud&&this.hud.parentNode)this.hud.parentNode.removeChild(this.hud);
   if(this.host)this.host._bm=false;
@@ -1021,6 +1068,9 @@ BattleUI.prototype._anim=function(){
     pt.geometry.attributes.position.needsUpdate=true;}}
   for(var k=this.s.ps.length-1;k>=0;k--){var pa=this.s.ps[k];pa.life+=dt;for(var m=0;m<pa.v.length;m++){pa.a[m*3]+=pa.v[m][0]*dt;pa.a[m*3+1]+=pa.v[m][1]*dt;pa.a[m*3+2]+=pa.v[m][2]*dt;pa.v[m][1]-=4*dt;}pa.m.geometry.attributes.position.needsUpdate=true;pa.m.material.opacity=Math.max(0,1-pa.life/pa.ttl);if(pa.life>=pa.ttl){this.g.f.remove(pa.m);try{pa.m.geometry.dispose();pa.m.material.dispose();}catch(_){}this.s.ps.splice(k,1);}}
   this._stepField(t,dt);
+  // The loop re-arms itself at the very top (before any scene work), and this
+  // render call is individually guarded -- a one-frame GPU hiccup logs a
+  // warning and the next frame simply retries rather than killing the loop.
   if(this.r){try{this.r.render(this.sc,this.cam);}catch(e){console.warn('[BattleUI] render err',e);}}
 };
 
