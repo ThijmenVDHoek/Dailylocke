@@ -1152,6 +1152,82 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   }
 }
 
+// ====================================== THE STARTER IS A FREE CHOICE ======
+// The guided run's very first lesson used to action-lock the FIRST starter
+// card, which made Treecko the only Pokemon a first-time player could pick
+// -- Charmander and Froakie were literally unclickable. The tutorial must
+// accept any of the three and adapt (the super-effective wild, the switch
+// target, the evolution and the training steps all follow whichever one was
+// actually chosen).
+{
+  const waitFor = async (fn, ms = 20000) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      const value = fn();
+      if (value) return value;
+      await new Promise((res) => setTimeout(res, 25));
+    }
+    return null;
+  };
+  window.Modal.closeAll();
+  window.Coach.clearMark();
+
+  // A brand-new trainer walks the real first-run doors.
+  window.document.getElementById('btnFreshGame').click();
+  const setup = await waitFor(() => !window.document.getElementById('screenSetup').hidden);
+  check('the guided run starts at trainer setup', !!setup);
+  if (setup) {
+    window.document.getElementById('setupName').value = 'Tipster';
+    window.document.getElementById('btnSetupGo').click();
+  }
+  const cards = await waitFor(() =>
+    window.document.querySelectorAll('#starterGrid .starter-card').length === 3, 40000);
+  check('the guided run offers the fixed trio', !!cards);
+
+  // The starter lesson halos the grid but must NOT action-lock a card: all
+  // three Choose buttons stay live.
+  const sheet = await waitFor(() => !window.document.getElementById('screenCoach').hidden, 10000);
+  check('the starter lesson opens over the trio', !!sheet &&
+    window.document.getElementById('coachTitle').textContent === 'Choose your starter!',
+    sheet ? window.document.getElementById('coachTitle').textContent : 'NO SHEET');
+  check('no starter card is action-locked by the lesson',
+    !window.Coach.actionLocked() &&
+    !window.document.body.classList.contains('coach-action-locked'));
+
+  // The free choice is an informed one: every prologue card names a role and
+  // an attack style.
+  check('the guided trio cards name a role and an attack style',
+    [...window.document.querySelectorAll('#starterGrid .starter-card')]
+      .every((c) => !!c.querySelector('.mr-label') && !!c.querySelector('.mr-style')));
+
+  if (sheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+
+  // Pick the SECOND card on purpose: the old lock made only the first card
+  // (Treecko) clickable, so this is the regression itself.
+  const second = window.document.querySelectorAll('#starterGrid .pick-btn')[1];
+  check('a non-first starter card is clickable during the tutorial', !!second);
+  if (second) second.click();
+  const nick = await waitFor(() => !window.document.getElementById('screenNickname').hidden, 8000);
+  if (nick) {
+    window.document.getElementById('nickInput').value = 'Cinder';
+    window.document.getElementById('btnNickOk').click();
+  }
+  const route = await waitFor(() => !window.document.getElementById('screenCrossroads').hidden, 20000);
+  check('choosing the second starter reaches the route', !!route);
+  check('the run tracks the ACTUALLY chosen starter',
+    window.Game.run && window.Game.run.prologue === true &&
+    window.Game.run.party[0].id === 'charmander' &&
+    String(window.Game.run.tutorialStarterUid) === String(window.Game.run.party[0].uid),
+    window.Game.run && (window.Game.run.party[0] && window.Game.run.party[0].id));
+
+  // Tidy: the blocks that follow build their own runs and coach state. A
+  // beat or two may still be settling, so drain them.
+  await new Promise((r) => setTimeout(r, 900));
+  window.Modal.closeAll();
+  window.Coach.clearMark();
+  window.Game.run.tutorialStarterUid = null;
+}
+
 // ======================================= THE CAPTURE BEAT, FOR REAL =====
 // Everything above proves the queue; this proves the GLUE. Drive a real
 // capture encounter through startNextBattle -> the engine -> the DOM: the
@@ -1535,6 +1611,10 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     return null;
   };
 
+  // A player who can see the Gauntlet button has finished onboarding (or has
+  // history) -- the beginner title hides the mode grid. Model that: it is
+  // what keeps the title in "modes" state after the run is abandoned below.
+  window.Coach.setOnboarded(true);
   window.Game.show('Title');
   const gBtn = doc.getElementById('btnGauntlet');
   check('the title offers the Team Gauntlet', !!gBtn && /team gauntlet/i.test(gBtn.textContent));
@@ -2605,6 +2685,27 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
       .map((d) => d.type);
     const best = Math.max(...stabTypes.map((t) => C.typeMod(t, foe.types)));
     check(`the super-effective battle pairs a weakness for the ${window.PS.Dex.species.get(starterId).name} lead`,
+      best >= 2 && C.bst(foeId) <= 330,
+      `${foeId} (${foe.types.join('/')}) takes \u00d7${best} from ${stabTypes.join('/')}`);
+  }
+
+  // A player who makes the caught Pokemon the lead BEFORE the super-effective
+  // battle still gets a wild their ACTUAL lead hits for 2x: the taught move
+  // and the pinned species must describe the same Pokemon, or the scripted
+  // battle disables every move and soft-locks.
+  {
+    const p3 = N2.newRun(90210);
+    p3.prologue = true; p3.mode = 'free'; p3.section = 1; p3.battleInSection = 1;
+    const sparky = await C.makeMon('pikachu');
+    sparky.name = 'Sparky';
+    p3.party.push(sparky); N2.trackMon(p3, sparky);
+    const foeId = N2.pickWild(p3, {});
+    const foe = window.PS.Dex.species.get(foeId);
+    const stabTypes = sparky.moves.map((mv) => window.PS.Dex.moves.get(mv))
+      .filter((d) => d.category !== 'Status' && sparky.types.includes(d.type))
+      .map((d) => d.type);
+    const best = Math.max(...stabTypes.map((t) => C.typeMod(t, foe.types)));
+    check('an early lead swap still pairs a 2x weakness for the ACTIVE lead',
       best >= 2 && C.bst(foeId) <= 330,
       `${foeId} (${foe.types.join('/')}) takes \u00d7${best} from ${stabTypes.join('/')}`);
   }

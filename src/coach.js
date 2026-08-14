@@ -23,8 +23,12 @@
 //      two seconds elapsed is not contextual, it is just early.
 //   4. A hint must never look like a button. Everything here carries the
 //      professor's portrait and the .coach- visual register.
-//   5. Tutorial-only and replayable. Lessons can appear during the guided
-//      prologue; after that they stay quiet unless opened from the Guide.
+//   5. On by default, tutorial-first and replayable. Lessons fire for
+//      anyone who has not turned tips off. The guided prologue's scripted
+//      beats are gated by the run's own prologue flag; the just-in-time
+//      lessons (Mart, training, catching...) fire once each for everyone
+//      else. Completing the tutorial pre-marks them read, so a player who
+//      finished stays quiet — and every lesson remains in the Guide.
 //
 // TWO SURFACES, ONE REGISTER
 //   Every lesson is the professor, the violet rail and the halo; which frame
@@ -146,8 +150,8 @@
   }
   function persist() { if (saveFn) { try { saveFn(); } catch (e) {} } }
 
-  function tipsOn() { return !state().off && inPrologue(); }
-  function badgesOn() { var c = state(); return !c.off && c.badges !== false && inPrologue(); }
+  function tipsOn() { return !state().off; }
+  function badgesOn() { var c = state(); return !c.off && c.badges !== false; }
   function seen(id) { return !!state().seen[id]; }
   function markSeen(id) { state().seen[id] = 1; persist(); }
   // Forget a lesson was read. The guided run uses this to keep a FORCED step
@@ -524,7 +528,7 @@
     { id: 'welcome', where: 'basics', title: 'One life each',
       body: 'If a Pokemon faints, it is gone forever. No revives, no exceptions.' },
     { id: 'starter', where: 'basics', title: 'Choose your starter!',
-      body: 'The first starter card is the guided choice for this lesson. Tap <b>Choose</b> to pick it, then give it a name.' },
+      body: 'Pick whichever of the three you like \u2014 tap <b>Choose</b> on its card, then give it a name. Every card says what that Pokemon is good at.' },
     { id: 'route', where: 'basics', title: 'The path',
       body: 'This section starts with a <b>Capture Encounter</b>. Tap <b>Capture Encounter</b> to begin your one catch chance for this section.' },
     { id: 'battleBag', where: 'battle', title: 'Bag: heal mid-battle',

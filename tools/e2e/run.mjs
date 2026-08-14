@@ -393,8 +393,13 @@ try {
     check('Daily is finite', await page.evaluate(() => window.Daily.SECTIONS > 0),
       `${await page.evaluate(() => window.Daily.SECTIONS)} sections`);
 
-    // Start today's Daily.
+    // Start today's Daily. The very first press explains the mode once
+    // (one sheet per mode, per profile) -- tap through it like a player.
     await page.click('#btnDaily');
+    const dailyModeSheet = await page.waitForSelector('#screenModeInfo:not([hidden])', { timeout: 8000 })
+      .catch(() => null);
+    check('a first Daily press explains the mode first', !!dailyModeSheet);
+    if (dailyModeSheet) await page.click('#btnModeGo');
     await page.waitForSelector('#screenStarter:not([hidden])', { timeout: 30000 });
     await page.waitForFunction(
       () => document.querySelectorAll('#starterGrid .starter-card').length === 3,
@@ -519,7 +524,12 @@ try {
     const page = await bootPage(context, srv.origin);
 
     // ---- the draft ----
+    // The first Gauntlet press explains the mode once, exactly like Free Play.
     await page.click('#btnGauntlet');
+    const gauntletModeSheet = await page.waitForSelector('#screenModeInfo:not([hidden])', { timeout: 8000 })
+      .catch(() => null);
+    check('a first Gauntlet press explains the mode first', !!gauntletModeSheet);
+    if (gauntletModeSheet) await page.click('#btnModeGo');
     await page.waitForSelector('#screenTeamBuilder:not([hidden])', { timeout: 15000 });
     check('the Team Gauntlet opens the draft', true);
     check('the draft cannot start empty',
@@ -701,11 +711,22 @@ try {
     check('choosing the starter is taught by the immersive sheet',
       starterSheet.title === 'Choose your starter!' && starterSheet.portrait &&
       starterSheet.reveal && !starterSheet.inlineBox, JSON.stringify(starterSheet));
+    // The choice itself is free: the sheet explains and halos the grid, but
+    // it must never action-lock one specific card (the old behaviour made
+    // Treecko the only pickable starter).
+    check('the starter sheet never forces one specific card',
+      await page.evaluate(() =>
+        !window.Coach.actionLocked() &&
+        !document.body.classList.contains('coach-action-locked')));
     await page.click('#screenCoach [data-coach-ok]');
     await page.waitForTimeout(400);
 
     // ---- into the run ----
-    await page.locator('#starterGrid .pick-btn').first().click();
+    // Pick the LAST card (Froakie) on purpose: the regression this pins is
+    // "only the first starter was clickable", and the rest of the guided run
+    // (weakness pairing, switch target, evolution, training) must adapt to
+    // whichever starter was actually chosen.
+    await page.locator('#starterGrid .pick-btn').last().click();
     await page.waitForSelector('#screenNickname:not([hidden])', { timeout: 15000 });
     await page.fill('#nickInput', 'Twig');
     await page.click('#btnNickOk');
@@ -1406,6 +1427,9 @@ try {
     const page = await bootPage(context, srv.origin);
 
     await page.click('#btnDaily');
+    const endpointModeSheet = await page.waitForSelector('#screenModeInfo:not([hidden])', { timeout: 8000 })
+      .catch(() => null);
+    if (endpointModeSheet) await page.click('#btnModeGo');
     await page.waitForFunction(
       () => document.querySelectorAll('#starterGrid .starter-card').length === 3,
       null, { timeout: 60000 });

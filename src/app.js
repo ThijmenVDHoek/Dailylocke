@@ -878,12 +878,17 @@
     // The advice is the professor's immersive dialog sheet with the typewriter
     // reveal — the same surface the rest of the tutorial uses, so the very
     // first lesson sets the register for everything that follows.
+    //
+    // The choice itself is FREE: the lesson points at the grid as a whole and
+    // never action-locks a specific card. Forcing the first card (the old
+    // behaviour) made the tutorial pick Treecko for the player — Charmander
+    // and Froakie were literally unclickable — and the rest of the guided run
+    // is built to adapt to whichever starter is actually chosen.
     if (CO && CO.tipsOn() && run && run.prologue && !run.tutorialStarterShown) {
       setTimeout(function () {
         if ($('screenStarter').hidden) return;
         CO.lesson('starter', {
-          resolve: function () { return $('starterGrid').querySelector('.pick-btn'); },
-          actionRequired: true,
+          anchor: g,
           keepHalo: true,
           bypassSeen: true,
           vital: true,
@@ -904,10 +909,14 @@
       var isPro = run && run.prologue;
       card.className = 'card starter-card' + (isPro ? ' simple' : '');
       if (isPro) {
+        // The guided trio still keeps the simple layout, but each card names
+        // what the Pokemon is (role, attack style, power bar) so a first-time
+        // player can compare the three instead of picking on looks alone.
         card.innerHTML =
           '<div class="sprite-box">' + bigSprite(mon.id, '', 112, 150, 1, mon.shiny) + '</div>' +
           '<div class="sc-name">' + escapeHtml(mon.name) + '</div>' +
           '<div class="types" style="justify-content:center;margin:6px 0">' + typeChips(mon.types) + '</div>' +
+          monRoleHtml(mon) +
           '<button class="btn-primary pick-btn">Choose</button>';
       } else {
         card.innerHTML =
@@ -2068,22 +2077,47 @@
   // Which stat the guided stats step moves where. Derive this from the live
   // spread instead of assuming an old save or a particular species: the
   // source must have a point to give and the destination must have room.
+  //
+  // The destination prefers a stat the Pokemon actually wants -- its better
+  // attacking stat, then Speed, then the defensive stats -- so the walkthrough
+  // never teaches a special attacker to move points into Attack. The old
+  // version always picked the first non-maxed stat, which for every guided
+  // starter (all special attackers) meant the useless Atk slider.
   function tutorStatTargets(mon) {
     C.ensureSP(mon);
-    var take = null, give = null;
+    var keyFor = function (key) {
+      for (var i = 0; i < STAT_KEYS.length; i++) {
+        if (STAT_KEYS[i][0] === key) return STAT_KEYS[i];
+      }
+      return null;
+    };
+    var take = null;
     for (var i = 0; i < STAT_KEYS.length; i++) {
       if ((mon.sp[STAT_KEYS[i][0]] || 0) > 0) {
         take = STAT_KEYS[i]; break;
       }
     }
-    for (var j = 0; j < STAT_KEYS.length; j++) {
-      var key = STAT_KEYS[j][0];
-      if (key !== (take && take[0]) && (mon.sp[key] || 0) < C.SP_MAX) {
-        give = STAT_KEYS[j]; break;
+    var takeKey = take ? take[0] : 'hp';
+    var want = [];
+    try {
+      var style = window.Coach ? window.Coach.attackStyle(mon.id) : null;
+      if (style && style.key === 'Physical') want.push('atk');
+      else if (style && style.key === 'Special') want.push('spa');
+    } catch (e) {}
+    want.push('spe', 'def', 'spd', 'hp');
+    var give = null;
+    for (var w = 0; w < want.length && !give; w++) {
+      var key = want[w];
+      if (key !== takeKey && (mon.sp[key] || 0) < C.SP_MAX) give = keyFor(key);
+    }
+    if (!give) {
+      for (var j = 0; j < STAT_KEYS.length; j++) {
+        var k2 = STAT_KEYS[j][0];
+        if (k2 !== takeKey && (mon.sp[k2] || 0) < C.SP_MAX) { give = STAT_KEYS[j]; break; }
       }
     }
     return {
-      takeKey: take ? take[0] : 'hp',
+      takeKey: takeKey,
       take: take ? take[1] : 'HP',
       giveKey: give ? give[0] : 'def',
       give: give ? give[1] : 'Def'
@@ -4592,11 +4626,14 @@
           disabled = true;
         }
       }
-      if (isTutorialSE && isTurn1SE) {
-        var eff = d.category === 'Status' ? 1 : C.typeMod(d.type, foeTypes);
-        if (d.category === 'Status' || (forcedSEId ? d.id !== forcedSEId : eff < 2)) {
-          disabled = true;
-        }
+      if (isTutorialSE && isTurn1SE && forcedSEId) {
+        // Exactly one legal super-effective move is presented; everything
+        // else stays locked until it is used. Deliberately gated on
+        // `forcedSEId` existing: if no move hits the foe for 2x (a lead the
+        // player reordered into a strange matchup), the battle unlocks
+        // normally instead of disabling every button -- the lesson simply
+        // stays quiet rather than soft-locking the fight.
+        if (d.category === 'Status' || d.id !== forcedSEId) disabled = true;
       }
       if (isTutorialSwitch && !run.tutorialSwitchDone) {
         // The third wild starts with a single prescribed switch. Move buttons
@@ -4693,12 +4730,26 @@
           bctx.tutorialSwitchOpen = true;
           var reqNow = battle.state.lastRequest;
           var choices = battle.switchableFromRequest(reqNow);
+          // The scripted switch sends in the starter when it is a legal
+          // switch-in. If the starter is already the active mon (the player
+          // skipped making the catch their lead), the only selectable card
+          // is the first OTHER legal switch-in -- and the lesson must name
+          // THAT Pokemon, not one whose card is locked.
           var wanted = starterMon();
           var wantedIndex = wanted ? run.party.indexOf(wanted) : -1;
           var only = choices.filter(function (o) { return o.partyIndex === wantedIndex; });
           if (!only.length) only = choices.slice(0, 1);
-          bctx.tutorialSwitchTargetUid = only.length && run.party[only[0].partyIndex]
-            ? run.party[only[0].partyIndex].uid : null;
+          var switchTarget = only.length ? run.party[only[0].partyIndex] : null;
+          if (!switchTarget) {
+            // Nothing to switch to at all: the switch lesson cannot be
+            // taught in this battle. Unlock the fight rather than stranding
+            // the player on an empty, all-disabled panel.
+            run.tutorialSwitchDone = true;
+            saveGame();
+            showPartyPanel(false);
+            return;
+          }
+          bctx.tutorialSwitchTargetUid = switchTarget.uid;
           showPartyPanel(true, only);
           setTimeout(function () { runBattleCoach(true); }, 0);
         } else {
@@ -4946,8 +4997,19 @@
         } else if (!run.tutorialSwitchPickDone) {
           requested = teachInBattle('switchPick', {
             vital: true, bypassSeen: true, stillValid: stillHere,
+            // Name the card that is actually selectable -- the armed switch
+            // target -- not the starter. They differ whenever the player
+            // skipped making the catch their lead, and naming a locked card
+            // would teach the opposite of what the screen allows.
             template: (function () {
-              var m = starterMon();
+              var uid = bctx && bctx.tutorialSwitchTargetUid;
+              var m = null;
+              if (uid != null) {
+                for (var pi = 0; pi < run.party.length; pi++) {
+                  if (String(run.party[pi].uid) === String(uid)) { m = run.party[pi]; break; }
+                }
+              }
+              if (!m) m = starterMon();
               return m ? { NAME: monDisplayName(m) } : null;
             }())
           });

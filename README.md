@@ -137,11 +137,13 @@ too:
   names are untouched; the gold line underneath tells the truth.
 
 **2. A guided first run.** `Start a fresh game` → pick a sprite and a name →
-pick from a fixed Treecko / Charmander / Froakie trio → play a real Free Play
-run with the lessons switched on. Nothing about it is faked: same engine, same
-permadeath, same slot. Section 1 alone gets a safety net (friendly wilds with
-high catch rates, the gentlest trainer on the roster, a few extra balls) so the
-run cannot end before the lesson about catching has happened.
+pick one of a fixed Treecko / Charmander / Froakie trio (any of the three —
+the choice is free, and every later step adapts to the starter actually
+chosen) → play a real Free Play run with the lessons switched on. Nothing
+about it is faked: same engine, same permadeath, same slot. Section 1 alone
+gets a safety net (friendly wilds with high catch rates, the gentlest trainer
+on the roster, a few extra balls) so the run cannot end before the lesson
+about catching has happened.
 
 The guided run is a **scripted tutorial**, and every step is a vital beat
 (queue-backed, so a busy surface or an unlucky race can never swallow it). A
@@ -161,7 +163,9 @@ not available until the script reaches them.
 
 1. **Choose your starter** — the very first card is the professor's immersive
    dialog sheet (big portrait, typewriter reveal), setting the register for
-   the whole tutorial.
+   the whole tutorial. The sheet explains the choice and halos the grid, but
+   never forces a card: Treecko, Charmander and Froakie are all pickable, and
+   each card names its role and attack style so the choice is informed.
 2. **The path** — how a section is shaped, on the route screen. During
    section 1 the Mart is hidden entirely; the route is just your team, your
    Bag and the battle button.
@@ -169,8 +173,9 @@ not available until the script reaches them.
    opens (no waiting a turn): weaken it, then throw a ball. The catch
    success is explained too.
 4. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
-   move the *starter* carries, so the ×2 tag the lesson points at is always
-   there to press.
+   move the party *lead* carries (the starter, at this point of the script),
+   so the ×2 tag the lesson points at is always there to press — whichever
+   starter was chosen, and even if the player reordered the party early.
 5. **Your new lead** — a step teaches making the caught Pokémon the lead,
    right before the switching lesson that pairs with it.
 6. **Switching** (stop 3). The Trainer battle itself has no Bag step — the

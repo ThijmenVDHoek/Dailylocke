@@ -264,9 +264,11 @@
                             'numel', 'vulpix'];
 
   // Section 1 is a lesson, not a random obstacle course. The second stop is
-  // pinned to one harmless species for each starter so the promised STAB
-  // weakness is always present and every first-time player sees the same
-  // choreography. Later sections return to the normal seeded encounter roll.
+  // pinned to one harmless species per starter (the starter IS the lead at
+  // that point of the script) so the promised STAB weakness is always present
+  // and every first-time player sees the same choreography. A reordered party
+  // falls through to the weakness pool keyed on the lead's own STAB. Later
+  // sections return to the normal seeded encounter roll.
   var PROLOGUE_SECOND_WILD = {
     treecko: 'sandshrew',   // Grass -> Ground
     charmander: 'oddish',   // Fire -> Grass
@@ -274,25 +276,23 @@
   };
   var PROLOGUE_THIRD_WILD = 'bidoof';
 
-  // The starter's STAB types. The guided run's super-effective battle must
-  // be weak to the STARTER's moves (that is the lesson being taught),
-  // regardless of who currently leads the party.
-  function starterStabTypes(run) {
-    var starter = null;
-    if (run && run.tutorialStarterUid && run.party) {
-      for (var i = 0; i < run.party.length; i++) {
-        if (String(run.party[i].uid) === String(run.tutorialStarterUid)) { starter = run.party[i]; break; }
-      }
-    }
-    if (!starter) starter = (run && run.party && run.party[0]) || null;
-    if (!starter) return [];
-    var types = starter.types && starter.types.length ? starter.types.slice() : [];
-    if (!types.length && starter.id) {
-      var sp0 = Dex.species.get(starter.id);
+  // The LEAD's STAB types. The guided run's super-effective battle must be
+  // weak to the moves of the Pokemon that will actually be attacking -- the
+  // party leader -- because the battle only lets the active mon act. In the
+  // scripted flow the starter is still the lead here (making the catch the
+  // lead is taught AFTER this battle), so this is starter-based in practice;
+  // keying it to the lead instead means a player who reorders early still
+  // gets a wild their lead can hit for 2x, and the lesson never soft-locks.
+  function leadStabTypes(run) {
+    var lead = (run && run.party && run.party[0]) || null;
+    if (!lead) return [];
+    var types = lead.types && lead.types.length ? lead.types.slice() : [];
+    if (!types.length && lead.id) {
+      var sp0 = Dex.species.get(lead.id);
       if (sp0 && sp0.exists) types = (sp0.types || []).slice();
     }
     var out = [];
-    (starter.moves || []).forEach(function (mv) {
+    (lead.moves || []).forEach(function (mv) {
       var d = Dex.moves.get(mv);
       if (!d || !d.exists || d.category === 'Status') return;
       if (types.indexOf(d.type) < 0) return;
@@ -307,7 +307,7 @@
   }
 
   async function tutorialOpponentMoves(speciesId) {
-    var legal = [];
+    var legal;
     try { legal = await C.legalMoves(speciesId, { all: true }); }
     catch (e) { legal = []; }
     var has = {};
@@ -367,26 +367,19 @@
       // cannot end the run before the player knows what a Poke Ball is.
       var pr = drand(run.seed + '|prologue|' + run.battleInSection);
       // The SECOND battle teaches super-effective damage on a live target:
-      // prefer a species the STARTER's STAB actually hits for 2x+, so the
-      // lesson and the battle describe the same move even if the player has
-      // already reordered the party.
+      // prefer a species the LEAD's STAB actually hits for 2x+, so the
+      // lesson and the battle describe the same move no matter who the
+      // player has put at the front of the party.
       if (run.battleInSection === 1) {
-        var starter = null;
-        if (run.tutorialStarterUid && run.party) {
-          for (var si = 0; si < run.party.length; si++) {
-            if (String(run.party[si].uid) === String(run.tutorialStarterUid)) {
-              starter = run.party[si]; break;
-            }
-          }
-        }
-        var pinned = starter && PROLOGUE_SECOND_WILD[starter.id];
+        var lead = (run.party && run.party[0]) || null;
+        var pinned = lead && PROLOGUE_SECOND_WILD[lead.id];
         if (pinned && !(run.seenSpecies || {})[pinned]) {
           var pinnedSp = Dex.species.get(pinned);
-          if (pinnedSp && pinnedSp.exists && starterStabTypes(run).some(function (t) {
+          if (pinnedSp && pinnedSp.exists && leadStabTypes(run).some(function (t) {
             return C.typeMod(t, pinnedSp.types || []) >= 2;
           })) return pinned;
         }
-        var weakTo = starterStabTypes(run);
+        var weakTo = leadStabTypes(run);
         if (weakTo.length) {
           var wpool = PROLOGUE_WILDS.concat(PROLOGUE_WEAK_POOL).filter(function (id) {
             var spw = Dex.species.get(id);
