@@ -153,6 +153,14 @@ professor's card is dismissed until that control is actually used. Reloading
 mid-run uses the run's own tutorial state rather than the account's lesson
 history, so an old profile can never skip a required action.
 
+The whole onboarding is **one conversation with Professor Oak, in 13 linear
+steps**. Every card speaks with two voices: a short, warm line of dialogue
+(*say*) and the single thing to do next (*body*), so nothing ever reads like a
+manual and nothing ever asks for two actions at once. Each scripted card also
+carries a **Step N of 13** marker, so the player always knows where they are
+on the path. The copy is written for any age and any experience level: no
+jargon before it has been explained, no gendered language, short sentences.
+
 Section 1 is deterministic: the first encounter is Pikachu, the second wild is
 chosen from a fixed starter-specific weakness, the third is Bidoof, and the
 trainer is the friendly scripted Youngster. The first wild battle exposes one
@@ -161,46 +169,57 @@ The second battle exposes one ×2 move. The third exposes Party and then one
 specific switch target. Bag, running, extra moves, and alternate switches are
 not available until the script reaches them.
 
-1. **Choose your starter** — the very first card is the professor's immersive
-   dialog sheet (big portrait, typewriter reveal), setting the register for
-   the whole tutorial. The sheet explains the choice and halos the grid, but
-   never forces a card: Treecko, Charmander and Froakie are all pickable, and
-   each card names its role and attack style so the choice is informed.
-2. **The path** — how a section is shaped, on the route screen. During
+1. **Welcome** (setup) — Professor Oak introduces himself and walks through
+   sprite, name and the experience choice. The first beat of the path.
+2. **Choose your starter** — the professor's immersive dialog sheet (big
+   portrait, typewriter reveal), setting the register for the whole tutorial.
+   The sheet explains the choice and halos the grid, but never forces a card:
+   Treecko, Charmander and Froakie are all pickable, and each card names its
+   role and attack style so the choice is informed. Naming the partner is
+   part of the same conversation — Oak speaks inside the naming dialog too.
+3. **The path** — how a section is shaped, on the route screen. During
    section 1 the Mart is hidden entirely; the route is just your team, your
    Bag and the battle button.
-3. **Capture encounter** (stop 1) — the lesson pops the moment the battle
+4. **Capture encounter** (stop 1) — the lesson pops the moment the battle
    opens (no waiting a turn): weaken it, then throw a ball. The catch
    success is explained too.
-4. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
+5. **Heal your new friend** — the caught partner joins at catch HP, so the
+   very next step opens its team card and uses a Potion. The next battle
+   button stays locked until the heal has actually happened: catch → heal →
+   battle 2, one line with no branches.
+6. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
    move the party *lead* carries (the starter, at this point of the script),
    so the ×2 tag the lesson points at is always there to press — whichever
    starter was chosen, and even if the player reordered the party early.
-5. **Your new lead** — a step teaches making the caught Pokémon the lead,
+7. **Your new lead** — a step teaches making the caught Pokémon the lead,
    right before the switching lesson that pairs with it.
-6. **Switching** (stop 3). The Trainer battle itself has no Bag step — the
+8. **Switching** (stop 3). The Trainer battle itself has no Bag step — the
    route's *heal first!* warning covers it.
-7. **Saving** (the section summary) — the only place the Save button appears,
+9. **Saving** (the section summary) — the only place the Save button appears,
    and the lesson is honest: the run lives in this browser session, the
    backup file is what survives a cleared browser.
-8. **Evolution** (section 2) — *forced*: buy the Rare Candy from the Mart and
-   actually use it to evolve your starter before the tutorial lets go.
-9. **Training** (section 2) — a hand-held walkthrough through the Train
-   service: replace a move, pick an ability, pick a nature, move a Stat
-   Point, press Done. With that, the tutorial concludes in section 2: the
-   prologue flags clear and the run continues as an ordinary one with normal
-   randomness, without any section-3 lesson repetition.
+10. **Evolution** (section 2) — *forced*: buy the Rare Candy from the Mart and
+    actually use it to evolve your starter before the tutorial lets go.
+11. **Training** (section 2) — a hand-held walkthrough through the Train
+    service: replace a move, pick an ability, pick a nature, move a Stat
+    Point, press Done.
+12. **Graduation** — Oak's farewell card closes the tutorial the way it
+    opened: with the professor talking to the player. The prologue flags
+    clear in section 2 and the run continues as an ordinary one with normal
+    randomness, without any section-3 lesson repetition.
 
 (*"Skip tips"* from any card, or turning tips off in Profile mid-run, also
 ends the tutorial and hands over the ordinary game.)
 
-**3. Just-in-time lessons.** 17 lessons, each fired by an *interaction*,
-never a timer, and every one rendered on **one surface: the professor's
-dialog sheet** — modal, the big portrait, a typewriter reveal. When a lesson
-is *about* an element (the ball rail, the Party button, the Save progress
-button) that element carries the violet halo for as long as the sheet is up.
-The rules, taken from Nielsen Norman Group's coach-mark research, are
-enforced by the module rather than by each call site:
+**3. Just-in-time lessons.** Every remaining lesson fires on an
+*interaction*, never a timer, and all of them render on the same surfaces as
+the tutorial: the professor's **dialog sheet** out of battle (modal, big
+portrait, typewriter reveal, dialogue first, one action after) and the
+**anchored bubble** in battle. When a lesson is *about* an element (the ball
+rail, the Party button, the Save progress button) that element carries the
+violet halo for as long as the card is up. The rules, taken from Nielsen
+Norman Group's coach-mark research, are enforced by the module rather than by
+each call site:
 
 * one idea per card, never two;
 * **never chained** — a second card cannot open while one is up; the single

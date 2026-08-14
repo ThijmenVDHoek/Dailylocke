@@ -1173,10 +1173,44 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   window.Modal.closeAll();
   window.Coach.clearMark();
 
+  // JSDOM's file:// origin has no working localStorage, so profile state (like
+  // a lesson marked read) would be lost between loadProfile() calls and the
+  // step counter would mislabel the starter beat. A real browser persists the
+  // profile; give the test the same behaviour with an in-memory store.
+  const starterMem = new Map();
+  const starterRealLS = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (k) => (starterMem.has(k) ? starterMem.get(k) : null),
+      setItem: (k, v) => starterMem.set(k, String(v)),
+      removeItem: (k) => starterMem.delete(k),
+      clear: () => starterMem.clear(),
+    },
+  });
+
   // A brand-new trainer walks the real first-run doors.
   window.document.getElementById('btnFreshGame').click();
   const setup = await waitFor(() => !window.document.getElementById('screenSetup').hidden);
   check('the guided run starts at trainer setup', !!setup);
+
+  // The tutorial's FIRST beat is Professor Oak introducing himself over the
+  // setup screen — dialogue first, one action after.
+  const welcomeSheet = await waitFor(() => !window.document.getElementById('screenCoach').hidden, 8000);
+  check('Professor Oak welcomes the new trainer at setup', !!welcomeSheet &&
+    (window.document.getElementById('coachTitle') || {}).textContent === 'Welcome!',
+    welcomeSheet ? (window.document.getElementById('coachTitle') || {}).textContent : 'NO WELCOME');
+  if (welcomeSheet) {
+    const welcomeTyped = await waitFor(() => {
+      const b = window.document.getElementById('coachBodyReveal');
+      return b && /Professor Oak/.test(b.textContent);
+    }, 6000);
+    check('the welcome is spoken by Professor Oak', !!welcomeTyped);
+    check('the very first beat is labelled Step 1 of 13',
+      /Step 1 of 13/.test(
+        (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent || ''));
+    window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  }
   if (setup) {
     window.document.getElementById('setupName').value = 'Tipster';
     window.document.getElementById('btnSetupGo').click();
@@ -1191,6 +1225,10 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('the starter lesson opens over the trio', !!sheet &&
     window.document.getElementById('coachTitle').textContent === 'Choose your starter!',
     sheet ? window.document.getElementById('coachTitle').textContent : 'NO SHEET');
+  check('the starter lesson shows its place on the linear path',
+    !!sheet && /Step 2 of 13/.test(
+      (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent || ''),
+    sheet ? (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent : '');
   check('no starter card is action-locked by the lesson',
     !window.Coach.actionLocked() &&
     !window.document.body.classList.contains('coach-action-locked'));
@@ -1227,6 +1265,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   window.Modal.closeAll();
   window.Coach.clearMark();
   window.Game.run.tutorialStarterUid = null;
+  Object.defineProperty(window, 'localStorage', starterRealLS);
 }
 
 // ======================================= THE CAPTURE BEAT, FOR REAL =====
@@ -1266,7 +1305,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // the catch is dice, and dice do not belong in a test -- a string of
   // break-outs lets the wild mon KO the only party member and WIPES the run
   // mid-block (an intermittent party=0 caught=0 failure).
-  r3.bag = { masterball: 3 };
+  r3.bag = { masterball: 3, potion: 3, superpotion: 2 };
   r3.money = 100;
   // One dependable lead with a gentle touch (Tackle won't one-shot anything
   // in the friendly pool).
@@ -1425,6 +1464,42 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     !!backOnRoute && r3.party.length === 2 && r3.caught === 1,
     `party=${r3.party.length} caught=${r3.caught}`);
 
+  // 5. The next linear beat: heal the new partner before battle 2. The next
+  //    battle button stays locked until the Potion is actually used.
+  const healSheet = await until3(() =>
+    window.Modal.isOpen('screenCoach') &&
+    (window.document.getElementById('coachTitle') || {}).textContent === 'Heal your new friend', 10000);
+  check('the route teaches healing the new partner before battle 2', !!healSheet,
+    healSheet ? '' : (window.document.getElementById('coachTitle') || {}).textContent);
+  if (healSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  await new Promise((r) => setTimeout(r, 300));
+  const caughtSlot = window.document.querySelector('#xTeam .tslot[data-i="1"]');
+  check('the heal lesson points at the new partner\u2019s team card', !!caughtSlot);
+  if (caughtSlot) caughtSlot.click();
+  const healBubble = await until3(() => {
+    const b = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return b && b.textContent === 'Use a Potion' ? b : null;
+  }, 8000);
+  check('the party sheet points at the Potion button', !!healBubble);
+  if (healBubble) window.document.querySelector('.coach-bubble [data-coach-ok]').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const potionBtn = window.document.querySelector('#xTeamDetail .pd-potion-btn');
+  check('a Potion button is armed for the new partner', !!potionBtn);
+  const hpBefore = (() => {
+    const m = r3.party.find((mm) => String(mm.uid) === String(r3._tutCatchUid));
+    return m ? m.hpPct : null;
+  })();
+  if (potionBtn) potionBtn.click();
+  await new Promise((r) => setTimeout(r, 250));
+  const hpAfter = (() => {
+    const m = r3.party.find((mm) => String(mm.uid) === String(r3._tutCatchUid));
+    return m ? m.hpPct : null;
+  })();
+  check('using the Potion completes the heal step',
+    r3.tutorialHealDone === true && hpAfter != null && hpBefore != null &&
+    hpAfter > hpBefore,
+    `healDone=${r3.tutorialHealDone} hp=${hpBefore}->${hpAfter}`);
+
   // tidy: back to a calm state for the blocks that follow
   window.Modal.closeAll();
 }
@@ -1489,6 +1564,14 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('the tutorial concludes in section 2 once evolution AND training are done',
     CO2.inPrologue() === false && g.prologue === false);
   check('no tutorial beat was left dangling in the queue', CO2.pendingCount === 0);
+
+  // The bookend: Oak says goodbye with the graduation sheet, and the Guide is
+  // named as the place every lesson stays readable.
+  const farewell = window.Modal.isOpen('screenCoach') &&
+    (window.document.getElementById('coachTitle') || {}).textContent === 'You are ready!';
+  check('the tutorial ends with Professor Oak\u2019s farewell', !!farewell,
+    (window.document.getElementById('coachTitle') || {}).textContent);
+  if (window.Modal.isOpen('screenCoach')) window.Modal.close('screenCoach');
 
   // Put the run back into a sane state; nothing after this reads it, but
   // leave it tidy anyway.
