@@ -1957,32 +1957,98 @@ body.modal-open { overflow:hidden; }
   color:var(--violet);
 }
 
-/* ---- the modal lesson sheet ---- */
+/* ---- the modal lesson dialogue ----
+   Oak's lessons use the same compact visual grammar as the reference game
+   dialogue: the current screen remains visible, a dark speech box sits at the
+   bottom, Oak stands beside it, and one white response button follows. */
+.coach-overlay {
+  align-items:flex-end;
+  padding:0;
+  background:rgba(5,6,12,.70);
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
 .coach-card {
-  max-width:440px;
-  border-left:3px solid var(--violet);
-  background:linear-gradient(180deg, rgba(30,20,44,.97), rgba(14,18,32,.98));
+  width:100%; max-width:440px; max-height:none; overflow:visible;
+  padding:0 16px calc(10px + env(safe-area-inset-bottom));
+  border:0; border-radius:0;
+  background:transparent;
+  box-shadow:none;
 }
-.coach-title { margin:0 0 10px; font-size:1.35rem; color:#fff; line-height:1.15; }
-.coach-body { color:var(--ink-2); font-size:.98rem; line-height:1.55; }
+/* The title, speaker and step count still label the modal for screen readers,
+   but the visible dialogue stays as spare as the reference. */
+.coach-dialogue-meta {
+  position:absolute !important;
+  width:1px !important; height:1px !important;
+  padding:0 !important; margin:-1px !important;
+  overflow:hidden !important; clip:rect(0,0,0,0) !important;
+  white-space:nowrap !important; border:0 !important;
+}
+.coach-title { color:#fff; }
+.coach-dialogue-row {
+  position:relative;
+  min-height:80px;
+  padding-right:72px;
+}
+.coach-body {
+  min-height:78px;
+  padding:12px 13px;
+  border-radius:12px;
+  background:rgba(54,55,59,.97);
+  box-shadow:0 5px 18px rgba(0,0,0,.34);
+  color:#fff;
+  font-size:1rem;
+  line-height:1.28;
+}
 .coach-body b { color:#fff; }
-.coach-actions { margin-top:18px; }
-.coach-actions .btn-primary { margin-top:0; }
-.coach-skip {
-  display:block; width:100%; margin-top:10px; padding:8px;
-  background:none; border:none; cursor:pointer; font-family:inherit;
-  color:var(--ink-3); font-size:.82rem; letter-spacing:.4px;
+.coach-dialogue-professor.coach-head {
+  position:absolute;
+  right:-7px; bottom:-20px;
+  z-index:2;
+  display:block;
+  width:104px; height:124px;
+  margin:0;
+  pointer-events:none;
 }
-.coach-skip:hover { color:var(--ink-2); text-decoration:underline; }
+.coach-dialogue-professor .coach-portrait {
+  display:block;
+  padding:0;
+  border-radius:0;
+  background:none;
+  box-shadow:none;
+}
+.coach-dialogue-professor .coach-face {
+  display:block;
+  width:104px; height:124px;
+  object-fit:contain; object-position:center bottom;
+  border-radius:0;
+  image-rendering:pixelated;
+  filter:drop-shadow(0 3px 2px rgba(0,0,0,.55));
+}
+.coach-actions { position:relative; z-index:1; margin-top:16px; }
+.coach-actions .btn-primary {
+  min-height:48px;
+  margin-top:0;
+  border-radius:13px;
+  background:#fff;
+  color:#080a12;
+  box-shadow:0 4px 14px rgba(0,0,0,.28);
+}
+.coach-skip {
+  display:block; width:100%; margin-top:8px; padding:7px;
+  background:none; border:none; cursor:pointer; font-family:inherit;
+  color:var(--ink-2); font-size:.82rem; letter-spacing:.4px;
+}
+.coach-skip:hover { color:#fff; text-decoration:underline; }
 
-/* Immersive professor dialogue for onboarding */
-.coach-head.immersive { gap:16px; margin-bottom:20px; }
-.coach-head.immersive .coach-portrait { padding:6px; box-shadow:0 0 0 4px rgba(192,124,232,.3); }
-.coach-head.immersive .coach-portrait img { width:88px; height:88px; }
-.coach-head.immersive .coach-who b { font-size:1.25rem; }
-.coach-head.immersive .coach-who em { font-size:.7rem; }
-.text-reveal { font-size:1.05rem; line-height:1.5; min-height:80px; }
-.coach-body.text-reveal { color:#f0e6ff; }
+/* The typewriter grows the box only when a line genuinely needs more room. */
+.text-reveal { font-size:1rem; line-height:1.28; min-height:78px; }
+.coach-body.text-reveal { color:#fff; }
+
+@media (min-width:600px) {
+  .coach-overlay { align-items:flex-end; padding:0; }
+  .coach-card { border-radius:0; padding-bottom:20px; }
+}
 
 /* ---- the violet halo on the element a lesson is about ---- */
 /* The element being pointed at gets a matching halo so the link between the
