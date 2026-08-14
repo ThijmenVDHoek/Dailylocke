@@ -967,17 +967,20 @@
 
     var card = el.querySelector('.overlay-card');
 
-    var head = '<div class="coach-head immersive">' +
-        '<span class="coach-portrait">' + advisorImg(88) + '</span>' +
-        '<div class="coach-who"><b>' + esc(ADVISOR.name) + '</b>' +
-          '<em>' + esc(opts.eyebrow || 'Professor Oak') + '</em></div>' +
-      '</div>';
-
     var bodyId = 'coachBodyReveal';
     card.innerHTML =
-      head +
-      '<h3 class="coach-title" id="coachTitle">' + esc(lesson.title) + '</h3>' +
-      '<div class="coach-body" id="' + bodyId + '"></div>' +
+      // Keep the lesson name and step counter available to assistive tech,
+      // while the visible surface reads like the compact game dialogue in the
+      // rest of the prologue: Oak, one speech box, and one clear response.
+      '<h3 class="coach-title coach-dialogue-meta" id="coachTitle">' + esc(lesson.title) + '</h3>' +
+      '<div class="coach-who coach-dialogue-meta"><b>' + esc(ADVISOR.name) + '</b>' +
+        '<em>' + esc(opts.eyebrow || 'Professor Oak') + '</em></div>' +
+      '<div class="coach-dialogue-row">' +
+        '<div class="coach-body" id="' + bodyId + '"></div>' +
+        '<div class="coach-head immersive coach-dialogue-professor">' +
+          '<span class="coach-portrait">' + advisorImg(88) + '</span>' +
+        '</div>' +
+      '</div>' +
       (opts.extra || '') +
       '<div class="coach-actions">' +
         '<button type="button" class="btn-primary wide" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>' +
