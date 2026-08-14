@@ -227,7 +227,7 @@ The research behind these choices, and the mapping onto this codebase, is in
 ### Two rules a lesson must never break
 
 Both of these shipped broken once and stranded players mid-onboarding, so they
-are pinned by tests in `tools/smoke-test.mjs` and `tools/e2e/run.mjs`.
+are pinned by tests in `tools/smoke-test.mjs`.
 
 **A lesson must never be able to appear on top of a dialog and be
 unclickable.** `Modal` makes the page behind a dialog `inert`, and the game's
@@ -443,43 +443,34 @@ npm run build     # regenerates vendor/pkmn-sim.js + vendor/pkmn-learnsets.js
 
 ### Quality checks
 
-Two suites, because they see different things.
+One suite, one gate.
 
 **`tools/smoke-test.mjs` (JSDOM)** loads `index.html` using the real script
 order, boots the game and fights an actual battle through the engine. It covers
 module wiring, the trimmed bundle's data, on-demand learnsets, the install
 button on every platform path, subpath-safe PWA paths, backup export/import
-round-tripping (including rejection of malformed files), and now the Daily's
+round-tripping (including rejection of malformed files), the Daily's
 date/streak/share logic, the ascension curve, role-based movesets, the AI's
-situational scoring and the modal controller.
+situational scoring, the modal controller and the whole guided tutorial flow.
 
-**`tools/e2e/run.mjs` (Playwright)** drives a real browser, which is the only
-way to test what JSDOM stubs: a WebGL battle, focus management, layout at phone
-sizes, and the service worker. It covers starting a Daily, choosing a starter,
-completing a battle, reloading and restoring the save, opening every modal
-(dialog semantics, focus trap, Escape, inert background), iPhone/Android
-viewports, reduced motion, an **offline reload after the worker installs**, and
-the full Daily endpoint including the share card.
+A real-browser (Playwright) suite used to exist for WebGL/focus/layout
+coverage, but it was removed: this project is developed in a sandbox that
+cannot download a browser, so the suite could never run there or in CI. The
+JSDOM suite is therefore the complete quality gate and must stay green on its
+own.
 
 ```sh
 npm ci --prefix tools
 npm run check --prefix tools        # lint + JSDOM + service-worker revision
-npm run test:e2e --prefix tools     # real browser
-npm run check:all --prefix tools    # everything
 ```
-
-The E2E suite needs a Chromium. It uses Playwright's own download if present,
-otherwise a system browser, otherwise `DAILYLOCKE_CHROMIUM=/path/to/chromium` —
-and **skips cleanly** rather than failing when none is available.
 
 ### CI (one manual step left)
 
 A ready-to-use GitHub Actions workflow lives at
 [`tools/ci/check.yml`](tools/ci/check.yml). It runs lint + the JSDOM suite +
-the service-worker revision guard, and a second job for the Playwright suite
-on Chromium. It is **staged, not active**: GitHub rejects pushes that touch
-`.github/workflows/` from an app without `workflows` permission. A maintainer
-with normal permissions activates it in one move:
+the service-worker revision guard. It is **staged, not active**: GitHub rejects
+pushes that touch `.github/workflows/` from an app without `workflows`
+permission. A maintainer with normal permissions activates it in one move:
 
 ```sh
 mkdir -p .github/workflows && git mv tools/ci/check.yml .github/workflows/
@@ -488,10 +479,6 @@ mkdir -p .github/workflows && git mv tools/ci/check.yml .github/workflows/
 Worth doing: `static.yml` currently deploys `main` to Pages with no checks at
 all, so nothing today stops a broken build from going live (the workflow above
 is exactly what plugs that hole).
-
-```sh
-npx playwright install chromium --prefix tools
-```
 
 ### The service-worker revision
 
@@ -525,9 +512,8 @@ The app shell works offline, and so does everything the UI's *shape* depends on.
   megabytes; neither is ever precached wholesale, because a quota eviction would
   take the app shell with it.
 * **`manifest.json` ships narrow + wide screenshots**, which browsers use to
-  show a richer, app-store-like install dialog. They are captured from the real
-  app by `DAILYLOCKE_SHOTS=1 npm run test:e2e --prefix tools`, so they can't go
-  stale.
+  show a richer, app-store-like install dialog. The screenshots are committed
+  assets (`assets/screenshots/`), captured from the real app.
 
 ## Pokémon Champions
 

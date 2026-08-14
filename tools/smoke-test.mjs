@@ -788,7 +788,7 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
   // throws SecurityError -- which is also exactly what Safari private mode
   // does, and why every storage call in the game is wrapped. Fall back to an
   // in-memory stand-in: what matters here is the KEY LAYOUT, not the browser's
-  // storage implementation (tools/e2e/run.mjs covers the real thing).
+  // storage implementation.
   let ls;
   try {
     ls = window.localStorage;
@@ -827,8 +827,9 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
 }
 
 // ---------------------------------------------------------------- modal ----
-// One controller, WAI dialog pattern. Focus behaviour needs a real browser
-// (see tools/e2e/run.mjs); these cover the parts JSDOM can see.
+// One controller, WAI dialog pattern. These cover the parts JSDOM can see;
+// real-browser focus behaviour is deliberately out of scope here (the sandbox
+// and CI cannot run a browser, so this suite is the whole gate).
 {
   const M = window.Modal;
   const doc = window.document;
