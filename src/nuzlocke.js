@@ -47,6 +47,10 @@
       knockouts: {},             // uid -> KOs
       monMeta: {},               // uid -> {name,id} kept even after death
       catchUsedThisSection: false,
+      // Guided runs keep their safety net through the end of section 2. This
+      // is separate from `prologue`: the scripted lessons finish at the start
+      // of section 2, but its battles should still ease a new player in.
+      tutorialSafeThrough: 0,
       // rolling stats for the end-of-section summary
       sectionStats: { money: 0, won: 0, caught: null, lost: [], damage: 0, kos: 0, startedAt: 1 },
       encounterSeen: false,      // has the section's first wild appeared yet
@@ -172,13 +176,15 @@
   }
 
   // ---------------------------------------------------------- DIFFICULTY ---
-  // Endless scaling. Section 1 is gentle; by section 10+ it's brutal; past 15
-  // ascension takes over (see above).
+  // Endless scaling. The guided run holds BOTH opening sections at the
+  // section-1 curve; ordinary runs still begin scaling immediately. By
+  // section 10+ it is brutal, and past 15 ascension takes over (see above).
   function tier(run, isTrainer) {
-    var s = run.section;
+    var actualSection = run.section;
+    var s = isTutorialSafetySection(run) ? 1 : actualSection;
     var t = Math.min(1, (s - 1) / 14);              // 0..1 over 14 sections
     var a = ascension(run);
-    // Section 1 wilds are deliberately weak so the run doesn't end instantly.
+    // Opening wilds are deliberately weak so a new run does not end instantly.
     var minBST = Math.round(200 + t * 320);          // 200 -> 520
     var maxBST = Math.round(330 + t * 350);          // 330 -> 680
     if (isTrainer) { minBST += 50; maxBST = Math.min(780, maxBST + 70); }
@@ -191,7 +197,7 @@
       maxBST: maxBST,
       // enemies stay untrained early, then ramp to full investment
       evs: Math.min(252, Math.round(Math.max(0, (s - 1)) * 26)),
-      allowLegend: s >= 6 && (isTrainer || a >= 2),
+      allowLegend: actualSection >= 6 && (isTrainer || a >= 2),
       itemChance: isTrainer ? Math.min(0.95, 0.25 + s * 0.09) : Math.min(0.55, Math.max(0, s - 1) * 0.07),
       teamSize: isTrainer ? Math.max(1, Math.min(6, Math.floor((s + 2) / 2))) : 1,
       perfectIV: true,
@@ -249,7 +255,9 @@
   // can one-shot a starter). Teaching "weaken it, then throw a ball" against a
   // species with a 3% catch rate teaches the opposite lesson.
   //
-  // Everything from section 2 onwards is completely untouched.
+  // Section 1 keeps this deterministic choreography. Section 2 uses ordinary
+  // encounter rolls inside the same gentle difficulty band; section 3 onward
+  // returns completely to the normal scaling curve.
   var PROLOGUE_WILDS = ['rattata', 'pidgey', 'zigzagoon', 'bidoof', 'patrat',
                         'lillipup', 'sentret', 'poochyena', 'starly', 'bunnelby',
                         'yungoos', 'skwovet', 'wurmple', 'caterpie', 'weedle'];
@@ -304,6 +312,19 @@
 
   function isPrologueSection(run) {
     return !!(run && run.prologue && run.section === 1);
+  }
+
+  // The choreography and the difficulty safety net deliberately have
+  // different lifetimes. Oak's scripted flow can graduate the player before
+  // section 2's first battle, but both opening sections still need to be an
+  // approachable introduction. `tutorialSafeThrough` survives graduation and
+  // becomes inert by itself when section 3 begins. The prologue fallback keeps
+  // older/in-progress saves (and repaired saves without the new field) safe.
+  function isTutorialSafetySection(run) {
+    if (!run || run.mode !== 'free') return false;
+    var through = Math.max(0, Math.floor(Number(run.tutorialSafeThrough) || 0));
+    if (!through && run.prologue) through = 2;
+    return run.section >= 1 && run.section <= through;
   }
 
   async function tutorialOpponentMoves(speciesId) {
@@ -431,7 +452,7 @@
 
   async function makeWild(run, speciesId) {
     var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
-    var isScriptedSection1 = isPrologueSection(run);
+    var useTutorialMoves = isTutorialSafetySection(run);
     if (isTutorialCapture) {
       speciesId = 'pikachu';
     }
@@ -444,12 +465,12 @@
       role = pickRoleFor({ roles: ['sweeper', 'wall', 'disruptor', 'pivot'] }, speciesId,
                          Math.floor(rr() * 4));
     }
-    // The first section is scripted end to end. Wild opponents still use real
-    // legal low-power moves (not Splash), while battle.js caps tutorial damage
-    // so an unlucky roll cannot end the lesson.
+    // Both opening tutorial sections use real legal low-power moves (not
+    // Splash). Section 1 is scripted; section 2 keeps the same gentle move
+    // ceiling even after the scripted coach has graduated the player.
     var mon = await C.makeMon(speciesId, {
       role: role,
-      moves: isScriptedSection1 ? await tutorialOpponentMoves(speciesId) : null
+      moves: useTutorialMoves ? await tutorialOpponentMoves(speciesId) : null
     });
     applyTraining(run, mon, tr, false, speciesId);
     if (isTutorialCapture) {
@@ -548,10 +569,10 @@
   }
 
   function trainerFor(run) {
-    // The prologue's one trainer is always the friendliest face on the roster.
-    // It is still a real trainer battle with a real team -- it just is not a
-    // Gym Leader on the fight that teaches you what a trainer battle is.
-    if (isPrologueSection(run)) {
+    // The two introductory trainers use the friendliest face on the roster.
+    // They are still real trainer battles with real teams -- just not an
+    // abrupt difficulty jump while the player is learning the run loop.
+    if (isTutorialSafetySection(run)) {
       var t0 = TRAINER_CLASSES[0];
       return { name: t0[0], cls: t0[1], tag: 'wants to battle!', sprite: t0[2],
                theme: t0[3], boss: false, strategy: STRATEGIES[0] };
@@ -654,11 +675,10 @@
       var role = pickRoleFor(strat, id, i);
       var mon = await C.makeMon(id, {
         role: role,
-        // Youngster Joey is still a real battle. During the guided first
-        // section, use legal low-power moves so it feels genuine; battle.js
-        // separately prevents those tutorial opponents from knocking out the
-        // player's Pokemon.
-        moves: isPrologueSection(run) ? await tutorialOpponentMoves(id) : null
+        // Youngster Joey is still a real battle. During both introductory
+        // sections, use legal low-power moves so it feels genuine; battle.js
+        // separately protects the player's team from an unlucky early KO.
+        moves: isTutorialSafetySection(run) ? await tutorialOpponentMoves(id) : null
       });
       applyTraining(run, mon, tr, true, id + '|' + i);
       // Ascension 2+: a slot may be elite, with one visible modifier.
@@ -989,6 +1009,7 @@
     isGauntlet: isGauntlet,
     nextIsTrainer: nextIsTrainer, advanceBattle: advanceBattle,
     resetSectionStats: resetSectionStats,
+    isTutorialSafetySection: isTutorialSafetySection,
     tier: tier, pickWild: pickWild, makeWild: makeWild,
     trainerFor: trainerFor, makeTrainerTeam: makeTrainerTeam,
     wildReward: wildReward, trainerReward: trainerReward,

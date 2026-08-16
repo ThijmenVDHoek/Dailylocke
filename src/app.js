@@ -608,8 +608,8 @@
 
     if (window.Coach) {
       window.Coach.setOff(!setupWantsTips);
-      // The prologue flag makes section 1 gentler and turns on the guided
-      // beats. It is cleared once the first section is behind them.
+      // The prologue flag turns on the scripted beats. The run separately
+      // keeps its difficulty safety net through both introductory sections.
       window.Coach.setPrologue(setupWantsTips);
       window.Coach.setOnboarded(true);
     }
@@ -865,11 +865,11 @@
     run.maxSections = opts.maxSections || 0;    // 0 = endless
     run.sectionMarks = [];                      // share-card squares
     run.trainingPaidThisRound = false;
-    // The guided first run: section 1 is gentler and the lessons fire. It is
-    // a REAL run in the real Free Play slot -- nothing is faked -- it just
-    // does not open with a species that can end the run before the tutorial
-    // about catching has happened.
+    // The guided first run is a REAL run in the real Free Play slot. The
+    // scripted coach can graduate the player at the start of section 2, while
+    // a separate safety marker keeps both opening sections approachable.
     run.prologue = !!opts.prologue;
+    run.tutorialSafeThrough = run.prologue ? 2 : 0;
     // Section 1 is a finite script. These flags are run-scoped (not profile
     // lesson history), so a player who has already seen a lesson or reloads
     // halfway through still gets the exact next action.
@@ -2267,6 +2267,35 @@
   ];
   var STAT_KEYS = [['hp','HP'],['atk','Atk'],['def','Def'],['spa','SpA'],['spd','SpD'],['spe','Spe']];
 
+  // Stat sliders edit a session draft. A fully trained Pokemon normally starts
+  // with all 66 points allocated; clamping every attempted increase back to
+  // its old value made the sliders look broken unless the player happened to
+  // lower another stat first. A draft lets sliders move in either order. It is
+  // committed only while it is within budget, so an over-budget intermediate
+  // state can never leak into a battle or save file.
+  function statDraftUsed(draft) {
+    return STAT_KEYS.reduce(function (total, stat) {
+      return total + (Number(draft && draft[stat[0]]) || 0);
+    }, 0);
+  }
+  function statDraftFor(mon) {
+    if (!svc || svc.mon !== mon) return Object.assign({}, mon.sp || {});
+    if (!svc.spDraft) svc.spDraft = Object.assign({}, mon.sp || {});
+    return svc.spDraft;
+  }
+  function commitStatDraft(showError) {
+    if (!svc || !svc.spDraft || !svc.mon) return true;
+    var used = statDraftUsed(svc.spDraft);
+    if (used > C.SP_TOTAL) {
+      if (showError) toast('Remove ' + (used - C.SP_TOTAL) + ' Stat Point' +
+        (used - C.SP_TOTAL === 1 ? '' : 's') + ' before continuing.');
+      return false;
+    }
+    svc.mon.sp = Object.assign({}, svc.spDraft);
+    C.syncEVs(svc.mon);
+    return true;
+  }
+
   function openTrainer(mon, free) {
     if (!free) {
       if (!run.trainingPaidThisRound) {
@@ -2312,6 +2341,10 @@
     box.innerHTML = tabHtml + '<div id="trBody" class="tr-body"></div>';
     box.querySelectorAll('.tr-tab').forEach(function (b) {
       b.addEventListener('click', function () {
+        // Do not let an unfinished over-budget draft escape the Stats tab.
+        // The live Pokemon still has its last valid spread, but keeping the
+        // player here makes the required correction explicit.
+        if (svc.tab === 'stats' && !commitStatDraft(true)) return;
         svc.tab = b.dataset.t;
         drawTrainer();
         // The guided walkthrough advances tab by tab; each tab body fires
@@ -2360,9 +2393,14 @@
   }
 
   async function drawTrainMoves(body, mon) {
+    var activeSvc = svc;
     body.innerHTML = '<p class="hint">Reading learnset...</p>';
-    if (!svc.all) {
+    if (!activeSvc.all) {
       var all = await N.tutorOptions(mon);
+      // The player can switch to Stats (or finish training) while the
+      // learnset promise is still resolving. Never write through a stale/null
+      // service after that screen transition.
+      if (!svc || svc !== activeSvc || svc.mon !== mon || svc.tab !== 'moves' || !body.isConnected) return;
       all.sort(function (a, b) {
         var A = Dex.moves.get(a), B = Dex.moves.get(b);
         var ap = A.category === 'Status' ? -1 : A.basePower;
@@ -2628,7 +2666,8 @@
   function drawTrainStats(body, mon) {
     C.ensureSP(mon);
     var MAXP = C.SP_MAX, TOTAL = C.SP_TOTAL;
-    function used() { return C.spUsed(mon); }
+    var draft = statDraftFor(mon);
+    function used() { return statDraftUsed(draft); }
 
     // Compute base stats and final stats
     var sp = Dex.species.get(mon.id);
@@ -2639,7 +2678,7 @@
 
     function finalStat(key) {
       var b = base[key] || 100;
-      var ev = C.spToEv(mon.sp ? mon.sp[key] : 0);
+      var ev = C.spToEv(draft[key] || 0);
       var iv = 31;
       if (key === 'hp') return Math.floor(((2 * b + iv + Math.floor(ev / 4)) * 100) / 100) + 100 + 10;
       var nat = 1;
@@ -2650,9 +2689,9 @@
     }
 
     var statsTable = '<div class="stats-table">' +
-      '<div class="st-row st-head"><span></span><span class="st-base">Base</span><span class="st-ev">EVs</span><span class="st-fin">Final</span></div>' +
+      '<div class="st-row st-head"><span></span><span class="st-base">Base</span><span class="st-ev">Points</span><span class="st-fin">Final</span></div>' +
       STAT_KEYS.map(function (k) {
-        var ev = mon.sp ? (mon.sp[k[0]] || 0) : 0;
+        var ev = draft[k[0]] || 0;
         var fin = finalStat(k[0]);
         var label = {hp:'HP',atk:'Atk',def:'Def',spa:'SpA',spd:'SpD',spe:'Spe'}[k[0]];
         var isPlus = natPlus === label, isMinus = natMinus === label;
@@ -2670,9 +2709,9 @@
     // block mid-drag would tear the slider out from under the pointer.
     body.innerHTML =
       statsTable +
-      '<div class="sp-head">Stat Points left <b id="spLeft">0</b> <span>/ ' + TOTAL + '</span></div>' +
+      '<div class="sp-head" id="spBudget" aria-live="polite">Stat Points left <b id="spLeft">0</b> <span>/ ' + TOTAL + '</span></div>' +
       STAT_KEYS.map(function (k) {
-        var v = mon.sp[k[0]] || 0;
+        var v = draft[k[0]] || 0;
         return '<div class="sp-row" data-s="' + k[0] + '">' +
           '<span class="sp-k">' + k[1] + '</span>' +
           '<input class="sp-range" type="range" min="0" max="' + MAXP + '" step="1" ' +
@@ -2680,10 +2719,13 @@
           '<span class="sp-v">' + v + '</span>' +
           '</div>';
       }).join('') +
+      '<p class="sp-warning" id="spWarning" role="alert" hidden></p>' +
       '<p class="hint">Max ' + MAXP + ' per stat, ' + TOTAL + ' in total. ' +
-        '1 point = +1 to that stat.</p>';
+        'You can move any slider first; finish at ' + TOTAL + ' or fewer points.</p>';
 
     var leftEl = body.querySelector('#spLeft');
+    var budgetEl = body.querySelector('#spBudget');
+    var warningEl = body.querySelector('#spWarning');
     var rows = [].slice.call(body.querySelectorAll('.sp-range'));
     var stRows = [].slice.call(body.querySelectorAll('.st-row:not(.st-head)'));
 
@@ -2691,8 +2733,13 @@
       var left = TOTAL - used();
       leftEl.textContent = left;
       leftEl.classList.toggle('none', left === 0);
+      budgetEl.classList.toggle('over', left < 0);
+      warningEl.hidden = left >= 0;
+      warningEl.textContent = left < 0
+        ? 'Remove ' + Math.abs(left) + ' point' + (left === -1 ? '' : 's') + ' before continuing.'
+        : '';
       rows.forEach(function (r) {
-        var k = r.dataset.s, v = mon.sp[k] || 0;
+        var k = r.dataset.s, v = draft[k] || 0;
         if (+r.value !== v) r.value = v;
         r.parentNode.querySelector('.sp-v').textContent = v;
         // colour the filled part of the track without a repaint of the DOM
@@ -2706,7 +2753,7 @@
         if (!k) return;
         var evCell = row.querySelector('.st-ev');
         var finCell = row.querySelector('.st-fin');
-        if (evCell) evCell.textContent = mon.sp ? (mon.sp[k[0]] || 0) : 0;
+        if (evCell) evCell.textContent = draft[k[0]] || 0;
         if (finCell) finCell.textContent = finalStat(k[0]);
       });
     }
@@ -2715,12 +2762,12 @@
       r.addEventListener('input', function () {
         var k = r.dataset.s;
         var want = Math.max(0, Math.min(MAXP, parseInt(r.value, 10) || 0));
-        var before = mon.sp[k] || 0;
-        var others = used() - before;
-        // Clamp to the remaining budget instead of refusing the drag: the
-        // slider simply stops where the points run out.
-        mon.sp[k] = Math.min(want, TOTAL - others);
-        C.syncEVs(mon);
+        var before = draft[k] || 0;
+        // Never snap the thumb back just because the spread is currently
+        // full. Let the session draft go temporarily over budget; the player
+        // can now increase first and lower another stat second.
+        draft[k] = want;
+        commitStatDraft(false);
         paint();
 
         if (!tutorGuideActive()) return;
@@ -2728,17 +2775,17 @@
         var takeKey = tutorGuide.takeKey || tt.takeKey;
         var giveKey = tutorGuide.giveKey || tt.giveKey;
         if (tutorGuide.step === 'statsTake' && k === takeKey) {
-          if (mon.sp[k] < (tutorGuide.takeStart == null ? before : tutorGuide.takeStart)) {
+          if (draft[k] < (tutorGuide.takeStart == null ? before : tutorGuide.takeStart)) {
             if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
             tutorGuide.step = 'statsGive';
-            tutorGuide.giveStart = mon.sp[giveKey] || 0;
+            tutorGuide.giveStart = draft[giveKey] || 0;
             setTimeout(function () {
               var give = body.querySelector('.sp-range[data-s="' + giveKey + '"]');
               if (give) tutorBubble('trainStatsGive', give, { GIVE: tt.give });
             }, 0);
           }
         } else if (tutorGuide.step === 'statsGive' && k === giveKey) {
-          if (mon.sp[k] > (tutorGuide.giveStart == null ? before : tutorGuide.giveStart)) {
+          if (draft[k] > (tutorGuide.giveStart == null ? before : tutorGuide.giveStart)) {
             if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
             tutorGuide.step = 'done';
             setTimeout(function () {
@@ -2749,7 +2796,9 @@
         }
       });
       r.addEventListener('change', function () {
-        if (run && !svc.free) saveGame();
+        // Only valid drafts are copied to the live Pokemon and persisted.
+        // Over-budget values stay local to this training session.
+        if (commitStatDraft(false) && run && !svc.free) saveGame();
         // The guided stat move is two explicit controls, never one sentence
         // that makes the player guess which slider comes first. Input handles
         // the transition; change only persists the value.
@@ -2765,7 +2814,7 @@
       if (takeRow) {
         tutorGuide.takeKey = tt.takeKey;
         tutorGuide.giveKey = tt.giveKey;
-        tutorGuide.takeStart = mon.sp[tt.takeKey] || 0;
+        tutorGuide.takeStart = draft[tt.takeKey] || 0;
         setTimeout(function () {
           tutorBubble('trainStatsTake', takeRow, { TAKE: tt.take });
         }, 0);
@@ -3769,14 +3818,21 @@
     input.value = '';
     input.placeholder = species;
     input.maxLength = 12;
-    // The naming step is part of the same conversation: a small Professor
-    // Oak line rides inside the dialog, so no onboarding moment is a bare
-    // system prompt.
+    // Oak explains nicknames for the starter and the player's FIRST capture.
+    // Later catches keep the mandatory name field but not the repeated
+    // tutorial speech. `run.caught` is incremented immediately before the
+    // catch screen opens, so exactly 1 identifies that first capture.
+    var isStarterNickname = !!(run && run.prologue && !$('screenStarter').hidden);
+    var isFirstCaptureNickname = !!(run && run.caught === 1 && !$('screenCatch').hidden);
     var hint = $('nickHint');
     if (hint) {
-      hint.innerHTML = '<span class="nick-guide-chat">A wonderful choice! Every great trainer ' +
-        'gives their Pokemon a name to remember.</span>' +
-        '<span class="coach-portrait nick-guide-professor">' +
+      hint.hidden = !(isStarterNickname || isFirstCaptureNickname);
+      hint.innerHTML = hint.hidden ? '' :
+        '<span class="nick-guide-chat">' +
+          (isFirstCaptureNickname
+            ? 'Your first catch! Give your new friend a name to remember.'
+            : 'A wonderful choice! Every great trainer gives their Pokemon a name to remember.') +
+        '</span><span class="coach-portrait nick-guide-professor">' +
         (window.Coach ? window.Coach.advisorImg(104) : '') + '</span>';
     }
     // Naming is mandatory -- there is no cancel -- so Escape and a backdrop
@@ -3784,7 +3840,7 @@
     // its dedicated high, transparent treatment: it belongs over the three
     // choices (and above any retiring coach layer), not on an unrelated screen.
     var el = $('screenNickname');
-    el.classList.toggle('starter-nickname', !!(run && run.prologue && !$('screenStarter').hidden));
+    el.classList.toggle('starter-nickname', isStarterNickname);
     window.Modal.open(el, {
       initialFocus: el.querySelector('.overlay-card'),
       escape: false,
@@ -4149,7 +4205,7 @@
         var team = await N.makeTrainerTeam(run, t);
         beginBattle({ enemies: team, isWild: false, trainer: t, catchable: false,
                       fieldEffect: N.fieldEffectFor(run, true), clause: t.clause || null,
-                      isTutorialSafe: !!(run && run.prologue && run.section === 1) });
+                      isTutorialSafe: N.isTutorialSafetySection(run) });
       } else {
         var isFirst = run.battleInSection === 0;
         var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
@@ -4163,7 +4219,7 @@
         beginBattle({ enemies: [mon], isWild: true, catchable: isFirst && !run.catchUsedThisSection,
                       fieldEffect: N.fieldEffectFor(run, false), isTutorialCapture: isTutorialCapture,
                       isTutorialSE: isTutorialSE, isTutorialSwitch: isTutorialSwitch,
-                      isTutorialSafe: !!(run && run.prologue && run.section === 1) });
+                      isTutorialSafe: N.isTutorialSafetySection(run) });
       }
     } catch (err) {
       // Anything in here (a bad species roll, the learnsets chunk failing to
@@ -6908,6 +6964,12 @@
   function reviveRun(s) {
     var r = N.newRun(s.seed);
     Object.keys(s).forEach(function (k) { if (k !== '__v' && k !== 'randState') r[k] = s[k]; });
+    // Saves written before the two-section safety marker can still be midway
+    // through a guided run. The starter uid is run-scoped proof that this run
+    // opted into that tutorial; ordinary Free Play saves stay untouched.
+    if (s.tutorialSafeThrough == null && r.mode === 'free' && r.tutorialStarterUid) {
+      r.tutorialSafeThrough = 2;
+    }
     // Restore exact RNG state if available, so catch shakes and any remaining
     // randomness stay stable across refreshes. Old saves fallback to the
     // previous best-effort formula.
@@ -7264,7 +7326,7 @@
             isTutorialSE: !!cfg.isTutorialSE,
             isTutorialSwitch: !!cfg.isTutorialSwitch,
             isTutorialSafe: cfg.isTutorialSafe != null ? !!cfg.isTutorialSafe :
-              !!(run && run.prologue && run.section === 1),
+              N.isTutorialSafetySection(run),
             trainer: cfg.trainer || null,
             clause: cfg.clause || null,
             // The field effect is deterministic per seed/section/battle, so it
@@ -7305,6 +7367,11 @@
       else appFatal('The saved battle could not be resumed', e);
     }
     $('btnTutorBack').addEventListener('click', function () {
+      // Sliders may be moved in either order, so their session draft can be
+      // temporarily over budget. Do not close or graduate the tutorial until
+      // the player has brought it back within the 66-point limit.
+      if (!commitStatDraft(true)) return;
+      if (run && svc && !svc.free) saveGame();
       // The guided training is complete once the player presses Done: every
       // tab was walked through, so this is where the tutorial concludes —
       // provided the forced evolution happened too (train-first players are

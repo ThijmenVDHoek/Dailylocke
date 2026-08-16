@@ -143,10 +143,10 @@ too:
 pick one of a fixed Treecko / Charmander / Froakie trio (any of the three —
 the choice is free, and every later step adapts to the starter actually
 chosen) → play a real Free Play run with the lessons switched on. Nothing
-about it is faked: same engine, same permadeath, same slot. Section 1 alone
-gets a safety net (friendly wilds with high catch rates, the gentlest trainer
-on the roster, a few extra balls) so the run cannot end before the lesson
-about catching has happened.
+about it is faked: same engine, same permadeath, same slot. Sections 1 and 2
+get a safety net (low-power moves, the gentlest trainer, section-1 difficulty,
+and protection from an unlucky early knockout), while section 1 also keeps its
+scripted encounters and extra balls. Normal difficulty begins in section 3.
 
 The guided run is a **scripted tutorial**, and every step is a vital beat
 (queue-backed, so a busy surface or an unlucky race can never swallow it). A
@@ -548,8 +548,10 @@ The app shell works offline, and so does everything the UI's *shape* depends on.
 
 The Stat Point system (66 total, 32 per stat) is **Dailylocke's own** simplified
 front-end for EVs — a 66-point budget is something you can reason about on a
-phone, where "508 EVs in multiples of 4" is not. It is not a claim of Pokémon
-Champions compatibility: battles run through `gen9customgame` on `@pkmn/sim`,
+phone, where "508 EVs in multiples of 4" is not. Training edits a session draft,
+so any slider can move first; an over-budget draft must be corrected before
+leaving and is never written into the live run or a save. It is not a claim of
+Pokémon Champions compatibility: battles run through `gen9customgame` on `@pkmn/sim`,
 and player-facing wording says so. If the simulator package later exposes
 everything a Champions format needs, that's a deliberate migration, not an
 assumption baked into the copy today.

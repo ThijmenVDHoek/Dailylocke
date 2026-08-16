@@ -1528,6 +1528,11 @@ textarea.search.save-code {
 .sp-head b { color:var(--gold); font-size:1.15rem; }
 .sp-head b.none { color:var(--ink-3); }
 .sp-head span { color:var(--ink-3); }
+.sp-head.over, .sp-head.over b { color:var(--red); }
+.sp-warning {
+  margin:-3px 0 12px; padding:8px 10px; border-radius:var(--r-sm);
+  background:rgba(255,95,109,.12); color:#ffb3ba; font-size:.78rem; line-height:1.4;
+}
 .sp-row { display:flex; align-items:center; gap:11px; margin-bottom:13px; }
 .sp-k { width:36px; font-size:.84rem; color:var(--ink-2); flex:0 0 auto; }
 .sp-v { width:26px; text-align:right; font-size:.9rem; color:#fff; flex:0 0 auto; }

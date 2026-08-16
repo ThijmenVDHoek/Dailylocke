@@ -1472,6 +1472,10 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   //    with a two-Pokemon party.
   const nickOk = await until3(() => !window.document.getElementById('screenNickname').hidden);
   check('naming the catch is still mandatory', !!nickOk);
+  const firstNickHint = window.document.getElementById('nickHint');
+  check('the first capture shows the nickname tutorial',
+    !!nickOk && !firstNickHint.hidden && /first catch/i.test(firstNickHint.textContent || ''),
+    firstNickHint.textContent || 'hidden');
   if (nickOk) {
     window.document.getElementById('nickInput').value = 'Buddy';
     window.document.getElementById('btnNickOk').click();
@@ -1553,6 +1557,38 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   window.Modal.closeAll();
   window.Game.show('Crossroads');
   r3._inBattle = false; r3._battleCfg = null;
+
+  // A later capture still requires a name, but Oak's nickname speech is a
+  // first-capture lesson and must not repeat forever.
+  CO3.clearMark();
+  CO3.setPrologue(false);
+  r3.prologue = false;
+  r3.tutorialSafeThrough = 0;
+  r3.section = 2; r3.battleInSection = 0;
+  r3.catchUsedThisSection = false; r3.encounterSeen = false;
+  r3.bag.masterball = 2;
+  window.Game.startNextBattle();
+  const laterBall = await until3(() =>
+    window.document.querySelector('#battleHost .br-btn[data-ball="masterball"]'), 20000);
+  check('a later capture encounter still offers a ball', !!laterBall);
+  if (laterBall) laterBall.click();
+  const laterNick = await until3(() =>
+    !window.document.getElementById('screenNickname').hidden, 20000);
+  const laterHint = window.document.getElementById('nickHint');
+  check('the nickname tutorial does not repeat after the first capture',
+    !!laterNick && laterHint.hidden && !(laterHint.textContent || '').trim(),
+    (laterHint.textContent || 'hidden').trim());
+  if (laterNick) {
+    window.document.getElementById('nickInput').value = 'Second';
+    window.document.getElementById('btnNickOk').click();
+  }
+  await until3(() => {
+    const done = window.document.getElementById('btnCatchDone');
+    return done && !done.hidden && done;
+  }, 8000);
+  window.Modal.closeAll();
+  window.Game.show('Crossroads');
+  r3._inBattle = false; r3._battleCfg = null;
 }
 
 // ================================================== THE GUIDED RUN'S FINALE ==
@@ -1627,6 +1663,83 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // Put the run back into a sane state; nothing after this reads it, but
   // leave it tidy anyway.
   g.section = 1; g.battleInSection = 0;
+}
+
+// ======================================================== STAT POINT SLIDERS ==
+// A trained Pokemon starts with all 66 points allocated. Sliders used to snap
+// an increase straight back to its old value until another stat was lowered,
+// which looked and behaved like a dead control. Training now uses a safe draft:
+// any slider may move first, but an over-budget draft cannot leave the tab,
+// close training, reach the live Pokemon, or enter a save.
+{
+  const g = window.Game.run;
+  const untilSlider = async (fn, ms = 3000) => {
+    const started = Date.now();
+    while (Date.now() - started < ms) {
+      const value = fn();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    return null;
+  };
+  window.Modal.closeAll();
+  window.Coach.clearMark();
+  window.Coach.setPrologue(false);
+  g.mode = 'free'; g.over = false; g.prologue = false;
+  g.tutorialSafeThrough = 0;
+  g.section = 3; g.battleInSection = 0;
+  g.money = 9999; g.trainingPaidThisRound = true;
+  g.bag = g.bag || {};
+  const trained = window.Nuz.trainPlayerMon(await C.makeMon('charmander'));
+  trained.name = 'Slider'; trained.hpPct = 1;
+  g.party = [trained]; window.Nuz.trackMon(g, trained);
+  window.Game.show('Crossroads');
+  window.Game.redrawRoute();
+
+  const teamSlot = window.document.querySelector('#xTeam .tslot[data-i="0"]');
+  if (teamSlot) teamSlot.click();
+  const trainBtn = await untilSlider(() =>
+    window.document.querySelector('#xTeamDetail .pd-train'));
+  if (trainBtn) trainBtn.click();
+  const statsTab = await untilSlider(() =>
+    window.document.querySelector('#screenTutor .tr-tab[data-t="stats"]'));
+  if (statsTab) statsTab.click();
+  const defSlider = await untilSlider(() =>
+    window.document.querySelector('#screenTutor .sp-range[data-s="def"]'));
+  const liveDefBefore = trained.sp.def;
+  if (defSlider) {
+    defSlider.value = '10';
+    defSlider.dispatchEvent(new window.Event('input', { bubbles: true }));
+  }
+  check('a full-budget stat slider can move upward first without snapping back',
+    !!defSlider && Number(defSlider.value) === 10 &&
+    window.document.getElementById('spLeft').textContent === '-10');
+  check('an over-budget slider draft does not mutate the live Pokemon',
+    trained.sp.def === liveDefBefore && !window.document.getElementById('spWarning').hidden,
+    `live=${trained.sp.def} draft=${defSlider && defSlider.value}`);
+
+  const natureTab = window.document.querySelector('#screenTutor .tr-tab[data-t="nature"]');
+  if (natureTab) natureTab.click();
+  const activeTrainTab = window.document.querySelector('#screenTutor .tr-tab.on');
+  check('an over-budget draft cannot leave the Stats tab',
+    !!activeTrainTab && activeTrainTab.dataset.t === 'stats');
+  window.document.getElementById('btnTutorBack').click();
+  check('an over-budget draft cannot close training',
+    !window.document.getElementById('screenTutor').hidden && trained.sp.def === liveDefBefore);
+
+  const donor = window.document.querySelector('#screenTutor .sp-range[data-s="spa"]');
+  if (donor) {
+    donor.value = '22';
+    donor.dispatchEvent(new window.Event('input', { bubbles: true }));
+    donor.dispatchEvent(new window.Event('change', { bubbles: true }));
+  }
+  check('balancing a second slider commits the whole valid spread',
+    trained.sp.def === 10 && trained.sp.spa === 22 && C.spUsed(trained) === C.SP_TOTAL &&
+    trained.evs.def === C.spToEv(10) && window.document.getElementById('spWarning').hidden,
+    JSON.stringify(trained.sp));
+  window.document.getElementById('btnTutorBack').click();
+  check('a valid slider spread can finish training',
+    window.document.getElementById('screenTutor').hidden);
 }
 
 // A wiped Daily may still have a zero-HP object in party during a simultaneous
@@ -2945,13 +3058,15 @@ host2.remove();
   }
 }
 
-// ---- the prologue's safety net ----
-// The guided first section must not open with something that can end the run
-// before the lesson about catching has happened.
+// ---- the guided run's safety net ----
+// Both opening sections must ease a first-time player in. The scripted coach
+// graduates near the start of section 2, so difficulty protection has its own
+// run marker and remains active until section 3.
 {
   const N2 = window.Nuz;
   const probe = N2.newRun(4242);
   probe.prologue = true;
+  probe.tutorialSafeThrough = 2;
   probe.mode = 'free';
   const gentle = [];
   for (let i = 0; i < 6; i++) {
@@ -2964,24 +3079,39 @@ host2.remove();
   check('the guided first section pairs with the friendliest trainer',
     /youngster/i.test(N2.trainerFor(probe).sprite), N2.trainerFor(probe).sprite);
 
-  // The net is exactly ONE section wide. The strongest guarantee available
-  // without asserting on RNG is that the pick is identical to what a normal
-  // run of the same seed would produce -- i.e. the prologue branch is not
-  // taken at all once section 1 is behind you.
+  // Graduation clears `prologue`, but section 2 must retain the easy tier,
+  // one-Pokemon trainer and low-power move path through its independent flag.
+  probe.prologue = false;
+  probe.section = 2;
+  const guidedTier2 = N2.tier(probe, true);
+  check('tutorial section 2 stays inside the safety window after graduation',
+    N2.isTutorialSafetySection(probe) && guidedTier2.maxBST === 400 &&
+    guidedTier2.evs === 0 && guidedTier2.teamSize === 1,
+    JSON.stringify(guidedTier2));
+  check('tutorial section 2 keeps the friendliest trainer',
+    /youngster/i.test(N2.trainerFor(probe).sprite), N2.trainerFor(probe).sprite);
+
   const plain = N2.newRun(4242);
   plain.mode = 'free';
-  const sameFrom2 = [2, 3, 4].every((sec) => {
+  plain.section = 2;
+  check('ordinary section 2 still follows the normal difficulty curve',
+    N2.tier(plain, true).maxBST > guidedTier2.maxBST &&
+    N2.tier(plain, true).teamSize > guidedTier2.teamSize,
+    `normal=${JSON.stringify(N2.tier(plain, true))}`);
+
+  // The net is exactly two sections wide. From section 3 onward encounter and
+  // trainer selection are identical to an ordinary run of the same seed.
+  const sameFrom3 = [3, 4, 5].every((sec) => {
     probe.section = sec; plain.section = sec;
     return [0, 1, 2].every((b) => {
       probe.battleInSection = b; plain.battleInSection = b;
       return N2.pickWild(probe, {}) === N2.pickWild(plain, {});
     });
   });
-  check('past section 1 a prologue run rolls exactly like a normal one', sameFrom2);
+  check('past section 2 a guided run rolls exactly like a normal one', sameFrom3);
 
-  // Same for the trainer: only section 1 is pinned to the friendly one.
   probe.section = 3; plain.section = 3;
-  check('past section 1 the trainer roster is untouched',
+  check('past section 2 the trainer roster is untouched',
     N2.trainerFor(probe).sprite === N2.trainerFor(plain).sprite);
 
   // ---- the super-effective battle is curated --------------------------------
