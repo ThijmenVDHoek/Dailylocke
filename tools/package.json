@@ -11,6 +11,7 @@
     "build:sw": "node build-sw.mjs",
     "lint": "cd .. && tools/node_modules/.bin/eslint src/*.js vendor/battle-ui.js sw.js tools/*.mjs eslint.config.mjs --config eslint.config.mjs --max-warnings 0",
     "test": "node smoke-test.mjs",
+    "test:browser": "node browser-smoke.mjs",
     "check": "npm run lint && npm test && node build-sw.mjs --check"
   },
   "devDependencies": {
@@ -19,6 +20,7 @@
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
     "globals": "^17.8.0",
-    "jsdom": "^30.0.0"
+    "jsdom": "^30.0.0",
+    "playwright": "^1.62.1"
   }
 }

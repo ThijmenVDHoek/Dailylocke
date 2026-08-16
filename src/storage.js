@@ -1,7 +1,7 @@
 // ============================================================================
 // storage.js — every localStorage read/write the game makes, in one place.
 //
-// This is step 1 of splitting the ~200 KB app.js: persistence and migrations
+// This is the first extraction from the roughly 369 KB app.js: persistence and migrations
 // first, because they are the least entangled with the DOM and the easiest to
 // test in isolation. app.js keeps its `saveGame()` / `loadGame()` names and
 // simply delegates here, so nothing else had to change.

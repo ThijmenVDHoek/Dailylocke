@@ -41,6 +41,10 @@ check('every referenced stylesheet exists', missingCss.length === 0, missingCss.
 
 check('index.html no longer inlines the engine', html.length < 200 * 1024,
   `${(html.length / 1024).toFixed(1)} KB`);
+check('heavy renderer scripts are post-paint loaders',
+  !scriptSrcs.some((src) => /three\.min|battle-ui|ui-patch|champions-learnsets/.test(src)) &&
+  scriptSrcs.some((src) => src.includes('renderer-loader.js')) &&
+  scriptSrcs.some((src) => src.includes('app-loader.js')));
 check('startup failures have a visible reload surface',
   /id="appBootError"/.test(html) && /id="btnAppBootReload"/.test(html) && /unhandledrejection/.test(html));
 
@@ -167,20 +171,34 @@ window.THREE = new Proxy({
 // promise it creates -- if that one is left dangling, every later await of it
 // hangs forever.
 const learnsetsSrc = readFileSync(resolve(repo, 'vendor/pkmn-learnsets.js'), 'utf8');
+const championsLearnsetsSrc = readFileSync(resolve(repo, 'src/champions-learnsets.js'), 'utf8');
 const origAppend = window.document.head.appendChild.bind(window.document.head);
 window.document.head.appendChild = function (el) {
   if (el.tagName === 'SCRIPT' && /pkmn-learnsets/.test(el.src || '')) {
     setTimeout(() => { window.eval(learnsetsSrc); el.onload && el.onload(); }, 0);
     return el;
   }
+  if (el.tagName === 'SCRIPT' && /champions-learnsets/.test(el.src || '')) {
+    setTimeout(() => { window.eval(championsLearnsetsSrc); el.onload && el.onload(); }, 0);
+    return el;
+  }
   return origAppend(el);
 };
 
+// The browser loads these two optional renderer files dynamically after first
+// paint. JSDOM has no real network/script scheduler, so evaluate them here
+// against the same THREE stub before the regular modules.
+for (const src of ['vendor/battle-ui.js', 'src/ui-patch.js']) {
+  if (!evalIn(readFileSync(resolve(repo, src), 'utf8'), src)) break;
+}
 for (const src of scriptSrcs) {
-  if (src.includes('three.min.js')) continue;    // stubbed above
+  if (src.includes('renderer-loader.js') || src.includes('app-loader.js')) continue; // browser-only post-paint loaders
   const code = readFileSync(resolve(repo, src), 'utf8');
   if (!evalIn(code, src)) break;
 }
+// The real browser injects app.js from app-loader.js after first paint.
+// Evaluate it directly here so the JSDOM suite can drive the same game.
+evalIn(readFileSync(resolve(repo, 'src/app.js'), 'utf8'), 'src/app.js');
 
 // --------------------------------------------------------------- globals ---
 check('window.PS (battle engine)', !!window.PS);
@@ -489,7 +507,12 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
   check('the sprite fallback chain ends locally, never on a broken image',
     readFileSync(resolve(repo, 'src/app.js'), 'utf8').includes("FALLBACK_SPRITE = 'assets/img/fallback-sprite.svg'"));
   check('the new modules are precached',
-    swSrc.includes('src/daily.js') && swSrc.includes('src/modal.js'));
+    swSrc.includes('src/daily.js') && swSrc.includes('src/modal.js') &&
+    swSrc.includes('src/champions-loader.js') && swSrc.includes('src/renderer-loader.js') &&
+    swSrc.includes('src/app-loader.js'));
+  check('mid-battle saves are debounced',
+    /BATTLE_SAVE_DEBOUNCE_MS\s*=\s*500/.test(appJs) && /scheduleBattleSave/.test(appJs),
+    'damage events should not stringify the full run every frame');
 
   // ---- richer install dialog ----
   check('manifest declares narrow AND wide screenshots',
@@ -1200,7 +1223,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // setup screen — dialogue first, one action after.
   const welcomeSheet = await waitFor(() => !window.document.getElementById('screenCoach').hidden, 8000);
   check('Professor Oak welcomes the new trainer at setup', !!welcomeSheet &&
-    (window.document.getElementById('coachTitle') || {}).textContent === 'Welcome!',
+    (window.document.getElementById('coachTitle') || {}).textContent === 'Welcome',
     welcomeSheet ? (window.document.getElementById('coachTitle') || {}).textContent : 'NO WELCOME');
   if (welcomeSheet) {
     const welcomeTyped = await waitFor(() => {
@@ -1208,8 +1231,8 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
       return b && /Professor Oak/.test(b.textContent);
     }, 6000);
     check('the welcome is spoken by Professor Oak', !!welcomeTyped);
-    check('the very first beat is labelled Step 1 of 14',
-      /Step 1 of 14/.test(
+    check('the welcome card has no stale step counter',
+      !/Step \\d+ of \\d+/.test(
         (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent || ''));
     window.document.querySelector('#screenCoach [data-coach-ok]').click();
   }
@@ -1225,12 +1248,11 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // three Choose buttons stay live.
   const sheet = await waitFor(() => !window.document.getElementById('screenCoach').hidden, 10000);
   check('the starter lesson opens over the trio', !!sheet &&
-    window.document.getElementById('coachTitle').textContent === 'Choose your starter!',
+    window.document.getElementById('coachTitle').textContent === 'Choose your starter',
     sheet ? window.document.getElementById('coachTitle').textContent : 'NO SHEET');
-  check('the starter lesson shows its place on the linear path',
-    !!sheet && /Step 2 of 14/.test(
-      (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent || ''),
-    sheet ? (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent : '');
+  check('the starter lesson uses a progress bar instead of a card number',
+    !!sheet && !!window.document.querySelector('#screenCoach .coach-progress[role="progressbar"]'),
+    sheet ? window.document.querySelector('#screenCoach .coach-progress') && 'present' : 'missing');
   check('no starter card is action-locked by the lesson',
     !window.Coach.actionLocked() &&
     !window.document.body.classList.contains('coach-action-locked'));
@@ -1370,7 +1392,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // 2. Now the second turn starts, and the "Throw a Poke Ball!" lesson pops up as an anchored coach BUBBLE.
   const catchBubble2 = await until3(() => {
     const cl = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
-    return cl && cl.textContent === 'Throw a Poke Ball!' && cl;
+    return cl && cl.textContent === 'Throw a Poke Ball' && cl;
   }, 30000);
   check('the second turn pops the catch bubble', !!catchBubble2);
   check('the ball rail glows while the bubble explains it',
@@ -1442,7 +1464,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // 3. The "caught" lesson greets the new teammate on the Catch screen.
   const caughtSheet = await until3(() =>
     window.Modal.isOpen('screenCoach') &&
-      window.document.getElementById('coachTitle').textContent === 'New friend!');
+      window.document.getElementById('coachTitle').textContent === 'New friend');
   check('the catch is explained on the Catch screen', !!caughtSheet);
   if (caughtSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
 
@@ -1510,7 +1532,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // nothing glowing and no instruction.
   const onwardSheet = await until3(() =>
     window.Modal.isOpen('screenCoach') &&
-    (window.document.getElementById('coachTitle') || {}).textContent === 'Onward!', 10000);
+    (window.document.getElementById('coachTitle') || {}).textContent === 'Continue onward', 10000);
   check('healing is followed by a "continue to the next battle" beat', !!onwardSheet,
     onwardSheet ? '' : (window.document.getElementById('coachTitle') || {}).textContent);
   check('the onward beat halos the battle button',
@@ -1597,7 +1619,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // The bookend: Oak says goodbye with the graduation sheet, and the Guide is
   // named as the place every lesson stays readable.
   const farewell = window.Modal.isOpen('screenCoach') &&
-    (window.document.getElementById('coachTitle') || {}).textContent === 'You are ready!';
+    (window.document.getElementById('coachTitle') || {}).textContent === 'Keep going';
   check('the tutorial ends with Professor Oak\u2019s farewell', !!farewell,
     (window.document.getElementById('coachTitle') || {}).textContent);
   if (window.Modal.isOpen('screenCoach')) window.Modal.close('screenCoach');
@@ -1680,6 +1702,9 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   const liveLoss = new window.Event('webglcontextlost', { cancelable: true });
   if (oldBattleUi && oldBattleUi.r && oldBattleUi.r.domElement) {
     oldBattleUi.r.domElement.dispatchEvent(liveLoss);
+    // JSDOM cannot restore a real GPU context, so emulate the browser's
+    // follow-up event to exercise the scene rebuild path.
+    oldBattleUi.r.domElement.dispatchEvent(new window.Event('webglcontextrestored'));
   }
   const recoveredRenderer = await wait6(() => {
     const next = window.Game.ui;
@@ -2347,6 +2372,9 @@ check('battle reached a conclusion', !!battleResult.ended || !!battleResult.capp
 }
 
 // --------------------------------------------------------- BattleUI mount --
+// Boot leaves the title showcase alive; stop it before testing an independent
+// BattleUI so the singleton's ownership guard is being exercised honestly.
+window.Game.show('Crossroads');
 const host = window.document.getElementById('battleHost');
 const ui = new window.BattleUI();
 ui.mount(host);
@@ -2366,6 +2394,7 @@ check('the gauntlet actbar collapses to a single column',
   !!host.querySelector('.actbar.one'));
 ui.setActions(null);
 ui.render();
+ui.unmount();
 
 // The regression this refactor targets: setupBattle() before mount() finishes.
 const ui2 = new window.BattleUI();
@@ -2383,6 +2412,10 @@ try {
 check('setupBattle() before mount() does not throw', !threw, threw);
 check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.biomeKey,
   `biome=${ui2.s.biomeKey}`);
+const sessionRenderer = ui2.r;
+ui.unmount();
+ui2.unmount();
+host2.remove();
 
 // A missing renderer dependency must fail loudly instead of leaving a queued
 // BattleUI that never paints and never tells the player what happened.
@@ -2404,27 +2437,11 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
 }
 
 // ================================================== RENDERER LIFECYCLE =====
-// The renderer must give its WebGL context back on unmount (forceContextLoss),
-// and a mount that dies halfway must not leave partial DOM or a zombie mount
-// flag behind.
+// The renderer is a session singleton: screen teardown removes its canvas but
+// never destroys the WebGL context. A mount that dies halfway must still leave
+// no partial DOM or zombie mount flag behind.
 {
-  const RealWebGLRenderer = window.THREE.WebGLRenderer;
   const RealGroup = window.THREE.Group;
-  // A recording stub renderer: proves the context-release path runs on every
-  // teardown, and still builds the same scene as the base stub.
-  window.THREE.WebGLRenderer = class {
-    constructor() {
-      this.domElement = window.document.createElement('canvas');
-      this.shadowMap = {};
-      this._forceContextLossCalls = 0;
-    }
-    setPixelRatio() {} setSize() {} render() {} dispose() {}
-    forceContextLoss() {
-      this._forceContextLossCalls++;
-      this.domElement.dispatchEvent(new window.Event('webglcontextlost', { cancelable: true }));
-    }
-    getContext() { return null; }
-  };
   const goodHost = window.document.createElement('div');
   window.document.body.appendChild(goodHost);
   const goodUi = new window.BattleUI();
@@ -2433,81 +2450,67 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
   goodUi.mount(goodHost);
   check('a BattleUI mounts on a clean host', goodUi.s.mounted === true);
   const goodRenderer = goodUi.r;
+  check('BattleUI reuses the session WebGL renderer', goodRenderer === sessionRenderer);
   goodUi.unmount();
-  check('unmount releases the WebGL context (forceContextLoss called)',
-    !!goodRenderer && goodRenderer._forceContextLossCalls === 1,
-    goodRenderer && String(goodRenderer._forceContextLossCalls));
-  check('forceContextLoss during unmount does not call the app handler', intentionalLossCalls === 0,
+  check('unmount keeps the shared WebGL context alive',
+    !!goodRenderer && goodRenderer === sessionRenderer);
+  check('unmount does not report an intentional context release', intentionalLossCalls === 0,
     String(intentionalLossCalls));
   check('unmount removes the canvas/sprites/HUD it created',
     goodHost.querySelectorAll('canvas, .bm-sprites, .battle-hud').length === 0);
 
-  // A real context-loss event must be cancelled, reported once, and must not
-  // be reported again when the renderer is intentionally unmounted. The last
-  // part is important: unmount() calls forceContextLoss() to release GPU
-  // memory, and older code surfaced that normal teardown as a battle failure.
+  // A real context-loss event must be cancelled, reported once, and followed
+  // by a restoration callback. Unmounting only moves the shared canvas away;
+  // it must never manufacture another context-loss event.
   const lossHost = window.document.createElement('div');
   window.document.body.appendChild(lossHost);
   const lossUi = new window.BattleUI();
   lossUi.mount(lossHost);
-  let lossCalls = 0;
+  let lossCalls = 0, restoredCalls = 0;
   lossUi.onContextLost = () => { lossCalls++; };
+  lossUi.onContextRestored = () => { restoredCalls++; };
   const lossEvent = new window.Event('webglcontextlost', { cancelable: true });
   lossUi.r.domElement.dispatchEvent(lossEvent);
   lossUi.r.domElement.dispatchEvent(new window.Event('webglcontextlost', { cancelable: true }));
   check('a WebGL context loss is prevented and reported once',
-    lossEvent.defaultPrevented && lossCalls === 1,
-    `prevented=${lossEvent.defaultPrevented}, calls=${lossCalls}`);
+    lossEvent.defaultPrevented && lossCalls === 1 && lossUi.flat,
+    `prevented=${lossEvent.defaultPrevented}, calls=${lossCalls}, flat=${lossUi.flat}`);
+  lossUi.r.domElement.dispatchEvent(new window.Event('webglcontextrestored'));
+  check('context restoration is surfaced for scene rebuild', restoredCalls === 1,
+    String(restoredCalls));
   lossUi.unmount();
-  check('intentional context release is not reported as a new loss', lossCalls === 1,
+  check('unmount does not report a new context loss', lossCalls === 1,
     String(lossCalls));
 
-  // A renderer whose constructor throws must rethrow a descriptive error,
-  // leave the host empty, and clear its mount flag.
-  window.THREE.WebGLRenderer = class { constructor() { throw new Error('synthetic WebGL failure'); } };
+  const ownerHost = window.document.createElement('div');
+  window.document.body.appendChild(ownerHost);
+  const ownerA = new window.BattleUI(); ownerA.mount(ownerHost);
+  const ownerB = new window.BattleUI();
+  let ownershipErr = null;
+  try { ownerB.mount(ownerHost); } catch (e) { ownershipErr = e; }
+  check('a busy battle host fails loudly', !!ownershipErr && /already mounted/i.test(ownershipErr.message));
+  ownerA.unmount(); ownerHost.remove();
+
+  // A scene-build failure after the canvas/sprites/HUD were appended must
+  // leave the host empty and clear its mount flag. (The singleton renderer
+  // itself is intentionally never destroyed.)
+  window.THREE.Group = class { constructor() { throw new Error('synthetic WebGL scene failure'); } };
   const badHost = window.document.createElement('div');
   window.document.body.appendChild(badHost);
   const badUi = new window.BattleUI();
   let mountErr = null;
   try { badUi.mount(badHost); } catch (e) { mountErr = e; }
-  check('a renderer failure rethrows a descriptive error',
+  check('a scene-build failure rethrows a descriptive error',
     !!mountErr && /could not mount/i.test(mountErr && mountErr.message),
     mountErr && mountErr.message);
-  check('a renderer failure leaves no partial DOM in the host',
+  check('a scene-build failure leaves no partial DOM in the host',
     badHost.querySelectorAll('canvas, .bm-sprites, .battle-hud').length === 0);
-  check('a renderer failure clears the host mount flag', badHost._bm == null);
+  check('a scene-build failure clears the host mount flag', badHost._bm == null);
 
-  // A scene-build failure after the canvas/sprites/HUD were appended must
-  // remove that partial DOM too, not just the renderer-creation case above.
-  window.THREE.WebGLRenderer = class {
-    constructor() {
-      this.domElement = window.document.createElement('canvas');
-      this.shadowMap = {};
-      this._forceContextLossCalls = 0;
-    }
-    setPixelRatio() {} setSize() {} render() {} dispose() {}
-    forceContextLoss() { this._forceContextLossCalls++; }
-    getContext() { return null; }
-  };
-  window.THREE.Group = class { constructor() { throw new Error('synthetic WebGL scene failure'); } };
-  const midHost = window.document.createElement('div');
-  window.document.body.appendChild(midHost);
-  const midUi = new window.BattleUI();
-  let midErr = null;
-  try { midUi.mount(midHost); } catch (e) { midErr = e; }
-  check('a scene-build failure rethrows a descriptive error',
-    !!midErr && /could not mount/i.test(midErr && midErr.message),
-    midErr && midErr.message);
-  check('a scene-build failure removes the partial canvas/sprites/HUD',
-    midHost.querySelectorAll('canvas, .bm-sprites, .battle-hud').length === 0);
-  check('a scene-build failure clears the host mount flag', midHost._bm == null);
-
-  window.THREE.WebGLRenderer = RealWebGLRenderer;
   window.THREE.Group = RealGroup;
   goodHost.remove();
   lossHost.remove();
   badHost.remove();
-  midHost.remove();
 }
 
 // ============================================================== ONBOARDING ==
@@ -2525,6 +2528,13 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
     check('every lesson has an id, title, body and guide group',
       CO.LESSONS.every((l) => l.id && l.title && l.body && l.where),
       CO.LESSONS.length + ' lessons');
+    const tutorialLessons = CO.LESSONS.filter((l) => l.where === '_tutorial');
+    const tutorialVerb = /^(Tap|Drag|Enter|Open|Choose|Pick|Use|Continue|Compare|Check|Weaken|Throw|Make|Learn|Move|Finish|Confirm|Train|Save|Catch|Heal|Give|Budget)\b/;
+    check('scripted tutorial bodies start with an action verb',
+      tutorialLessons.every((l) => tutorialVerb.test(l.body.replace(/<[^>]+>/g, '').trim())),
+      tutorialLessons.filter((l) => !tutorialVerb.test(l.body.replace(/<[^>]+>/g, '').trim())).map((l) => l.id).join(', '));
+    check('Professor Oak dialogue never uses body-only bold markup',
+      CO.LESSONS.every((l) => !/<b>/i.test(l.say || '')));
     const ids = CO.LESSONS.map((l) => l.id);
     check('lesson ids are unique', new Set(ids).size === ids.length);
     check('all three modes have an explainer',

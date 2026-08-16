@@ -36,7 +36,6 @@
      parser sees this tag. Everything is deferred, so nothing blocks rendering
      and execution order stays exactly as it was in the old inline build. -->
 <link rel="preload" as="script" href="vendor/pkmn-sim.js"/>
-<link rel="preload" as="script" href="vendor/three.min.js"/>
 </head>
 <body>
 
@@ -700,13 +699,12 @@
 
        pkmn-sim.js    -> window.PS      (Dex, Teams, BattleStreams)
        pokedata.js    -> window.PokeData
-       three.min.js   -> window.THREE
-       battle-ui.js   -> window.BattleUI      (needs THREE)
-       ui-patch.js    -> extends BattleUI
        audio.js       -> window.GameAudio     (music + sfx volume)
-       champions-learnsets.js -> window.ChampionsLearnsets (latest move pools)
+       champions-loader.js -> lazy Champions learnset loader
        core.js        -> window.Core          (needs PS + PokeData)
-       nuzlocke.js    -> window.Nuz           (needs Core)
+       renderer-loader.js -> post-paint THREE/BattleUI upgrade
+       app-loader.js   -> post-paint game controller loader
+       nuzlocke.js    -> window.Nuz          (needs Core)
        ...feature modules...
        coach.js       -> window.Coach         (lessons + plain-language facts)
        savecode.js    -> window.SaveCode      (backup files)
@@ -718,11 +716,8 @@
      =================================================================== -->
 <script defer src="vendor/pkmn-sim.js"></script>
 <script defer src="src/pokedata.js"></script>
-<script defer src="vendor/three.min.js"></script>
-<script defer src="vendor/battle-ui.js"></script>
-<script defer src="src/ui-patch.js"></script>
 <script defer src="src/audio.js"></script>
-<script defer src="src/champions-learnsets.js"></script>
+<script defer src="src/champions-loader.js"></script>
 <script defer src="src/core.js"></script>
 <script defer src="src/storage.js"></script>
 <script defer src="src/modal.js"></script>
@@ -738,6 +733,7 @@
 <script defer src="src/savecode.js"></script>
 <script defer src="src/safari-compat.js"></script>
 <script defer src="src/pwa.js"></script>
-<script defer src="src/app.js"></script>
+<script defer src="src/renderer-loader.js"></script>
+<script defer src="src/app-loader.js"></script>
 </body>
 </html>

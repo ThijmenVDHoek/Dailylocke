@@ -337,14 +337,16 @@
       // title controls usable instead of marooning a white stage.
       titleUI.onContextLost = function (lostUI) {
         if (lostUI && lostUI !== titleUI) return;
-        // Defer teardown until mount()/the browser's event dispatch has
-        // returned. Context loss can happen during renderer construction, and
-        // tearing down synchronously would let a half-mounted scene continue
-        // writing into a host that has already been cleared.
+        // The showcase is cosmetic. Keep its DOM sprites and switch the stage
+        // to flat mode while the singleton context waits for restoration.
+        if (titleUI && titleUI.enterFlatMode) titleUI.enterFlatMode('context-lost');
+        toast('3D graphics paused — the game is still playable.');
+      };
+      titleUI.onContextRestored = function (owner) {
+        if (owner && owner !== titleUI) return;
         setTimeout(function () {
-          if (lostUI && lostUI !== titleUI) return;
-          stopTitleScene();
-          if (!$('screenTitle').hidden) setTimeout(startTitleScene, 80);
+          if (owner && owner !== titleUI) return;
+          if (!$('screenTitle').hidden) { stopTitleScene(); startTitleScene(); }
         }, 0);
       };
       titleUI.onMountError = function (owner, err) {
@@ -360,6 +362,7 @@
       // A restored event follows a lost event; the lost handler already
       // replaces the renderer, so do not schedule a second rebuild here.
       titleUI.mount(host);
+      if (titleUI.flat) toast('3D graphics unavailable — the game is still playable.');
 
       // Two random fully-evolved-ish combatants each visit, so the title is
       // different every time you open the game. Filtered to a sane BST band
@@ -471,7 +474,7 @@
       titleUI = null;
     }
     var host = $('titleStage');
-    if (host) { host.innerHTML = ''; host._bm = false; }
+    if (host) { host.innerHTML = ''; host._bm = null; }
   }
 
   function initTitle() {
@@ -544,7 +547,6 @@
         if ($('screenSetup').hidden) return;
         CO.lesson('welcome', {
           anchor: $('setupAvatar'),
-          eyebrow: 'Step 1 of ' + TUTORIAL_STEP_TOTAL,
           vital: true,
           stillValid: function () { return !$('screenSetup').hidden; }
         });
@@ -1715,23 +1717,19 @@
     return !!(run && run.prologue && run.section === 1);
   }
 
-  // The guided run is one linear path of 14 steps. This derives the current
-  // position from the run's own tutorial flags (plus the two profile-scoped
-  // lessons), so the label is correct for fresh players AND for a run resumed
-  // halfway. The coach stamps it onto every scripted beat as "Step N of 14".
-  var TUTORIAL_STEP_TOTAL = 14;
-  // The heal step is complete once the Potion was actually used, OR when the
-  // new partner never needed one (it arrived at full HP). Both the route
-  // branch and the onward beat's `stillValid` share this single definition.
+  // The tutorial sheet uses a progress bar, not a step number. Several ideas
+  // intentionally take two or more cards (open a card, then press its control),
+  // while a full-HP catch can satisfy healing without a Potion. A card counter
+  // therefore lies; these are the stable conceptual milestones instead.
   function tutorialHealed() {
     if (run && run.tutorialHealDone) return true;
     var caught = caughtMonInParty();
     return !caught || caught.hpPct >= 1;
   }
-  function tutorialStepLabel() {
+  function tutorialProgress() {
     if (!run || !run.prologue) return null;
     var CO = window.Coach;
-    var steps = [
+    var milestones = [
       !!(CO && (CO.seen('welcome') || run.tutorialStarterShown)),
       !!run.tutorialStarterShown,
       !!run.tutorialRouteDone,
@@ -1747,9 +1745,8 @@
       !!run.tutorialEvolved,
       !!run.tutorialTrained
     ];
-    var n = 1;
-    while (n <= steps.length && steps[n - 1]) n++;
-    return 'Step ' + Math.min(n, steps.length) + ' of ' + TUTORIAL_STEP_TOTAL;
+    var done = milestones.filter(function (v) { return v; }).length;
+    return { done: done, total: milestones.length, percent: Math.round(done / milestones.length * 100) };
   }
 
   function starterMon() {
@@ -3934,6 +3931,7 @@
 
   function teardownBattleUI() {
     resumePending = false;
+    flushBattleSave();
     clearQueue();
     if (battleRendererRecoveryTimer) {
       clearTimeout(battleRendererRecoveryTimer);
@@ -3975,12 +3973,12 @@
     ui.onError = function (owner, err) {
       handleBattleRendererFailure(owner || ui, err);
     };
+    ui.onContextRestored = function (owner) {
+      handleBattleContextRestored(owner || ui);
+    };
     ui.mount(host);
     if (ui._mountFailed) throw ui._mountFailedError || new Error('The battle renderer failed to mount.');
-    // A restored event follows a lost event. The lost handler already
-    // remounts a fresh BattleUI, which avoids scheduling two recoveries for
-    // the same GPU reset.
-    ui.onContextRestored = null;
+    if (ui.flat) toast('3D graphics unavailable — continuing in flat mode.');
     // Keep tutorial annotations glued across HUD re-renders: any redraw
     // (sprites loading, HP bars settling, ...) replaces the exact nodes a
     // coach glow or bubble points at. Re-pinning only per battle request
@@ -4064,6 +4062,12 @@
       // finally never running -- `battleStarting` stayed true forever and
       // every later battle-button click was silently swallowed.
       show('Battle');
+      // Three/BattleUI are a post-paint upgrade. If the player reaches a
+      // battle before that upgrade finishes, wait for it here rather than
+      // handing back an unmounted UI or a blank battle host.
+      if (window.RendererReady && !window.RendererReady.loaded) {
+        await window.RendererReady.start();
+      }
       var u = ensureUI();
       u.setMsg('Loading\u2026');
       if (isTrainer) {
@@ -4229,29 +4233,26 @@
   }
 
   function handleBattleContextLost(lostUI) {
-    // A delayed event from a renderer that has already been replaced must not
-    // tear down the new battle scene. BattleUI also suppresses intentional
-    // forceContextLoss() events during unmount, but keep the identity guard at
-    // the app boundary as a second line of defence.
+    // Context loss is cosmetic for this renderer: the scene is CPU-side and
+    // sprites/HUD are DOM. Keep the battle alive in flat mode until the browser
+    // emits webglcontextrestored, instead of creating another context or
+    // showing a dead-end retry screen.
     if (lostUI && lostUI !== ui) return;
-    if (battleRendererRecovering) {
-      battleRendererRecoveryFailed = true;
-      return;
-    }
-    // Do not tear down from inside the canvas event while mount() or Three's
-    // render call is still on the stack. The identity check also turns this
-    // into a no-op if the player navigates away before the deferred recovery.
+    if (lostUI && lostUI.enterFlatMode) lostUI.enterFlatMode('context-lost');
+    battleNeedsRendererRecovery = false;
+    toast('3D graphics paused — continuing in flat mode.');
+  }
+
+  function handleBattleContextRestored(restoredUI) {
+    if (restoredUI && restoredUI !== ui) return;
+    if (battleRendererRecovering) return;
+    if (!run || !battle || !bctx || !run._inBattle || (battle.state && battle.state.ended)) return;
+    // Give the browser one turn to finish restoring the shared context, then
+    // rebuild only the presentation layer. The active stream and encounter
+    // remain untouched.
     setTimeout(function () {
-      if (lostUI && lostUI !== ui) return;
-      // During initial battle construction there is no live stream to preserve
-      // yet. Let startNextBattle finish (or surface its own error) instead of
-      // tearing down its renderer halfway through the async team roll.
-      if (!battle || !bctx || !run || !run._inBattle) {
-        if (battleStarting) return;
-        battleFailed(new Error('The 3D renderer lost its context.'));
-      } else {
-        recoverBattleRenderer();
-      }
+      if (restoredUI && restoredUI !== ui) return;
+      if (run && battle && bctx && run._inBattle) recoverBattleRenderer();
     }, 0);
   }
 
@@ -4507,6 +4508,21 @@
   var evTimer = null;
   var pendingRequest = null;   // request held back until the queue is empty
   var atkSide = null, atkHit = false;
+  var battleSaveTimer = null;
+  var BATTLE_SAVE_DEBOUNCE_MS = 500;
+
+  function scheduleBattleSave() {
+    if (!run || !run._inBattle || battleSaveTimer) return;
+    battleSaveTimer = setTimeout(function () {
+      battleSaveTimer = null;
+      syncBattleToRun();
+      saveGame();
+    }, BATTLE_SAVE_DEBOUNCE_MS);
+  }
+  function flushBattleSave() {
+    if (battleSaveTimer) { clearTimeout(battleSaveTimer); battleSaveTimer = null; }
+    if (run && run._inBattle) { syncBattleToRun(); saveGame(); }
+  }
 
   function q(seq) { if (ui && ui.queueMoments) ui.queueMoments(seq); }
   function sideOf(id) { return String(id || '').indexOf('p1') === 0 ? 'p' : 'e'; }
@@ -4633,20 +4649,20 @@
         } else q([{ m: 'idle', d: 0 }]);
         if (pct > 0) ui.floatN(s2, pct, 'damage');
         if (src) say(who + ' was hurt by ' + src + '!');
-        if (s2 === 'p') { syncBattleToRun(); saveGame(); }
+        if (s2 === 'p') scheduleBattleSave();
       } else if (cmd === '-heal') {
         if (pct > 0) { ui.floatN(s2, pct, 'heal'); ui.flashHeal(s2); }
         say(who + ' restored HP' + (src ? ' with ' + src : '') + '!');
-        if (s2 === 'p') { syncBattleToRun(); saveGame(); }
+        if (s2 === 'p') scheduleBattleSave();
       }
     } else if (cmd === '-status') {
       ui.setStatus(sideOf(p[1]), p[2]);
       say(nameFromIdent(p[1]) + ' ' + statusVerb(p[2]) + '!');
-      if (sideOf(p[1]) === 'p') { syncBattleToRun(); saveGame(); }
+      if (sideOf(p[1]) === 'p') scheduleBattleSave();
     } else if (cmd === '-curestatus') {
       ui.setStatus(sideOf(p[1]), null);
       say(nameFromIdent(p[1]) + ' was cured of its ' + statusName(p[2]) + '!');
-      if (sideOf(p[1]) === 'p') { syncBattleToRun(); saveGame(); }
+      if (sideOf(p[1]) === 'p') scheduleBattleSave();
     } else if (cmd === '-supereffective') {
       ui.floatT("It's super effective!", 'se'); say("It's super effective!");
       if (atkSide && !atkHit) { q([{ m: atkSide === 'p' ? 'enemyHit' : 'playerHit', d: 0 }]); atkHit = true; }
@@ -4676,7 +4692,7 @@
       var fname = nameFromIdent(p[1]);
       if (fs === 'p') { say(fname + ' fainted... and is gone forever.'); ui.log(fname + ' is gone forever.'); }
       else say('The foe ' + fname + ' fainted!');
-      syncBattleToRun(); saveGame();
+      scheduleBattleSave();
     } else if (cmd === 'switch' || cmd === 'drag' || cmd === 'replace') {
       var isP = sideOf(p[1]) === 'p';
       // Prefer the run object's mon.id over the protocol species string. The
@@ -4954,9 +4970,10 @@
   function handleRequest(req) {
     if (!ui || !req) return;
     if (req.wait) { ui.setMoves([], {}, null); return; }
-    // Sync live battle state to run.party before handing control to the player.
-    // This ensures closing the app mid-battle preserves damage taken so far.
-    syncBattleToRun();
+    // Flush the debounced damage/status persistence before handing control to
+    // the player. This keeps reloads safe without stringifying the whole run
+    // once per animation event.
+    flushBattleSave();
     // On resume, override the HUD's HP/status with saved values after the
     // opening switch events have been processed. The flag lives on a module
     // variable (never on the run save) and is consumed exactly once, on the
@@ -7117,6 +7134,7 @@
       });
     }
 
+    var bootResumedBattle = false;
     $('btnGoBattle').addEventListener('click', startNextBattle);
     $('btnStarterBack').addEventListener('click', function () { show('Title'); setContinueState(); });
     // Team Gauntlet draft screen.
@@ -7155,6 +7173,7 @@
               sp: null, section: run.section || 1
             };
           });
+          bootResumedBattle = true;
           show('Battle');
           var resumeCfg = {
             enemies: enemies,
@@ -7174,8 +7193,23 @@
           // handleRequest() applies the saved HP/status once on the first
           // request (module flag -- never persisted into the save).
           resumePending = true;
-          beginBattle(resumeCfg);
-          toast('Resuming battle...');
+          function resumeNow() {
+            try {
+              beginBattle(resumeCfg);
+              toast('Resuming battle...');
+            } catch (err) {
+              console.warn('[boot] auto-resume renderer failed', err);
+              battleFailed(err);
+            }
+          }
+          if (window.RendererReady && !window.RendererReady.loaded) {
+            window.RendererReady.start().then(resumeNow, function (err) {
+              console.warn('[boot] renderer upgrade failed during resume', err);
+              battleFailed(err);
+            });
+          } else {
+            resumeNow();
+          }
         } else {
           // Battle config was lost or corrupt: drop the flag and let the title
           // offer the run normally rather than stranding the player.
@@ -7311,7 +7345,17 @@
     $('btnShinyBack').addEventListener('click', backToRoute);
     $('btnHistBack').addEventListener('click', backToRoute);
     $('btnGuideBack').addEventListener('click', backToRoute);
-    show('Title');
+    if (!bootResumedBattle) show('Title');
+    // The first title paint is static. Upgrade it to the live showcase only
+    // after the optional renderer bundle has finished loading.
+    if (window.RendererReady) {
+      window.RendererReady.ready.then(function () {
+        if (!$('screenTitle').hidden) startTitleScene();
+      }, function (err) {
+        console.warn('[boot] optional 3D showcase unavailable', err);
+        toast('The game is ready; 3D graphics are unavailable.');
+      });
+    }
   }
   function boot() {
     try {
@@ -7331,9 +7375,10 @@
                   // Exposed so tests can assert the "dead button" latch is
                   // released after a failed start.
                   get battleStarting() { return battleStarting; },
-                  // The guided run's position on its linear 14-step path. The
-                  // coach stamps it onto every scripted beat ("Step N of 14").
-                  tutorialStepLabel: tutorialStepLabel,
+                  // Stable conceptual progress for the guided run. The coach
+                  // renders this as a bar instead of claiming every card is a
+                  // separately numbered step.
+                  tutorialProgress: tutorialProgress,
                   // The guided training walkthrough's current step (tests).
                   get tutorGuide() { return tutorGuide; },
                   // Sprite helpers (tests + console debugging).

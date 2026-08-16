@@ -51,6 +51,9 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `itemart.js` | `ItemArt` | item sprites |
 | `coach.js` | `Coach` | onboarding: the advisor, the lesson sheets, plain-language facts |
 | `audio.js` | `GameAudio` | music/SFX volume, battle-only randomised BGM |
+| `champions-loader.js` | `ChampionsLearnsetsReady` | lazy optional Champions move-pool loader |
+| `renderer-loader.js` | `RendererReady` | post-paint Three/BattleUI upgrade |
+| `app-loader.js` | `AppReady` | post-paint game-controller loader |
 | `tooltip.js` | — | move/ability/item tooltips |
 | `ui-patch.js` | — | extends `BattleUI` with the run action bar + ball rail |
 | `battle.js` | `RogueBattle` | wraps `@pkmn/sim`: HP/status/PP persistence, situational AI |
@@ -153,13 +156,15 @@ professor's card is dismissed until that control is actually used. Reloading
 mid-run uses the run's own tutorial state rather than the account's lesson
 history, so an old profile can never skip a required action.
 
-The whole onboarding is **one conversation with Professor Oak, in 14 linear
-steps**. Every card speaks with two voices: a short, warm line of dialogue
-(*say*) and the single thing to do next (*body*), so nothing ever reads like a
-manual and nothing ever asks for two actions at once. Each scripted card also
-carries a **Step N of 14** marker, so the player always knows where they are
-on the path. The copy is written for any age and any experience level: no
-jargon before it has been explained, no gendered language, short sentences.
+The whole onboarding is **one conversation with Professor Oak**. It uses a
+sequence of focused dialogue cards; some ideas deliberately take two cards
+(open a card, then press the control inside it). Every card speaks with two
+voices: a short, warm line of dialogue (*say*) and the single thing to do next
+(*body*), so nothing reads like a manual and nothing asks for two actions at
+once. Guided cards show a **progress bar** for the stable conceptual milestones
+instead of a misleading card number. The copy is written for any age and any
+experience level: no jargon before it has been explained, no gendered language,
+short sentences.
 
 Section 1 is deterministic: the first encounter is Pikachu, the second wild is
 chosen from a fixed starter-specific weakness, the third is Bidoof, and the
@@ -415,9 +420,10 @@ The plan, in order of least-entangled first:
 7. ES modules, and only then a bundler
 
 Each step keeps the old function names in `app.js` as thin delegates, so callers
-don't move in the same commit that the logic does. `app.js` is ~244 KB today,
-down from ~203 KB when the split began, with the extracted modules
-independently unit-tested.
+don't move in the same commit that the logic does. `app.js` is currently about
+369 KB raw; the next split targets the profile/history renderer, battle protocol,
+and screen controllers rather than pretending the old size claim is still true.
+The extracted modules remain independently unit-tested.
 
 ## Loading strategy
 
@@ -430,19 +436,26 @@ Now:
 * **gen 9 only.** The game hardcodes the `gen9customgame` format and never
   builds a modded dex, so gens 1–8 and Pokémon GO data are stubbed out of the
   bundle at build time.
-* **learnsets are split out.** They're only read behind `Core.legalMoves()`,
-  which was already `async`, so they ship as a separate chunk that `app.js`
-  prefetches during the title screen. `PS.learnsetsReady()` is awaited before
-  any learnset read, so a slow download delays a moveset roll instead of
-  producing an empty one.
+* **learnsets are split out.** The 3 MB Showdown learnset table is only read
+  behind `Core.legalMoves()`, which was already `async`. The Champions
+  supplement is lazy-loaded by the same pattern, so neither table is parsed on
+  the title path. Both loaders are awaited before a move pool is built, so a
+  slow download delays a moveset roll instead of producing an empty one.
+* **3D is a post-paint upgrade.** The title paints its static sheet first;
+  `renderer-loader.js` fetches Three.js and the DOM battle renderer after two
+  animation frames. Starting a battle during that window waits for the upgrade.
+  If WebGL itself is unavailable, the DOM battle falls back to a flat biome.
 * **nothing blocks paint.** CSS is a real stylesheet, scripts are `defer`, and
   the sprite/audio origins are `preconnect`ed.
 
 | | raw | gzipped |
 | --- | --- | --- |
 | old single file | 12.06 MB | 1.57 MB |
-| critical path (to first battle) | 3.36 MB | 0.75 MB |
-| deferred learnsets chunk | 3.03 MB | 0.39 MB |
+| critical path (to first paint) | 2.75 MB | 0.60 MB |
+| optional 3D renderer (post-paint) | 0.73 MB | 0.19 MB |
+| optional game controller (post-paint) | 0.37 MB | 0.11 MB |
+| lazy Champions supplement | 0.20 MB | 0.02 MB |
+| deferred gen 9 learnsets | 3.03 MB | 0.39 MB |
 
 ## Development
 
@@ -476,32 +489,25 @@ round-tripping (including rejection of malformed files), the Daily's
 date/streak/share logic, the ascension curve, role-based movesets, the AI's
 situational scoring, the modal controller and the whole guided tutorial flow.
 
-A real-browser (Playwright) suite used to exist for WebGL/focus/layout
-coverage, but it was removed: this project is developed in a sandbox that
-cannot download a browser, so the suite could never run there or in CI. The
-JSDOM suite is therefore the complete quality gate and must stay green on its
-own.
+A real-browser Playwright check now covers the gap JSDOM cannot: Chromium with
+SwiftShader loads the deployed app, verifies the singleton renderer, exercises
+context loss/restoration and confirms the DOM HUD survives flat mode. It lives
+in `tools/browser-smoke.mjs` and is intentionally small so it can run on CI.
 
 ```sh
 npm ci --prefix tools
 npm run check --prefix tools        # lint + JSDOM + service-worker revision
+npm run test:browser --prefix tools # requires a Playwright browser install
 ```
 
-### CI (one manual step left)
+### CI
 
-A ready-to-use GitHub Actions workflow lives at
-[`tools/ci/check.yml`](tools/ci/check.yml). It runs lint + the JSDOM suite +
-the service-worker revision guard. It is **staged, not active**: GitHub rejects
-pushes that touch `.github/workflows/` from an app without `workflows`
-permission. A maintainer with normal permissions activates it in one move:
-
-```sh
-mkdir -p .github/workflows && git mv tools/ci/check.yml .github/workflows/
-```
-
-Worth doing: `static.yml` currently deploys `main` to Pages with no checks at
-all, so nothing today stops a broken build from going live (the workflow above
-is exactly what plugs that hole).
+The active workflow is
+[`/.github/workflows/check.yml`](.github/workflows/check.yml). It runs on every
+push and pull request, installs Chromium for the WebGL smoke test, and gates the
+Pages deploy. `static.yml` runs the same quality gate before uploading the Pages
+artifact, so a stale service-worker revision or broken renderer cannot silently
+ship on `main`.
 
 ### The service-worker revision
 

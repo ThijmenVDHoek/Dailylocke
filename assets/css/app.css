@@ -1046,6 +1046,10 @@ textarea.search.save-code {
 /* ------------------------------------------------------------ battle host */
 #screenBattle { padding:0; }
 #battleHost { width:100%; min-height:100vh; min-height:100svh; min-height:-webkit-fill-available; position:relative; }
+/* WebGL is scenery only. In flat mode the same DOM sprites/HUD remain fully
+   interactive over a biome gradient, so missing GPU support is cosmetic. */
+#battleHost.battle-flat { background:linear-gradient(180deg,#70c3e8 0%,#a8e4ff 48%,#42b96a 100%); }
+#battleHost.battle-flat .bm-sprites { z-index:2; }
 
 /* ------------------------------------------------- mega / ball battle fx */
 .mega-fx { position:absolute; inset:0; pointer-events:none; z-index:8; }
@@ -2006,6 +2010,11 @@ body.modal-open { overflow:hidden; }
   white-space:nowrap !important; border:0 !important;
 }
 .coach-title { color:#fff; }
+.coach-progress {
+  width:calc(100% - 88px); height:4px; margin:0 0 6px;
+  border-radius:999px; background:rgba(255,255,255,.18); overflow:hidden;
+}
+.coach-progress span { display:block; height:100%; border-radius:inherit; background:var(--gold); transition:width .25s ease; }
 .coach-dialogue-row {
   position:relative;
   min-height:80px;
@@ -2139,6 +2148,7 @@ body.coach-sheet-open .coach-spot { z-index:850; box-shadow:none; }
 .coach-bubble .coach-portrait { padding:2px; }
 .cb-main { flex:1; min-width:0; }
 .cb-title { display:block; color:#fff; font-size:.95rem; margin-bottom:2px; }
+.coach-bubble .coach-progress { width:100%; height:3px; margin:4px 0 5px; }
 .cb-body { margin:0; color:#fff; font-size:.84rem; line-height:1.45; }
 .cb-body b { color:#fff; }
 .cb-ok {
