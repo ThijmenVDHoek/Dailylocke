@@ -6,6 +6,17 @@
   var C = window.Core, N = window.Nuz, RB = window.RogueBattle;
 
   var $ = function (id) { return document.getElementById(id); };
+
+  function appFatal(title, err, message) {
+    var detail = err && (err.stack || err.message) ? (err.stack || err.message) : String(err || '');
+    var text = message || (err && err.message) || 'Please reload the game and try again.';
+    if (window.__dailylockeShowFatal) {
+      window.__dailylockeShowFatal(title || 'The game could not start', text, detail);
+    } else {
+      console.error('[app] fatal', err || text);
+    }
+  }
+
   var run = null, ui = null, battle = null, bctx = null;
   // Monotonically identifies the live battle stream. A renderer failure can
   // leave a few async stream callbacks queued; stale callbacks must not paint
@@ -336,6 +347,16 @@
           if (!$('screenTitle').hidden) setTimeout(startTitleScene, 80);
         }, 0);
       };
+      titleUI.onMountError = function (owner, err) {
+        if (owner && owner !== titleUI) return;
+        setTimeout(function () {
+          if (owner && owner !== titleUI) return;
+          stopTitleScene();
+          toast('The 3D showcase is unavailable, but the game is ready.');
+          console.warn('[title] showcase unavailable', err);
+        }, 0);
+      };
+      titleUI.onError = titleUI.onMountError;
       // A restored event follows a lost event; the lost handler already
       // replaces the renderer, so do not schedule a second rebuild here.
       titleUI.mount(host);
@@ -434,7 +455,13 @@
         titleLoop = setTimeout(nextBeat, 1800 + Math.random() * 1700);
       }
       titleLoop = setTimeout(nextBeat, 800 + Math.random()*400);
-    } catch (e) { console.warn('title scene', e); }
+    } catch (e) {
+      console.warn('title scene', e);
+      // A failed title renderer must not leave a disposed instance and a
+      // cleared canvas behind. The rest of the title UI remains usable.
+      stopTitleScene();
+      toast('The 3D showcase is unavailable, but the game is ready.');
+    }
   }
 
   function stopTitleScene() {
@@ -3942,7 +3969,14 @@
     ui.onContextLost = function (lostUI) {
       handleBattleContextLost(lostUI || ui);
     };
+    ui.onMountError = function (owner, err) {
+      handleBattleRendererFailure(owner || ui, err);
+    };
+    ui.onError = function (owner, err) {
+      handleBattleRendererFailure(owner || ui, err);
+    };
     ui.mount(host);
+    if (ui._mountFailed) throw ui._mountFailedError || new Error('The battle renderer failed to mount.');
     // A restored event follows a lost event. The lost handler already
     // remounts a fresh BattleUI, which avoids scheduling two recoveries for
     // the same GPU reset.
@@ -4218,6 +4252,24 @@
       } else {
         recoverBattleRenderer();
       }
+    }, 0);
+  }
+
+  function handleBattleRendererFailure(owner, err) {
+    if (owner && owner !== ui) return;
+    setTimeout(function () {
+      if (owner && owner !== ui) return;
+      // Let the in-flight battle start finish and surface its own caught
+      // error; disposing the renderer from this callback would otherwise race
+      // the async team roll and create another blank screen.
+      if (!battle && battleStarting) return;
+      if (battleRendererRecovering) {
+        battleRendererRecoveryFailed = true;
+        return;
+      }
+      var active = run && run._inBattle && battle;
+      battleFailed(err || new Error('The battle renderer stopped unexpectedly.'),
+        active ? { contextLost: true } : {});
     }, 0);
   }
 
@@ -7019,7 +7071,7 @@
   // game beyond `Game.toast`.
 
   // ---------------------------------------------------------------- BOOT ---
-  function boot() {
+  function bootImpl() {
     // Render pixel sprites at their NATIVE size (1:1).
     //
     // Showdown's sprite canvases vary a lot -- Tatsugiri is 60x44, Grafaiai
@@ -7132,7 +7184,11 @@
           saveGame();
         }
       }
-    } catch (e) { console.warn('[boot] auto-resume failed', e); }
+    } catch (e) {
+      console.warn('[boot] auto-resume failed', e);
+      if (run && run._inBattle) battleFailed(e);
+      else appFatal('The saved battle could not be resumed', e);
+    }
     $('btnTutorBack').addEventListener('click', function () {
       // The guided training is complete once the player presses Done: every
       // tab was walked through, so this is where the tutorial concludes —
@@ -7257,6 +7313,15 @@
     $('btnGuideBack').addEventListener('click', backToRoute);
     show('Title');
   }
+  function boot() {
+    try {
+      bootImpl();
+    } catch (err) {
+      console.error('[app] boot failed', err);
+      appFatal('The game could not start', err);
+    }
+  }
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 

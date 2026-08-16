@@ -41,6 +41,8 @@ check('every referenced stylesheet exists', missingCss.length === 0, missingCss.
 
 check('index.html no longer inlines the engine', html.length < 200 * 1024,
   `${(html.length / 1024).toFixed(1)} KB`);
+check('startup failures have a visible reload surface',
+  /id="appBootError"/.test(html) && /id="btnAppBootReload"/.test(html) && /unhandledrejection/.test(html));
 
 // -------------------------------------------------------------- the dom ----
 // jsdom cannot navigate: the app calls location.reload() after a successful
@@ -2382,6 +2384,25 @@ check('setupBattle() before mount() does not throw', !threw, threw);
 check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.biomeKey,
   `biome=${ui2.s.biomeKey}`);
 
+// A missing renderer dependency must fail loudly instead of leaving a queued
+// BattleUI that never paints and never tells the player what happened.
+{
+  const savedThree = window.THREE;
+  const missingHost = window.document.createElement('div');
+  window.document.body.appendChild(missingHost);
+  window.THREE = undefined;
+  const missingUi = new window.BattleUI();
+  missingUi._mountAttempts = 201;
+  let missingMountError = null;
+  missingUi.onMountError = (_owner, err) => { missingMountError = err; };
+  missingUi.mount(missingHost);
+  check('missing THREE reports a mount error',
+    !!missingMountError && /3D engine/i.test(missingMountError.message));
+  check('missing THREE clears the mount flag', missingHost._bm == null);
+  window.THREE = savedThree;
+  missingHost.remove();
+}
+
 // ================================================== RENDERER LIFECYCLE =====
 // The renderer must give its WebGL context back on unmount (forceContextLoss),
 // and a mount that dies halfway must not leave partial DOM or a zombie mount
@@ -3002,7 +3023,7 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
     C.bst(plainFirst) > 0 && typeof plainFirst === 'string', plainFirst);
 }
 
-const realErrors = consoleErrors.filter((e) => !/THREE|WebGL|cry|audio|sprite/i.test(e));
+const realErrors = consoleErrors.filter((e) => !/THREE|WebGL|cry|audio|sprite|mount unavailable/i.test(e));
 check('no unexpected console errors', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
 
 check('battle render loop stays error-free', rafErrors.length === 0,

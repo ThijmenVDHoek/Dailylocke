@@ -109,8 +109,10 @@ function BattleUI(){
   // already left the battle.
   this._contextLostHandler=null;this._contextRestoredHandler=null;
   this._contextLostNotified=false;this._unmounting=false;
+  this._mountFailed=false;this._mountFailedError=null;this._errorNotified=false;
   // Ops requested before mount() finished; replayed by _flushPending().
   this._pending=[];this._disposed=false;
+  this.onMountError=null;this.onError=null;
 }
 function mkMon(x,y,z,h){return{name:'',lv:100,types:[],hp:1,max:100,st:null,pos:new T.Vector3(x,y,z),h:h,sid:null,num:0,sh:null,shGrp:null,img:null,grp:null,tu:null,url:null,ar:1,fadeT:0,appearT:0,offX:0,offY:0,offZ:0,rotZ:0,tintW:1,lastCrySid:null};}
 BattleUI.preload=preload;BattleUI.preloadList=preloadList;
@@ -124,6 +126,24 @@ BattleUI.preload=preload;BattleUI.preloadList=preloadList;
 // the work has been queued for _flushPending() instead. The caller must NOT be
 // re-invoked here on the ready path -- doing so re-enters this same guard and
 // recurses forever.
+BattleUI.prototype._reportError=function(err){
+  if(this._disposed||this._unmounting||this._errorNotified)return;
+  this._errorNotified=true;
+  this.s.mounted=false;
+  if(this._raf){cancelAnimationFrame(this._raf);this._raf=null;}
+  var e=err instanceof Error?err:new Error(String(err||'Unknown renderer error'));
+  console.error('[BattleUI] renderer error',e);
+  if(this.onError){try{this.onError(this,e);}catch(_) {}}
+};
+BattleUI.prototype._failMount=function(host,err){
+  if(this._mountFailed)return;
+  this._mountFailed=true;
+  this._mountFailedError=err instanceof Error?err:new Error(String(err||'Battle renderer failed to mount'));
+  this.s.mounted=false;this._unmounting=true;this._disposed=true;this._pending=[];
+  if(host&&host._bm===this)host._bm=null;
+  console.error('[BattleUI] mount unavailable',this._mountFailedError);
+  if(this.onMountError){try{this.onMountError(this,this._mountFailedError);}catch(_) {}}
+};
 BattleUI.prototype._whenMounted=function(fn){
   if(this._disposed)return false;
   if(this.s.mounted&&this.sc)return true;
@@ -133,7 +153,7 @@ BattleUI.prototype._whenMounted=function(fn){
 BattleUI.prototype._flushPending=function(){
   var q=this._pending;this._pending=[];
   for(var i=0;i<q.length;i++){
-    try{q[i].call(this);}catch(e){console.warn('[BattleUI] deferred op failed',e);}
+    try{q[i].call(this);}catch(e){this._reportError(e);break;}
   }
 };
 // Some browsers report a lost context through the renderer before the DOM
@@ -150,12 +170,15 @@ BattleUI.prototype._notifyContextLost=function(ev){
 BattleUI.prototype.mount = function(host){
   if(!host||this._disposed)return;
   if(host._bm&&host._bm!==this)return;
+  this.host=host;
   if(!window.THREE){
     var selfT=this;
-    if(this._mountAttempts++>200){console.error('[BattleUI] THREE never loaded');return;}
+    if(this._mountAttempts++>200){
+      this._failMount(host,new Error('The 3D engine did not finish loading.'));
+      return;
+    }
     setTimeout(function(){selfT.mount(host);},30);return;
   }
-  this.host=host;
   var w=host.clientWidth,h=host.clientHeight;
   if(w<10||h<10){
     // The host can legitimately be 0x0 for a frame or two right after its
@@ -163,6 +186,10 @@ BattleUI.prototype.mount = function(host){
     // window box so a battle always renders instead of hanging forever.
     if(this._mountAttempts++<120){var retrySelf=this;requestAnimationFrame(function(){retrySelf.mount(host);});return;}
     w=window.innerWidth;h=window.innerHeight;
+    if(w<10||h<10){
+      this._failMount(host,new Error('The battle scene never became visible.'));
+      return;
+    }
   }
   this._mountAttempts=0;
   this._unmounting=false;
@@ -225,6 +252,7 @@ BattleUI.prototype.mount = function(host){
     // Replay anything the game asked for while we were still waiting on layout.
     this._flushPending();
   }catch(err){
+    this._mountFailed=true;this._mountFailedError=err;
     // Transactional mount: a throw halfway through must not leave a
     // half-built scene (canvas, sprites, HUD) or a zombie mount flag that
     // blocks the next battle. Clean up, mark disposed, and let the app own
@@ -1072,7 +1100,8 @@ BattleUI.prototype._anim=function(){
   // rAF in background tabs, but the battle host also gets hidden behind other
   // screens while the instance is still alive.
   if(this.host&&this.host.offsetParent===null&&this.host.getClientRects().length===0)return;
-  var dt=Math.min(0.05,this.clock.getDelta()),t=this.clock.elapsedTime;this.s.mt+=dt;
+  try{
+    var dt=Math.min(0.05,this.clock.getDelta()),t=this.clock.elapsedTime;this.s.mt+=dt;
   // Project sprites (DOM) each frame
   this._projectSprites(t,dt);
   var mo=this.s.moment,idle=(mo==='idle'||mo==='fainted'),cs=idle?2.4:6.0;
@@ -1123,8 +1152,12 @@ BattleUI.prototype._anim=function(){
     try{
       if(this.r.isContextLost&&this.r.isContextLost()){this._notifyContextLost(e);return;}
     }catch(_){}
-    console.warn('[BattleUI] render err',e);
+    this._reportError(e);
+    return;
   }}
+  }catch(e){
+    this._reportError(e);
+  }
 };
 
 // Project 3D sprite positions into DOM coordinates and apply animation offsets.

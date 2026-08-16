@@ -1011,6 +1011,26 @@ textarea.search.save-code {
 .evo-text b { color:var(--gold); }
 #btnEvoDone { max-width:380px; }
 
+/* ---------------------------------------------------------- boot failure */
+/* Startup failures used to leave the app looking like an empty dark screen.
+   Keep this above every game surface, including fixed title/battle scenes. */
+.boot-error[hidden] { display:none; }
+.boot-error {
+  position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center;
+  padding:24px; background:rgba(5,7,14,.94); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+}
+.boot-error-card {
+  width:100%; max-width:460px; padding:28px 22px; text-align:center;
+  border-radius:var(--r-lg); background:linear-gradient(180deg,var(--bg-2),var(--bg-1));
+  box-shadow:var(--e4), inset 0 0 0 1px rgba(255,255,255,.08);
+}
+.boot-error-kicker { color:var(--gold); font-size:.72rem; letter-spacing:3px; margin-bottom:9px; }
+.boot-error-card h1 { color:#fff; font-size:1.65rem; margin-bottom:10px; }
+.boot-error-card p { color:var(--ink-2); line-height:1.45; margin-bottom:16px; }
+.boot-error-card details { margin:0 0 16px; text-align:left; color:var(--ink-2); font-size:.8rem; }
+.boot-error-card summary { cursor:pointer; color:var(--gold); }
+.boot-error-card pre { margin-top:8px; max-height:130px; overflow:auto; white-space:pre-wrap; word-break:break-word; color:var(--ink-3); }
+
 /* --------------------------------------------------------------- toast */
 #toast {
   position:fixed; left:50%; bottom:30px; transform:translateX(-50%) translateY(20px);
