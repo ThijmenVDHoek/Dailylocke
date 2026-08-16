@@ -1233,11 +1233,9 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     !window.Coach.actionLocked() &&
     !window.document.body.classList.contains('coach-action-locked'));
 
-  // The free choice is an informed one: every prologue card names a role and
-  // an attack style.
-  check('the guided trio cards name a role and an attack style',
-    [...window.document.querySelectorAll('#starterGrid .starter-card')]
-      .every((c) => !!c.querySelector('.mr-label') && !!c.querySelector('.mr-style')));
+  // The mon-role card is retired: no starter card carries one anymore.
+  check('the guided trio cards carry no mon-role card',
+    !window.document.querySelector('#starterGrid .mon-role'));
 
   if (sheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
 
@@ -2545,32 +2543,11 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
     check('STAB badge markup renders for a matching move',
       /STAB/.test(CO.moveBadges('flamethrower', charmander)));
 
-    // Role labels: the thing that replaces "BST 405" for a casual player.
-    // These are RELATIVE to each Pokemon's own average, because absolute
-    // cutoffs are calibrated for fully-evolved Pokemon and made every single
-    // base-stage starter read as "All-rounder" -- useless on the one screen
-    // where the label has to do real work.
-    check('a fast frail attacker reads as a glass cannon',
-      /glass|fast/i.test(CO.roleOf('alakazam').label), CO.roleOf('alakazam').label);
-    check('a pure wall reads as a wall',
-      /wall|bulky/i.test(CO.roleOf('shuckle').label), CO.roleOf('shuckle').label);
-    check('a slow heavy hitter is not called fast',
-      !/fast|quick/i.test(CO.roleOf('snorlax').label), CO.roleOf('snorlax').label);
     check('attack style names the higher stat',
       CO.attackStyle('machamp').key === 'Physical' &&
       CO.attackStyle('alakazam').key === 'Special');
-    // The regression that matters: the three starters must be told apart.
-    const trio = ['treecko', 'charmander', 'froakie'].map((id) => CO.roleOf(id).label);
-    check('the starter trio all get a role and an attack style',
-      ['treecko', 'charmander', 'froakie'].every((id) => !!CO.roleOf(id) && !!CO.attackStyle(id)));
-    check('the starter trio do not all collapse to the same label',
-      new Set(trio).size > 1, trio.join(' / '));
-    check('an unevolved Pokemon is described as early, not weak',
-      CO.powerBand(C.bst('treecko'), 'treecko').early === true &&
-      !/weak|frail/i.test(CO.powerBand(C.bst('treecko'), 'treecko').label),
-      CO.powerBand(C.bst('treecko'), 'treecko').label);
-    check('a fully-evolved Pokemon is graded normally',
-      CO.powerBand(C.bst('garchomp'), 'garchomp').early !== true);
+    check('the starter trio all get an attack style',
+      ['treecko', 'charmander', 'froakie'].every((id) => !!CO.attackStyle(id)));
 
     // Held-item fit: this drives the ✦Tip badge, so a wrong answer is a
     // recommendation the player will follow into a bad purchase.
@@ -2679,7 +2656,7 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
     await new Promise((r) => setTimeout(r, 60));
     const sheetCard = window.document.querySelector('#screenCoach .overlay-card');
     check('the sheet shows the big professor portrait',
-      !!sheetCard && !!sheetCard.querySelector('.coach-head.immersive img[width="88"]'));
+      !!sheetCard && !!sheetCard.querySelector('.coach-head.immersive img[width="104"]'));
     check('the sheet types its text out',
       !!sheetCard && !!sheetCard.querySelector('.coach-body.text-reveal'));
     check('the lesson halos the element it is about',

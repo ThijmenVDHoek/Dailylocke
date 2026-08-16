@@ -1935,8 +1935,8 @@ body.modal-open { overflow:hidden; }
    mistakable for a control. Everything in here therefore shares one visual
    register that appears nowhere else in the game:
      * the advisor portrait is always present
-     * a violet accent rail on the left edge
-     * a slightly warmer, softer surface than the frosted-glass UI
+     * a frosted white speech box (10% white + backdrop blur)
+     * one white response button that advances the dialogue
    Buttons inside a coach surface still look like buttons, because those ARE
    interactive — the annotation is the frame around them, not the frame itself.
    ========================================================================== */
@@ -1959,8 +1959,9 @@ body.modal-open { overflow:hidden; }
 
 /* ---- the modal lesson dialogue ----
    Oak's lessons use the same compact visual grammar as the reference game
-   dialogue: the current screen remains visible, a dark speech box sits at the
-   bottom, Oak stands beside it, and one white response button follows. */
+   dialogue: the current screen remains visible, a frosted white speech box
+   (10% white over a backdrop blur) sits at the bottom, Oak stands beside it,
+   and one white response button follows. */
 .coach-overlay {
   align-items:flex-end;
   padding:0;
@@ -1988,14 +1989,16 @@ body.modal-open { overflow:hidden; }
 .coach-dialogue-row {
   position:relative;
   min-height:80px;
-  padding-right:72px;
+  padding-right:88px;
 }
 .coach-body {
-  min-height:78px;
-  padding:12px 13px;
+  min-height:64px;
+  padding:12px 14px;
   border-radius:12px;
-  background:rgba(54,55,59,.97);
-  box-shadow:0 5px 18px rgba(0,0,0,.34);
+  background:rgba(255,255,255,.10);
+  backdrop-filter:blur(14px) saturate(1.2);
+  -webkit-backdrop-filter:blur(14px) saturate(1.2);
+  box-shadow:0 5px 18px rgba(0,0,0,.30), inset 0 0 0 1px rgba(255,255,255,.08);
   color:#fff;
   font-size:1rem;
   line-height:1.28;
@@ -2003,10 +2006,10 @@ body.modal-open { overflow:hidden; }
 .coach-body b { color:#fff; }
 .coach-dialogue-professor.coach-head {
   position:absolute;
-  right:-7px; bottom:-20px;
+  right:-9px; bottom:-22px;
   z-index:2;
   display:block;
-  width:104px; height:124px;
+  width:126px; height:150px;
   margin:0;
   pointer-events:none;
 }
@@ -2019,7 +2022,7 @@ body.modal-open { overflow:hidden; }
 }
 .coach-dialogue-professor .coach-face {
   display:block;
-  width:104px; height:124px;
+  width:126px; height:150px;
   object-fit:contain; object-position:center bottom;
   border-radius:0;
   image-rendering:pixelated;
@@ -2042,7 +2045,7 @@ body.modal-open { overflow:hidden; }
 .coach-skip:hover { color:#fff; text-decoration:underline; }
 
 /* The typewriter grows the box only when a line genuinely needs more room. */
-.text-reveal { font-size:1rem; line-height:1.28; min-height:78px; }
+.text-reveal { font-size:1rem; line-height:1.28; min-height:64px; }
 .coach-body.text-reveal { color:#fff; }
 
 @media (min-width:600px) {
@@ -2050,42 +2053,64 @@ body.modal-open { overflow:hidden; }
   .coach-card { border-radius:0; padding-bottom:20px; }
 }
 
-/* ---- the violet halo on the element a lesson is about ---- */
-/* The element being pointed at gets a matching halo so the link between the
-   annotation and its subject is unambiguous. */
+/* ---- the pulse on the element a lesson is about ---- */
+/* The element being pointed at PULSES gently instead of carrying an outline:
+   the movement is what draws the eye, and nothing competes with the game's
+   own button styling. */
 .coach-spot {
   position:relative; z-index:1299;
-  box-shadow:0 0 0 3px rgba(192,124,232,.85), 0 0 26px rgba(192,124,232,.5) !important;
   border-radius:var(--r-md);
-  animation:coachPulse 1.9s ease-in-out infinite;
+  animation:coachPulse 1.2s ease-in-out infinite;
+  will-change:transform;
 }
-/* A modal SHEET anchors to an element on the page behind it. The halo must
+/* While the tutorial waits for the focused control to actually be PRESSED
+   (the action lock is armed), everything around it goes dark so the one
+   valid next step is unmistakable. The shade is a giant box-shadow cast by
+   the focused element itself — the intro.js trick — because a fixed overlay
+   can never win the z-index fight against nested stacking contexts like the
+   battle HUD. */
+body.coach-action-locked .coach-spot {
+  box-shadow:0 0 0 100vmax rgba(5,6,12,.62);
+}
+/* An orientation halo that CONTAINS the real target (the ball rail around
+   the one throwable ball) neither pulses nor casts a second shade: only the
+   actual control moves. */
+.coach-spot:has(.coach-spot) { animation:none; }
+body.coach-action-locked .coach-spot:has(.coach-spot) { box-shadow:none; }
+/* A modal SHEET anchors to an element on the page behind it. The pulse must
    stay BEHIND the sheet's scrim (z-index 900) — popping the anchored element
    up over the dialog (the old 1299) made the lesson card look glitched, with
-   the element it was explaining floating bright above it. The anchored
-   element is still visible, dimmed under the scrim, and JS scrolls it into
-   view so the connection stays obvious without the pop. */
-body.coach-sheet-open .coach-spot { z-index:850; }
+   the element it was explaining floating bright above it. The sheet's scrim
+   already darkens the page, so the shade stands down too. */
+body.coach-sheet-open .coach-spot { z-index:850; box-shadow:none; }
 @keyframes coachPulse {
-  0%,100% { box-shadow:0 0 0 3px rgba(192,124,232,.85), 0 0 22px rgba(192,124,232,.42); }
-  50%     { box-shadow:0 0 0 3px rgba(192,124,232,.95), 0 0 34px rgba(192,124,232,.68); }
+  0%,100% { transform:scale(1); }
+  50%     { transform:scale(1.045); }
 }
 @media (prefers-reduced-motion:reduce) {
-  .coach-spot { animation:none; }
+  /* No motion: a static ring stands in for the pulse so the focused control
+     is still findable. */
+  .coach-spot { animation:none; box-shadow:0 0 0 3px rgba(192,124,232,.7); }
+  body.coach-action-locked .coach-spot {
+    box-shadow:0 0 0 3px rgba(192,124,232,.7), 0 0 0 100vmax rgba(5,6,12,.62);
+  }
 }
 
 /* ---- the anchored battle bubble ---- */
-/* The in-battle teaching surface: same violet register as the modal sheet
-   (portrait + rail), but non-modal — the fight stays playable underneath it.
-   It dismisses with one tap, and the element it describes keeps the
-   .coach-spot halo until the player actually uses it. */
+/* The in-battle teaching surface (the capture-encounter beats live here):
+   the same frosted white speech-box register as the modal dialogue, but
+   non-modal — the fight stays playable underneath it. Only its own button
+   advances it, and the element it describes keeps the .coach-spot pulse
+   until the player actually uses it. */
 .coach-bubble {
   position:fixed; z-index:1300; max-width:274px;
   display:flex; gap:10px; align-items:flex-start;
-  padding:11px 12px; border-radius:var(--r-md); border-left:3px solid var(--violet);
-  background:linear-gradient(180deg, rgba(30,20,44,.97), rgba(14,18,32,.98));
-  box-shadow:0 14px 40px rgba(0,0,0,.65);
-  color:var(--ink); font-size:.88rem; line-height:1.45; cursor:pointer;
+  padding:11px 12px; border-radius:12px;
+  background:rgba(255,255,255,.10);
+  backdrop-filter:blur(14px) saturate(1.2);
+  -webkit-backdrop-filter:blur(14px) saturate(1.2);
+  box-shadow:0 14px 40px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.08);
+  color:var(--ink); font-size:.88rem; line-height:1.45;
   opacity:0; transform:translateY(4px) scale(.97);
   transition:opacity .16s ease-out, transform .16s ease-out;
 }
@@ -2094,17 +2119,17 @@ body.coach-sheet-open .coach-spot { z-index:850; }
 .coach-bubble .coach-portrait { padding:2px; }
 .cb-main { flex:1; min-width:0; }
 .cb-title { display:block; color:#fff; font-size:.95rem; margin-bottom:2px; }
-.cb-body { margin:0; color:var(--ink-2); font-size:.84rem; line-height:1.45; }
+.cb-body { margin:0; color:#fff; font-size:.84rem; line-height:1.45; }
 .cb-body b { color:#fff; }
 .cb-ok {
-  margin-top:8px; padding:5px 16px; border:none; border-radius:var(--r-pill);
-  background:var(--violet); color:#fff; font-family:inherit; font-size:.78rem;
+  margin-top:8px; padding:6px 18px; border:none; border-radius:var(--r-pill);
+  background:#fff; color:#080a12; font-family:inherit; font-size:.78rem;
   letter-spacing:.4px; cursor:pointer;
 }
 /* the arrow aims at the explained element; JS nudges it when clamped */
 .cb-arrow {
   position:absolute; width:10px; height:10px; bottom:-5px;
-  background:rgba(14,18,32,.98); transform:rotate(45deg);
+  background:rgba(255,255,255,.14); transform:rotate(45deg);
 }
 .coach-bubble.below .cb-arrow { bottom:auto; top:-5px; }
 .coach-bubble.side-right .cb-arrow { bottom:auto; top:50%; left:-5px; }
@@ -2143,24 +2168,6 @@ body.coach-sheet-open .coach-spot { z-index:850; }
 .mv-badge.off  { background:rgba(255,255,255,.08); color:var(--ink-3); }
 .mv-badges { display:flex; flex-wrap:wrap; gap:3px; margin-top:4px; }
 .mv-badges:empty { display:none; }
-
-/* ---- role / power labels on Pokemon cards ---- */
-.mon-role {
-  display:flex; flex-direction:column; gap:2px;
-  margin:8px 0 2px; padding:7px 9px;
-  background:rgba(255,255,255,.05); border-radius:var(--r-sm);
-}
-.mon-role .mr-top { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-.mon-role .mr-label { color:#fff; font-size:.86rem; }
-.mon-role .mr-style {
-  margin-left:auto; font-size:.6rem; letter-spacing:.8px; text-transform:uppercase;
-  color:var(--blue); background:rgba(91,140,255,.14); padding:1px 7px; border-radius:var(--r-pill);
-}
-.mon-role .mr-note { color:var(--ink-3); font-size:.74rem; line-height:1.35; }
-.mon-power { display:flex; align-items:center; gap:8px; margin-top:6px; }
-.mon-power .mp-bar { flex:1; height:5px; border-radius:999px; background:rgba(0,0,0,.45); overflow:hidden; }
-.mon-power .mp-bar i { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,var(--blue),var(--gold)); }
-.mon-power .mp-txt { font-size:.68rem; color:var(--ink-3); letter-spacing:.5px; white-space:nowrap; }
 
 /* ---- plain-language item subtitle ---- */
 /* The canon name stays exactly as it is; this is the honest line underneath.
@@ -2278,11 +2285,6 @@ body.coach-sheet-open .coach-spot { z-index:850; }
 .tc-slot .mv-badges, .move-card-inline .mv-badges { justify-content:center; margin-top:3px; }
 .pd-move .mv-badges { margin-top:3px; }
 .move-card .mv-badges { margin-top:6px; }
-
-/* A Pokemon that can still evolve is not "weak", it is early. Say so in a
-   colour that reads as potential rather than as a warning. */
-.mon-power.early .mp-txt { color:var(--green); }
-.mon-power.early .mp-bar i { background:linear-gradient(90deg,var(--blue),var(--green)); }
 
 /* Rules <-> Guide cross-link: two help surfaces that know about each other. */
 .rules-guide-link {

@@ -208,31 +208,6 @@
   // are NOT part of the tutorial and are never hidden by the tips toggle: a
   // veteran benefits from a STAB marker exactly as much as a beginner does.
 
-  // "Fast attacker · Physical" plus a power bar, from base stats alone.
-  function monRoleHtml(mon) {
-    var CO = window.Coach;
-    if (!CO || !mon || !mon.id) return '';
-    var role = CO.roleOf(mon.id);
-    var style = CO.attackStyle(mon.id);
-    if (!role) return '';
-    var bst = C.bst(mon.id);
-    var band = CO.powerBand(bst, mon.id);
-    return '<div class="mon-role">' +
-      '<div class="mr-top"><span class="mr-label">' + escapeHtml(role.label) + '</span>' +
-        (style && style.key !== 'mixed'
-          ? '<span class="mr-style" data-tip="text:' + escapeHtml(style.note) + '">' +
-            escapeHtml(style.label) + '</span>'
-          : '') +
-      '</div>' +
-      '<span class="mr-note">' + escapeHtml(role.note) + '</span>' +
-      '<div class="mon-power' + (band.early ? ' early' : '') + '" ' +
-        'data-tip="text:<b>Total power ' + bst + '</b> \u2014 the sum of all six stats. ' +
-        (band.early ? 'It still evolves, which is a big jump up.' : 'Higher means a stronger Pokemon overall.') + '">' +
-        '<span class="mp-bar"><i style="width:' + band.pct + '%"></i></span>' +
-        '<span class="mp-txt">' + escapeHtml(band.label) + '</span></div>' +
-    '</div>';
-  }
-
   // STAB / weak-stat / drawback chips for one move.
   function badgesHtml(moveId, mon, opts) {
     if (!window.Coach) return '';
@@ -927,21 +902,16 @@
       var isPro = run && run.prologue;
       card.className = 'card starter-card' + (isPro ? ' simple' : '');
       if (isPro) {
-        // The guided trio still keeps the simple layout, but each card names
-        // what the Pokemon is (role, attack style, power bar) so a first-time
-        // player can compare the three instead of picking on looks alone.
         card.innerHTML =
           '<div class="sprite-box">' + bigSprite(mon.id, '', 112, 150, 1, mon.shiny) + '</div>' +
           '<div class="sc-name">' + escapeHtml(mon.name) + '</div>' +
           '<div class="types" style="justify-content:center;margin:6px 0">' + typeChips(mon.types) + '</div>' +
-          monRoleHtml(mon) +
           '<button class="btn-primary pick-btn">Choose</button>';
       } else {
         card.innerHTML =
           '<div class="sprite-box">' + bigSprite(mon.id, '', 112, 150, 1, mon.shiny) + '</div>' +
           '<div class="sc-name">' + escapeHtml(mon.name) + '</div>' +
           '<div class="types">' + typeChips(mon.types) + '</div>' +
-          monRoleHtml(mon) +
           '<div class="statline">HP ' + C.maxHP(mon) + ' \u00b7 BST ' + C.bst(mon.id) + '</div>' +
           '<div class="ability" data-tip="ability:' + mon.ability + '">' + mon.ability + '</div>' +
           '<div class="movelist">' + mon.moves.map(function (m) {
@@ -2846,7 +2816,6 @@
           '<span>' + cur + ' / ' + mx + (mon.status ? '  \u00b7  ' + mon.status.toUpperCase() : '') + '</span>' +
         '</div>' +
         potionHtml +
-        monRoleHtml(mon) +
 
         '<div class="pd-facts">' +
           '<div class="pd-fact" data-tip="ability:' + mon.ability + '" tabindex="0"><span class="k">Ability</span><span class="v">' + mon.ability + '</span></div>' +
@@ -4967,12 +4936,12 @@
   // All scripted beats are `vital`: if the surface is busy when they fire, they
   // queue and still appear instead of being silently dropped.
   //
-  // THE ARMED GLOW. `bctx.tutBeat` remembers which control the live beat
+  // THE ARMED PULSE. `bctx.tutBeat` remembers which control the live beat
   // teaches: every HUD re-render re-pins .coach-spot on the fresh node (the
   // HUD replaces nodes as it redraws), and the beat only releases when the
   // player performs the action it taught (BEAT_CLEARS) or the battle ends.
   // The next move during the tutorial is therefore always, literally,
-  // "press the glowing thing".
+  // "press the pulsing thing".
   var BEAT_CLEARS = {
     move:     { battleBag: 1, effect: 1, tutorialDamage: 1 },
     ball:     { catch: 1, tutorialCatch: 1 },

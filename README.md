@@ -173,10 +173,9 @@ not available until the script reaches them.
    sprite, name and the experience choice. The first beat of the path.
 2. **Choose your starter** — the professor's immersive dialog sheet (big
    portrait, typewriter reveal), setting the register for the whole tutorial.
-   The sheet explains the choice and halos the grid, but never forces a card:
-   Treecko, Charmander and Froakie are all pickable, and each card names its
-   role and attack style so the choice is informed. Naming the partner is
-   part of the same conversation — Oak speaks inside the naming dialog too.
+   The sheet explains the choice and points at the grid, but never forces a
+   card: Treecko, Charmander and Froakie are all pickable. Naming the partner
+   is part of the same conversation — Oak speaks inside the naming dialog too.
 3. **The path** — how a section is shaped, on the route screen. During
    section 1 the Mart is hidden entirely; the route is just your team, your
    Bag and the battle button.
@@ -188,7 +187,7 @@ not available until the script reaches them.
    button stays locked until the heal has actually happened: catch → heal →
    battle 2, one line with no branches.
 6. **Onward** — once the partner is healed (or arrived at full HP, so there
-   is nothing to heal), the route glows the battle button and asks the player
+   is nothing to heal), the route pulses the battle button and asks the player
    to start Wild Battle 1. Healing and continuing are two separate beats, so
    the path never leaves the player staring at a route with no next action.
 7. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
@@ -220,17 +219,18 @@ ends the tutorial and hands over the ordinary game.)
 the tutorial: the professor's **dialog sheet** out of battle (modal, big
 portrait, typewriter reveal, dialogue first, one action after) and the
 **anchored bubble** in battle. When a lesson is *about* an element (the ball
-rail, the Party button, the Save progress button) that element carries the
-violet halo for as long as the card is up. The rules, taken from Nielsen
-Norman Group's coach-mark research, are enforced by the module rather than by
-each call site:
+rail, the Party button, the Save progress button) that element pulses for as
+long as the card is up — and while the tutorial waits for it to actually be
+pressed, everything around it dims so the one valid next step is unmistakable.
+The rules, taken from Nielsen Norman Group's coach-mark research, are enforced
+by the module rather than by each call site:
 
 * one idea per card, never two;
 * **never chained** — a second card cannot open while one is up; the single
   deliberate exception is the tutorial's `vital` beats, which *queue* (never
   stack) so the scripted sequence always plays in order;
-* a hint never looks like a button (advisor portrait, violet halo, its own
-  visual register);
+* a hint never looks like a button (advisor portrait, frosted speech box,
+  its own visual register);
 * always skippable, and the choice is permanent and reversible.
 
 **4. A Guide.** Every lesson is permanently re-readable from the menu. This is
