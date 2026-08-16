@@ -486,8 +486,8 @@
       say: 'I can help you heal during a battle, but healing uses your turn.',
       body: 'Tap <b>Bag</b> to choose a healing item.' },
     { id: 'tutorialDamage', where: 'battle', title: 'Weaken Pikachu first',
-      say: 'Pikachu cannot be knocked out here. Lower its HP for a better catch; status moves will wait, then I will show you a Poke Ball.',
-      body: 'Tap the pulsing <b>damaging move</b>.' },
+      say: 'Pikachu cannot be knocked out here. Status moves will wait; I highlighted your strongest damaging STAB move, which gets a 50% same-type bonus.',
+      body: 'Tap the pulsing <b>damaging move</b>, then I will show you how to throw a Poke Ball.' },
     { id: 'tutorialCatch', where: 'battle', title: 'Throw a Poke Ball',
       say: 'Pikachu is weakened. Now I will show you the catching step.',
       body: 'Tap the pulsing <b>Poke Ball</b> on the rail.' },
@@ -566,11 +566,11 @@
     { id: 'trainButton', where: '_tutorial', title: 'Open training',
       say: 'I am showing you the Train service. It gives you several ways to improve a Pokemon.',
       body: 'Tap <b>Train Pokemon</b>.' },
-    { id: 'trainMovesSlot', where: '_tutorial', title: 'Pick a move slot',
-      say: 'I will help you swap one move for something better.',
+    { id: 'trainMovesSlot', where: '_tutorial', title: 'Replace an off-type move',
+      say: 'This move does not get STAB. Let us replace it with an attack that matches your Pokemon\u2019s type.',
       body: 'Tap the highlighted move slot.' },
-    { id: 'trainPickMove', where: '_tutorial', title: 'Learn this move',
-      say: 'I label every card with what the move does.',
+    { id: 'trainPickMove', where: '_tutorial', title: 'Learn a powerful STAB move',
+      say: 'This is the strongest STAB attack available in the tutor. It gets the same-type damage bonus.',
       body: 'Tap the highlighted move card.' },
     { id: 'trainAbilityTab', where: '_tutorial', title: 'Open ability choices',
       say: 'I want you to see that abilities work every turn on their own.',
@@ -1062,7 +1062,6 @@
       ? '<div class="coach-progress" role="progressbar" aria-label="Tutorial progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + progress.percent + '"><span style="width:' + progress.percent + '%"></span></div>'
       : '';
     b.innerHTML =
-      '<span class="coach-portrait">' + advisorImg(38) + '</span>' +
       '<div class="cb-main">' +
         '<b class="cb-title">' + esc(lesson.title) + '</b>' +
         progressHtml +
@@ -1072,6 +1071,7 @@
         '</p>' +
         '<button type="button" class="cb-ok" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>' +
       '</div>' +
+      '<span class="coach-portrait cb-professor">' + advisorImg(104) + '</span>' +
       '<span class="cb-arrow" aria-hidden="true"></span>';
     bubbleOpts = opts;
     setBusy(true);

@@ -976,6 +976,10 @@
           '<button class="btn-primary pick-btn">Choose</button>';
       }
       card.querySelector('.pick-btn').addEventListener('click', function () {
+        // The naming dialog is the next tutorial surface, not a second layer
+        // underneath the starter lesson. Retire the lesson/bubble first so the
+        // name prompt always sits directly above the three starter cards.
+        if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
         askNickname(mon, function (nick) {
           mon.species = C.cleanName(mon.id);   // remember what it really is
           mon.name = nick;
@@ -2323,6 +2327,38 @@
     return drawTrainStats(body, mon);
   }
 
+  function guidedMoveUpgrade(mon, options) {
+    var types = (mon.types || []).map(function (t) { return String(t).toLowerCase(); });
+    function isStab(id) {
+      var m = Dex.moves.get(id);
+      return !!(m && m.exists && m.category !== 'Status' &&
+        types.indexOf(String(m.type).toLowerCase()) >= 0);
+    }
+    var candidates = (options || []).filter(function (id) {
+      var m = Dex.moves.get(id);
+      return mon.moves.indexOf(id) < 0 && isStab(id) && (m.basePower || 0) > 0;
+    }).sort(function (a, b) {
+      var A = Dex.moves.get(a), B = Dex.moves.get(b);
+      if ((A.basePower || 0) !== (B.basePower || 0)) return (B.basePower || 0) - (A.basePower || 0);
+      var aa = A.accuracy === true ? 101 : Number(A.accuracy) || 0;
+      var ba = B.accuracy === true ? 101 : Number(B.accuracy) || 0;
+      return ba - aa;
+    });
+    // Replace a non-STAB move first. Status moves are the clearest teaching
+    // contrast; otherwise discard the weakest off-type attack. Only fall back
+    // to the weakest current move when an imported save already has all STAB.
+    var slots = mon.moves.map(function (id, index) {
+      var m = Dex.moves.get(id);
+      return { index: index, stab: isStab(id), status: m.category === 'Status', power: m.basePower || 0 };
+    }).sort(function (a, b) {
+      if (a.stab !== b.stab) return a.stab ? 1 : -1;
+      if (a.status !== b.status) return a.status ? -1 : 1;
+      return a.power - b.power;
+    });
+    return { slotIndex: slots.length ? slots[0].index : null,
+             moveId: candidates.length ? candidates[0] : null };
+  }
+
   async function drawTrainMoves(body, mon) {
     body.innerHTML = '<p class="hint">Reading learnset...</p>';
     if (!svc.all) {
@@ -2335,6 +2371,11 @@
         return A.name.localeCompare(B.name);
       });
       svc.all = all;
+    }
+    if (tutorGuideActive() && tutorGuide.step === 'slot' && tutorGuide.slotIndex == null) {
+      var upgrade = guidedMoveUpgrade(mon, svc.all);
+      tutorGuide.slotIndex = upgrade.slotIndex;
+      tutorGuide.moveId = upgrade.moveId;
     }
     body.innerHTML =
       '<div class="tutor-current" id="trCurrent"></div>' +
@@ -2371,8 +2412,13 @@
           if (tutorGuideActive() && tutorGuide.step === 'slot') {
             if (window.Coach) { try { window.Coach.clearMark(); } catch (e) {} }
             tutorGuide.step = 'pick';
-            var first = listEl ? listEl.querySelector('.move-card') : null;
-            if (first) setTimeout(function () { tutorBubble('trainPickMove', first); }, 0);
+            var wanted = tutorGuide.moveId && listEl
+              ? listEl.querySelector('.move-card[data-m="' + tutorGuide.moveId + '"]') : null;
+            var first = wanted || (listEl ? listEl.querySelector('.move-card') : null);
+            if (first) {
+              try { first.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (e) {}
+              setTimeout(function () { tutorBubble('trainPickMove', first); }, 0);
+            }
           }
         });
       });
@@ -2386,7 +2432,15 @@
         if (!f) return true;
         var m = Dex.moves.get(id);
         return m.name.toLowerCase().indexOf(f) >= 0 || m.type.toLowerCase().indexOf(f) >= 0;
-      }).slice(0, 120);
+      });
+      // During the walkthrough the recommended card is intentionally first:
+      // it is the strongest available STAB attack, not merely the first
+      // high-power off-type move in the generic tutor ordering.
+      if (!f && tutorGuideActive() && tutorGuide.moveId) {
+        var wantedIndex = subset.indexOf(tutorGuide.moveId);
+        if (wantedIndex > 0) subset.unshift(subset.splice(wantedIndex, 1)[0]);
+      }
+      subset = subset.slice(0, 120);
       listEl.innerHTML = subset.map(function (id) {
         var m = Dex.moves.get(id);
         var acc = m.accuracy === true ? '\u2014' : m.accuracy;
@@ -2443,13 +2497,20 @@
 
     // Guided training, first step: pick the slot to replace.
     if (tutorGuideActive() && tutorGuide.step === 'slot') {
-      var firstSlot = $('trCurrent') ? $('trCurrent').querySelector('.tc-slot') : null;
+      var firstSlot = $('trCurrent') ? $('trCurrent').querySelector(
+        '.tc-slot[data-slot="' + tutorGuide.slotIndex + '"]') : null;
+      if (!firstSlot && $('trCurrent')) firstSlot = $('trCurrent').querySelector('.tc-slot');
       // A mon with fewer than four moves has an open slot — skip straight to
-      // choosing which move to learn.
+      // choosing the strongest available STAB move.
       if (!firstSlot || (mon.moves && mon.moves.length < 4)) {
         tutorGuide.step = 'pick';
-        var firstMove = listEl ? listEl.querySelector('.move-card') : null;
-        if (firstMove) setTimeout(function () { tutorBubble('trainPickMove', firstMove); }, 0);
+        var firstMove = tutorGuide.moveId && listEl
+          ? listEl.querySelector('.move-card[data-m="' + tutorGuide.moveId + '"]') : null;
+        if (!firstMove && listEl) firstMove = listEl.querySelector('.move-card');
+        if (firstMove) {
+          try { firstMove.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (e) {}
+          setTimeout(function () { tutorBubble('trainPickMove', firstMove); }, 0);
+        }
       } else if (firstSlot) {
         setTimeout(function () { tutorBubble('trainMovesSlot', firstSlot); }, 0);
       }
@@ -3147,8 +3208,18 @@
     if (run.section === 2 && !run.tutorialEvolved && mon && starterMon() === mon) {
       var readyBtn = document.querySelector('#xTeamDetail .evo-btn.ready');
       if (readyBtn) {
+        // The inspector is taller than a phone screen and evolution lives near
+        // its foot. Put that section in view before attaching the tutorial so
+        // the player never has to hunt/scroll for the highlighted action.
+        try { readyBtn.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); }
+        catch (e) { try { readyBtn.scrollIntoView(); } catch (_) {} }
         setTimeout(function () {
           if (!window.Modal.isOpen('xTeamDetail')) return;
+          var liveReady = document.querySelector('#xTeamDetail .evo-btn.ready');
+          if (liveReady) {
+            try { liveReady.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (e) {}
+            readyBtn = liveReady;
+          }
           CO.lesson('evoUse', {
             surface: 'bubble', anchor: readyBtn, actionRequired: true,
             bypassSeen: true, vital: true, keepHalo: true,
@@ -3703,14 +3774,17 @@
     // system prompt.
     var hint = $('nickHint');
     if (hint) {
-      hint.innerHTML = '<span class="coach-portrait">' +
-        (window.Coach ? window.Coach.advisorImg(30) : '') + '</span>' +
-        '<span class="nick-oak-line">A wonderful choice! Every great trainer ' +
-        'gives their Pokemon a name to remember.</span>';
+      hint.innerHTML = '<span class="nick-guide-chat">A wonderful choice! Every great trainer ' +
+        'gives their Pokemon a name to remember.</span>' +
+        '<span class="coach-portrait nick-guide-professor">' +
+        (window.Coach ? window.Coach.advisorImg(104) : '') + '</span>';
     }
     // Naming is mandatory -- there is no cancel -- so Escape and a backdrop
-    // click must NOT dismiss this one.
+    // click must NOT dismiss this one. While naming a starter, give the dialog
+    // its dedicated high, transparent treatment: it belongs over the three
+    // choices (and above any retiring coach layer), not on an unrelated screen.
     var el = $('screenNickname');
+    el.classList.toggle('starter-nickname', !!(run && run.prologue && !$('screenStarter').hidden));
     window.Modal.open(el, {
       initialFocus: el.querySelector('.overlay-card'),
       escape: false,
@@ -5008,29 +5082,34 @@
     renderRequest(req);
   }
 
-  function tutorialMoveId(req, predicate) {
+  function tutorialMoveId(req, predicate, preferredTypes) {
     if (!req || !req.active || !req.active[0]) return null;
     var slots = req.active[0].moves || [];
+    var types = (preferredTypes || []).map(function (t) { return String(t).toLowerCase(); });
+    var legal = [];
     for (var i = 0; i < slots.length; i++) {
       var slot = slots[i];
       if (slot.disabled || !slot.pp) continue;
       var d = Dex.moves.get(slot.id || slot.move);
       if (!d || !d.exists || d.id === RB.IDLE_MOVE || d.category === 'Status') continue;
-      // The scripted action must resolve on the first tap. Prefer guaranteed
-      // accuracy so a valid tap cannot miss.
-      if (d.accuracy !== true && Number(d.accuracy) < 100) continue;
-      if (!predicate || predicate(d)) return d.id;
+      if (predicate && !predicate(d)) continue;
+      legal.push(d);
     }
-    // A repaired old save may have only inaccurate moves. Still expose one
-    // legal damaging/weakness move rather than leaving the tutorial blank.
-    for (var j = 0; j < slots.length; j++) {
-      var slot2 = slots[j];
-      if (slot2.disabled || !slot2.pp) continue;
-      var d2 = Dex.moves.get(slot2.id || slot2.move);
-      if (!d2 || !d2.exists || d2.id === RB.IDLE_MOVE || d2.category === 'Status') continue;
-      if (!predicate || predicate(d2)) return d2.id;
-    }
-    return null;
+    if (!legal.length) return null;
+    // The player's first instructed attack teaches the useful default rule:
+    // use the strongest move that matches one of the Pokemon's own types.
+    // Accuracy breaks ties and is preferred strongly enough that the scripted
+    // first tap normally resolves, but STAB and displayed power stay primary.
+    legal.sort(function (a, b) {
+      var aStab = types.indexOf(String(a.type).toLowerCase()) >= 0 ? 1 : 0;
+      var bStab = types.indexOf(String(b.type).toLowerCase()) >= 0 ? 1 : 0;
+      if (aStab !== bStab) return bStab - aStab;
+      if ((a.basePower || 0) !== (b.basePower || 0)) return (b.basePower || 0) - (a.basePower || 0);
+      var aa = a.accuracy === true ? 101 : Number(a.accuracy) || 0;
+      var ba = b.accuracy === true ? 101 : Number(b.accuracy) || 0;
+      return ba - aa;
+    });
+    return legal[0].id;
   }
 
   function renderRequest(req) {
@@ -5055,10 +5134,12 @@
     var isTurn1SE = isTutorialSE && (!info || info.hpPct > 0.9);
     var isTutorialSwitch = !!(run && run.prologue && run.section === 1 && run.battleInSection === 2);
     var isScriptedSection1 = !!(run && run.prologue && run.section === 1);
-    var forcedDamageId = isTurn1 ? (bctx.tutorialMoveId || tutorialMoveId(req)) : null;
+    var ownTypes = activeMonForRequest && activeMonForRequest.types ? activeMonForRequest.types : [];
+    var forcedDamageId = isTurn1
+      ? (bctx.tutorialMoveId || tutorialMoveId(req, null, ownTypes)) : null;
     var forcedSEId = isTurn1SE ? (bctx.tutorialSEMoveId || tutorialMoveId(req, function (d) {
       return C.typeMod(d.type, foeTypes) >= 2;
-    })) : null;
+    }, ownTypes)) : null;
     if (isTurn1 && forcedDamageId) bctx.tutorialMoveId = forcedDamageId;
     if (isTurn1SE && forcedSEId) bctx.tutorialSEMoveId = forcedSEId;
 

@@ -63,51 +63,64 @@ function bm(c,o){return new T.MeshBasicMaterial(Object.assign({color:c},o||{}));
 var CACHE=Object.create(null);
 var FAILED=Object.create(null);
 
-// One renderer for the entire session. The canvas is scenery only; sprites and
-// HUD remain DOM layers, so keeping this context alive is both safe and much
-// cheaper than creating a new WebGL context for every title/battle visit.
-var SHARED_RENDERER=null,SHARED_CANVAS=null,SHARED_OWNER=null;
-var SHARED_CONTEXT_LOST=false,SHARED_WEBGL_DISABLED=false;
-function sharedRenderer(owner,w,h){
-  if(SHARED_OWNER&&SHARED_OWNER!==owner&&SHARED_OWNER.s&&SHARED_OWNER.s.mounted&&!SHARED_OWNER._disposed){
-    throw new Error('The shared battle renderer is still in use.');
-  }
-  if(SHARED_WEBGL_DISABLED||SHARED_CONTEXT_LOST)return null;
-  if(SHARED_RENDERER){
+// One explicit renderer session owns the sole WebGL context. Previously the
+// renderer, canvas, owner and context flags were independent globals; an error
+// could update only some of them and leave a "live" owner attached to a dead
+// canvas. Keeping those transitions together makes screen swaps transactional.
+var RendererSession={
+  renderer:null,canvas:null,owner:null,state:'idle',lastError:null,
+  acquire:function(owner,w,h){
+    var previous=this.owner;
+    if(previous&&previous!==owner&&previous.s&&previous.s.mounted&&!previous._disposed){
+      throw new Error('The shared battle renderer is still in use.');
+    }
+    if(this.state==='lost'||this.state==='unavailable')return null;
+    if(this.renderer){
+      try{
+        if(this.renderer.isContextLost&&this.renderer.isContextLost()){
+          this.state='lost';this.owner=owner;return null;
+        }
+        this.renderer.setSize(w,h,false);
+        if(this.renderer.resetState)this.renderer.resetState();
+      }catch(err){this.state='lost';this.lastError=err;this.owner=owner;return null;}
+      this.owner=owner;this.state='ready';return this.renderer;
+    }
     try{
-      if(SHARED_RENDERER.isContextLost&&SHARED_RENDERER.isContextLost()){
-        SHARED_CONTEXT_LOST=true;return null;
-      }
-      SHARED_RENDERER.setSize(w,h,false);
-    }catch(_){SHARED_CONTEXT_LOST=true;return null;}
-    SHARED_OWNER=owner;return SHARED_RENDERER;
-  }
-  try{
-    var isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-    var dpr=Math.min(window.devicePixelRatio||1,isiOS?1.5:2);
-    var r=new T.WebGLRenderer({antialias:false,alpha:false});
-    r.setPixelRatio(dpr);r.setSize(w,h,false);
-    r.outputColorSpace=T.SRGBColorSpace;r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.1;
-    var canvas=r.domElement;
-    canvas.addEventListener('webglcontextlost',function(ev){
-      if(ev&&ev.preventDefault)ev.preventDefault();
-      SHARED_CONTEXT_LOST=true;
-      var current=SHARED_OWNER;
-      if(current)current._notifyContextLost(ev);
-    });
-    canvas.addEventListener('webglcontextrestored',function(ev){
-      SHARED_CONTEXT_LOST=false;
-      var current=SHARED_OWNER;
-      if(current)current._notifyContextRestored(ev);
-    });
-    SHARED_RENDERER=r;SHARED_CANVAS=canvas;SHARED_OWNER=owner;
-    return r;
-  }catch(err){
-    SHARED_WEBGL_DISABLED=true;
-    console.warn('[BattleUI] WebGL unavailable; using flat battle mode',err);
-    return null;
-  }
-}
+      var isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+      var dpr=Math.min(window.devicePixelRatio||1,isiOS?1.5:2);
+      var r=new T.WebGLRenderer({antialias:false,alpha:false,powerPreference:'default'});
+      r.setPixelRatio(dpr);r.setSize(w,h,false);
+      r.outputColorSpace=T.SRGBColorSpace;r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.1;
+      var canvas=r.domElement,session=this;
+      canvas.addEventListener('webglcontextlost',function(ev){
+        if(ev&&ev.preventDefault)ev.preventDefault();
+        session.state='lost';
+        var current=session.owner;
+        if(current)current._notifyContextLost(ev);
+      });
+      canvas.addEventListener('webglcontextrestored',function(ev){
+        // Three restores its internal GL resources. Reset cached state before
+        // asking the current screen to rebuild only its scene graph.
+        session.state='ready';session.lastError=null;
+        try{if(session.renderer&&session.renderer.resetState)session.renderer.resetState();}catch(_){}
+        var current=session.owner;
+        if(current)current._notifyContextRestored(ev);
+      });
+      this.renderer=r;this.canvas=canvas;this.owner=owner;this.state='ready';
+      return r;
+    }catch(err){
+      this.state='unavailable';this.lastError=err;
+      console.warn('[BattleUI] WebGL unavailable; using flat battle mode',err);
+      return null;
+    }
+  },
+  release:function(owner,host){
+    if(this.owner===owner)this.owner=null;
+    if(host&&this.canvas&&this.canvas.parentNode===host)host.removeChild(this.canvas);
+  },
+  reason:function(){return this.state==='unavailable'?'unavailable':'context-lost';}
+};
+function sharedRenderer(owner,w,h){return RendererSession.acquire(owner,w,h);}
 function preload(url){
   if(!url)return null;
   if(FAILED[url])return null;
@@ -275,7 +288,7 @@ BattleUI.prototype.mount = function(host){
       r.domElement.style.cssText='display:block;position:absolute;inset:0;width:100%;height:100%;z-index:1;';
       host.appendChild(r.domElement);
     }else{
-      this.enterFlatMode(SHARED_WEBGL_DISABLED?'unavailable':'context-lost');
+      this.enterFlatMode(RendererSession.reason());
     }
     var sc=new T.Scene();this.sc=sc;sc.background=new T.Color(0x70c3e8);
     var cam=new T.PerspectiveCamera(45,w/Math.max(1,h),0.1,200);
@@ -317,8 +330,7 @@ BattleUI.prototype.mount = function(host){
     try{
       if(this._raf){cancelAnimationFrame(this._raf);this._raf=null;}
       window.removeEventListener('resize',this._onResize);
-      if(SHARED_OWNER===this)SHARED_OWNER=null;
-      if(SHARED_CANVAS&&SHARED_CANVAS.parentNode===host)host.removeChild(SHARED_CANVAS);
+      RendererSession.release(this,host);
       if(this.sprites&&this.sprites.parentNode)this.sprites.parentNode.removeChild(this.sprites);
       if(this.hud&&this.hud.parentNode)this.hud.parentNode.removeChild(this.hud);
       if(host)host._bm=null;
@@ -344,8 +356,7 @@ BattleUI.prototype.unmount = function(){
   window.removeEventListener('resize',this._onResize);
   // The shared WebGL renderer belongs to the session, not this screen. Move
   // its canvas out of the host and keep the context alive for the next screen.
-  if(SHARED_OWNER===this)SHARED_OWNER=null;
-  if(this.host&&SHARED_CANVAS&&SHARED_CANVAS.parentNode===this.host)this.host.removeChild(SHARED_CANVAS);
+  RendererSession.release(this,this.host);
   if(this.sprites&&this.sprites.parentNode)this.sprites.parentNode.removeChild(this.sprites);
   if(this.hud&&this.hud.parentNode)this.hud.parentNode.removeChild(this.hud);
   if(this.host){
