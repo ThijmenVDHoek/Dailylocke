@@ -4,12 +4,11 @@
 
 The audit covers code correctness, functionality, design, security, offline/PWA behaviour, testing/CI, and documentation accuracy. Findings are severity-ranked. Line numbers refer to the audited commit.
 
-> **Update — fixes applied (2026-07-31):** all findings marked ✅ below have been
-> implemented in the working tree. `npm run check` (lint + 289 JSDOM smoke
-> checks + service-worker revision guard) is fully green. The Playwright e2e
-> suite could not be executed in this sandbox (the browser CDN is unreachable);
-> it skips cleanly by design. The stale e2e references to the removed save-code
-> UI were updated to the current backup flow regardless.
+> **Update — fixes applied:** all findings marked ✅ below have been implemented
+> in the working tree. `npm run check` covers lint, the JSDOM smoke suite and the
+> service-worker revision guard. An active GitHub Actions workflow additionally
+> installs Chromium/SwiftShader and runs the focused WebGL lifecycle smoke test;
+> the Pages deploy waits for that gate.
 
 ---
 
@@ -17,7 +16,7 @@ The audit covers code correctness, functionality, design, security, offline/PWA 
 
 | Finding | Status |
 | --- | --- |
-| H1 — quality gate red (3 lint errors, smoke-test crash, stale SW rev) | ✅ fixed; `npm run check` green (289/289). CI workflow staged at `tools/ci/check.yml` — activating it in `.github/workflows/` needs a maintainer with `workflows` permission (this session's GitHub App lacks it, so the push was rejected) |
+| H1 — quality gate red (3 lint errors, smoke-test crash, stale SW rev) | ✅ fixed; `npm run check` green. CI is active at `.github/workflows/check.yml` and the Pages deploy gates on the same checks |
 | H2 — stale `SHELL_REV` | ✅ regenerated (`9cd45eeab0f9` → `86a1fbcfe211`) |
 | H3 — README claims encrypted backups that don't exist | ✅ README + module table + export copy now describe plain-JSON backups honestly |
 | H4 — stored XSS via import (validation + escaping + avatar allow-list) | ✅ `restoreFullBackup` validates/migrates/sanitizes everything; nicknames escaped in every `innerHTML` path; `profile.avatar` allow-listed; ui-patch escapes panel names too |
@@ -27,7 +26,7 @@ The audit covers code correctness, functionality, design, security, offline/PWA 
 | M3 — bag "take" skips forme enforcement | ✅ routes through `Forme.setHeldItemAndEnforce` |
 | M4 — `ui.s.st` typo | ✅ `ui.s.p.st` |
 | M6 — dead code/vendor/docs | ✅ `vendor/lz-string.min.js` + `vendor/qrcode.js` removed (notices updated), `Nuz.rollShiny` export removed, `SaveCode.supported` removed, `FORMAT` now shared, README size claim corrected, stale smoke-test save-code block replaced with backup round-trip tests, `btnTitleLoad` e2e ref fixed, `cause` added to re-thrown error |
-| L2 — save-every-damage-tick | ⏸ not changed (correctness first; a debounce is a safe follow-up) |
+| L2 — save-every-damage-tick | ✅ battle persistence is debounced to 500 ms and flushed at request/screen boundaries |
 | L1/L3/L4/L5/L6 — design notes | ⏸ left as noted |
 
 ---
@@ -36,38 +35,29 @@ The audit covers code correctness, functionality, design, security, offline/PWA 
 
 Dailylocke is an unusually well-engineered client-side game: a real battle simulator (`@pkmn/sim`), a split module graph, a genuinely thoughtful PWA strategy (content-hashed shell, bounded runtime caches, relative paths, self-hosted fonts), a WAI-ARIA modal controller, and a substantial test suite. The game logic around determinism, migrations, and identity-mapped battle state shows real care.
 
-However, the repository is **currently not green on its own quality gate**, and there are a handful of real issues:
-
-1. **The project's own checks fail** — lint has 3 errors, the JSDOM smoke test crashes (`SC.enabled is not a function`), and the service-worker revision is stale. CI is not active and the deploy workflow runs **no checks at all**, so a broken build can reach GitHub Pages untouched.
-2. **The README documents a backup-encryption feature that does not exist.** The README promises password-protected, PBKDF2-SHA-256 + AES-256-GCM encrypted backups; the code exports plain JSON with no password, no crypto, and the UI has no password field.
-3. **Stored XSS via backup import** — imported save data is written to storage without validation, and unescaped player-controlled strings (nicknames, avatar id) are interpolated into `innerHTML` in many places.
-4. **Daily runs are not fully deterministic** despite the README's claim: the AI's move choice uses `Math.random()`, so two players on the same day's puzzle can get different AI decisions (and therefore different battles).
-5. **Mid-battle auto-resume is lossy** for trainer battles (only the first enemy is restored) and drops field effects/elite modifiers.
+The original findings below are retained as historical evidence from the audited
+commit. The current tree has the quality gate and Pages dependency active, the
+backup/import and Daily/auto-resume fixes applied, and the remaining open items
+are explicitly marked in the status table.
 
 ---
 
 ## Critical / High
 
-### H1. The repository fails its own quality gate (`npm run check` is red)
+### H1. The repository fails its own quality gate — resolved
 
-All three stages of `tools/package.json` → `check` fail:
+This historical finding covered the removed save-code test path, lint errors and a
+stale service-worker revision. The current gate is active at
+`.github/workflows/check.yml`; `npm run check --prefix tools` is green, and the
+Pages deployment waits for the same check plus the headless browser smoke test.
 
-- **ESLint (3 errors):**
-  - `src/app.js:4600` — `preserve-caught-error`: a caught parse error is re-thrown as `new Error('This is not a valid Dailylocke save file.')` without `cause`, so the original error is lost.
-  - `src/savecode.js:5` — `FORMAT` is assigned but never used.
-  - `tools/smoke-test.mjs:658` — `freeCode` is assigned but never used.
-- **Smoke test crashes:** `tools/smoke-test.mjs:501` calls `SaveCode.enabled()`, but the current `src/savecode.js` only exposes `supported()/readFile/download`. The test still exercises the **removed** save-code API (`encode`, `decode`, `packFile`, `parseFileText`, `enabled`, plus `window.LZString` / `window.QRCode`, which `index.html` no longer loads). The suite dies with `TypeError: SC.enabled is not a function` after 2 prior failures (`lz-string loaded`, `qrcode.js loaded`).
-- **Service-worker revision guard:** `node tools/build-sw.mjs --check` reports `sw.js shell revision is STALE: 9cd45eeab0f9 -> 46726f6f1df9`.
+### H2. Stale service-worker shell revision — resolved
 
-**Why it matters:** `.github/workflows/static.yml` deploys `main` to GitHub Pages with zero checks; the CI workflow that would catch this (`tools/ci/check.yml`) is deliberately not installed (and the README itself calls this out: "nothing today stops a broken build from going live"). So the current tree is exactly the broken state that gate was built to prevent.
+The worker revision is generated from the current shell contents and is checked by
+CI before Pages deployment. The current revision is regenerated with
+`npm run build:sw --prefix tools`.
 
-*Fix:* fix the 3 lint errors, update/delete the dead save-code block in `smoke-test.mjs`, run `npm run build:sw --prefix tools` and commit the new `SHELL_REV`, then activate `tools/ci/check.yml` by moving it into `.github/workflows/`.
-
-### H2. Stale service-worker shell revision → returning players can be stranded on old JS forever
-
-`sw.js` `SHELL_REV = '9cd45eeab0f9'` does not match a content hash of the current shell files (should be `46726f6f1df9`). This is the exact failure mode the README describes: a deploy that changes shell files without bumping the revision leaves `sw.js` byte-identical, so browsers never re-install the worker and the old precached `src/app.js` etc. are served indefinitely. The check that would catch this is not wired into the deploy path (see H1). **Do not deploy the current tree without regenerating the revision.**
-
-### H3. README documents "encrypted full-game backups" that do not exist
+### H3. README documents "encrypted full-game backups" that do not exist — resolved
 
 The README (`## Encrypted full-game backups`) and its module table state:
 
@@ -80,7 +70,7 @@ The implementation does none of this:
 - `index.html` — the export/import overlays contain **no password field at all**.
 - There is no `crypto.subtle`, PBKDF2, or AES anywhere in `src/`.
 
-Either the encryption feature was removed and the README was never updated (most likely, given the honest comment in `savecode.js` and the removed save-code system), or the feature is missing. The README's step-by-step instructions describe UI that does not exist. This is a user-facing trust problem: players are told their saves are "encrypted and authenticated" when they are plain text and trivially editable. **Update the README (and the app's export modal copy) to describe plain JSON backups, or implement the encryption.**
+Either the encryption feature was removed and the README was never updated (most likely, given the honest comment in `savecode.js` and the removed save-code system), or the feature is missing. The README's step-by-step instructions describe UI that does not exist. This is a user-facing trust problem: players are told their saves are "encrypted and authenticated" when they are plain text and trivially editable. **The README and export modal now describe plain JSON backups honestly.**
 
 ### H4. Stored XSS via save-file import (and self-XSS via nicknames)
 
@@ -142,7 +132,7 @@ In `vendor/battle-ui.js` the status lives at `s.p.st` / `s.e.st`; `ui.s.st` is a
 - **`Evo.canEvolve()`** checks `req.extraItem`, which `requirementFor()` never sets — dead field.
 - **`PWA.refresh`** exposed but never called by the app.
 - **`Storage.available()`** — comment says "used to warn the player once", but no warning is ever shown in `app.js`.
-- **README**: "`app.js` is ~197 KB today" — actual size is 249,142 bytes (~243 KB). Also the module table's description of `savecode.js` ("password-encrypted, authenticated full-backup files") is false (H3).
+- **README** now reports the measured ~369 KB app controller and the post-paint loader split; the module table describes the plain-JSON backup format honestly.
 
 ---
 
@@ -151,8 +141,11 @@ In `vendor/battle-ui.js` the status lives at `s.p.st` / `s.e.st`; `ui.s.st` is a
 ### L1. `recordShiny` can log the same shiny multiple times
 A shiny that evolves or forme-changes calls `recordShiny` again with a new `mon.id`, so the Shiny Collection can show the same Pokémon twice (pre-/post-evolution), and `hasCollectedShiny(id)` fails to recognize the evolved forme (the Gauntlet "make shiny" toggle disappears). Consider keying the collection by base species or updating the existing entry on evolution.
 
-### L2. Frequent `localStorage` writes mid-battle
-`handleLine` calls `syncBattleToRun(); saveGame();` on every player `-damage` / `-heal` / `-status` / faint event — i.e., a full `JSON.stringify` of the run on every damage tick. Correct, but on large runs and slow phones this can jank the animation queue. A debounce (e.g., write at most every 500 ms) would be safer.
+### L2. Frequent `localStorage` writes mid-battle — resolved
+Battle damage, healing, status, and faint events schedule one persistence write
+within a 500 ms window. The pending write is flushed before a player request and
+when a battle screen is torn down, preserving crash/reload correctness without
+serializing the whole run for every animation tick.
 
 ### L3. Enemy EV spreads can exceed the 510 total
 `applyTraining` for wall/disruptor roles sets `hp=252, def≈151, spd≈151, atk/spa≈101` (sum ≈ 655) for late sections. `@pkmn/sim` clamps per-stat to 252 and doesn't reject the total, so it works, but the spread silently violates the standard 510-EV cap — worth normalizing for consistency with the player-facing Stat Points system (66 SP ≈ 508 EVs).
@@ -190,11 +183,10 @@ Battle music streams from `play.pokemonshowdown.com`; the offline story covers t
 
 ## Prioritized action list
 
-1. **Before any deploy:** run `npm run build:sw --prefix tools` and commit the new `SHELL_REV` (H2). Deploying the current tree risks stranding players on stale JS.
-2. **Fix the quality gate:** 3 lint errors, the dead save-code block in `smoke-test.mjs`, and activate `tools/ci/check.yml` so `main` can't deploy broken (H1).
-3. **Reconcile the backup story:** either implement the documented password/AES-GCM encryption or rewrite the README + modal copy to say "plain JSON backup" (H3).
-4. **Harden the import path:** validate/migrate imported data (`Storage.validate`), allow-list `profile.avatar`, escape all nickname interpolation — closes the stored-XSS and bricking vectors (H4, H5).
-5. **Make the Daily truly deterministic:** seed the AI's move choice (M1).
-6. **Fix auto-resume:** restore the full enemy team, field effect, and elite state; fix the `_isResume` timing (M2).
-7. **Small correctness fixes:** `ui.s.p.st` (M4), bag-take forme enforcement (M3), `cause` on re-thrown errors (H1 lint).
-8. **Housekeeping:** remove dead vendor files/notices, unused exports (`validate`, `rollShiny`, `supported`, `PWA.refresh`), and update the README's app.js size claim (M6).
+1. **Keep the active gates green:** `npm run check --prefix tools` plus `npm run test:browser --prefix tools` (H1/H2).
+2. **Reconcile the backup story:** either implement the documented password/AES-GCM encryption or keep all copy explicitly plain JSON (H3).
+3. **Harden the import path:** validate/migrate imported data (`Storage.validate`), allow-list `profile.avatar`, escape all nickname interpolation — closes the stored-XSS and bricking vectors (H4, H5).
+4. **Make the Daily truly deterministic:** seed the AI's move choice (M1).
+5. **Fix auto-resume:** restore the full enemy team, field effect, and elite state; fix the `_isResume` timing (M2).
+6. **Small correctness fixes:** `ui.s.p.st` (M4), bag-take forme enforcement (M3), `cause` on re-thrown errors (H1 lint).
+7. **Housekeeping:** remove dead vendor files/notices, unused exports (`validate`, `rollShiny`, `supported`, `PWA.refresh`), and update the README's app.js size claim (M6).

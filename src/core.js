@@ -291,6 +291,12 @@
       try { await window.PS.learnsetsReady(); }
       catch (e) { console.error('[core] learnsets failed to load', e); }
     }
+    // Champions data is an optional supplement, so keep it off the initial
+    // title critical path and fall back cleanly to Showdown if unavailable.
+    if (window.ChampionsLearnsetsReady) {
+      try { await window.ChampionsLearnsetsReady(); }
+      catch (e) { console.warn('[core] Champions learnsets unavailable', e); }
+    }
     var out = [], seen = {};
     async function addFrom(id) {
       var ls = await Dex.learnsets.get(id);

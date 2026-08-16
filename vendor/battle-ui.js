@@ -62,6 +62,52 @@ function bm(c,o){return new T.MeshBasicMaterial(Object.assign({color:c},o||{}));
 // on a broken preferred GIF (which used to stall until the 800ms race lost to gen5).
 var CACHE=Object.create(null);
 var FAILED=Object.create(null);
+
+// One renderer for the entire session. The canvas is scenery only; sprites and
+// HUD remain DOM layers, so keeping this context alive is both safe and much
+// cheaper than creating a new WebGL context for every title/battle visit.
+var SHARED_RENDERER=null,SHARED_CANVAS=null,SHARED_OWNER=null;
+var SHARED_CONTEXT_LOST=false,SHARED_WEBGL_DISABLED=false;
+function sharedRenderer(owner,w,h){
+  if(SHARED_OWNER&&SHARED_OWNER!==owner&&SHARED_OWNER.s&&SHARED_OWNER.s.mounted&&!SHARED_OWNER._disposed){
+    throw new Error('The shared battle renderer is still in use.');
+  }
+  if(SHARED_WEBGL_DISABLED||SHARED_CONTEXT_LOST)return null;
+  if(SHARED_RENDERER){
+    try{
+      if(SHARED_RENDERER.isContextLost&&SHARED_RENDERER.isContextLost()){
+        SHARED_CONTEXT_LOST=true;return null;
+      }
+      SHARED_RENDERER.setSize(w,h,false);
+    }catch(_){SHARED_CONTEXT_LOST=true;return null;}
+    SHARED_OWNER=owner;return SHARED_RENDERER;
+  }
+  try{
+    var isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+    var dpr=Math.min(window.devicePixelRatio||1,isiOS?1.5:2);
+    var r=new T.WebGLRenderer({antialias:false,alpha:false});
+    r.setPixelRatio(dpr);r.setSize(w,h,false);
+    r.outputColorSpace=T.SRGBColorSpace;r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.1;
+    var canvas=r.domElement;
+    canvas.addEventListener('webglcontextlost',function(ev){
+      if(ev&&ev.preventDefault)ev.preventDefault();
+      SHARED_CONTEXT_LOST=true;
+      var current=SHARED_OWNER;
+      if(current)current._notifyContextLost(ev);
+    });
+    canvas.addEventListener('webglcontextrestored',function(ev){
+      SHARED_CONTEXT_LOST=false;
+      var current=SHARED_OWNER;
+      if(current)current._notifyContextRestored(ev);
+    });
+    SHARED_RENDERER=r;SHARED_CANVAS=canvas;SHARED_OWNER=owner;
+    return r;
+  }catch(err){
+    SHARED_WEBGL_DISABLED=true;
+    console.warn('[BattleUI] WebGL unavailable; using flat battle mode',err);
+    return null;
+  }
+}
 function preload(url){
   if(!url)return null;
   if(FAILED[url])return null;
@@ -101,8 +147,18 @@ function BattleUI(){
   this._cryQueue=[];this._cryPlaying=false;this._suppressAutoCries=false;
   this._onResize=this._onResize.bind(this);this._anim=this._anim.bind(this);
   this._mountAttempts=0;this._momentTouts=[];
+  // WebGL context events are part of the renderer lifecycle, not battle
+  // gameplay. The shared renderer owns the actual context lifecycle; screen
+  // instances only report loss/restoration and move the canvas between hosts.
+  // This prevents ordinary title/battle churn from manufacturing contexts and
+  // stops a stale screen from reporting a teardown as a GPU failure.
+  this._contextLostHandler=null;this._contextRestoredHandler=null;
+  this._contextLostNotified=false;this._unmounting=false;
+  this._mountFailed=false;this._mountFailedError=null;this._errorNotified=false;
+  this.flat=false;this._flatReason='';
   // Ops requested before mount() finished; replayed by _flushPending().
   this._pending=[];this._disposed=false;
+  this.onMountError=null;this.onError=null;
 }
 function mkMon(x,y,z,h){return{name:'',lv:100,types:[],hp:1,max:100,st:null,pos:new T.Vector3(x,y,z),h:h,sid:null,num:0,sh:null,shGrp:null,img:null,grp:null,tu:null,url:null,ar:1,fadeT:0,appearT:0,offX:0,offY:0,offZ:0,rotZ:0,tintW:1,lastCrySid:null};}
 BattleUI.preload=preload;BattleUI.preloadList=preloadList;
@@ -116,6 +172,24 @@ BattleUI.preload=preload;BattleUI.preloadList=preloadList;
 // the work has been queued for _flushPending() instead. The caller must NOT be
 // re-invoked here on the ready path -- doing so re-enters this same guard and
 // recurses forever.
+BattleUI.prototype._reportError=function(err){
+  if(this._disposed||this._unmounting||this._errorNotified)return;
+  this._errorNotified=true;
+  this.s.mounted=false;
+  if(this._raf){cancelAnimationFrame(this._raf);this._raf=null;}
+  var e=err instanceof Error?err:new Error(String(err||'Unknown renderer error'));
+  console.error('[BattleUI] renderer error',e);
+  if(this.onError){try{this.onError(this,e);}catch(_) {}}
+};
+BattleUI.prototype._failMount=function(host,err){
+  if(this._mountFailed)return;
+  this._mountFailed=true;
+  this._mountFailedError=err instanceof Error?err:new Error(String(err||'Battle renderer failed to mount'));
+  this.s.mounted=false;this._unmounting=true;this._disposed=true;this._pending=[];
+  if(host&&host._bm===this)host._bm=null;
+  console.error('[BattleUI] mount unavailable',this._mountFailedError);
+  if(this.onMountError){try{this.onMountError(this,this._mountFailedError);}catch(_) {}}
+};
 BattleUI.prototype._whenMounted=function(fn){
   if(this._disposed)return false;
   if(this.s.mounted&&this.sc)return true;
@@ -125,19 +199,53 @@ BattleUI.prototype._whenMounted=function(fn){
 BattleUI.prototype._flushPending=function(){
   var q=this._pending;this._pending=[];
   for(var i=0;i<q.length;i++){
-    try{q[i].call(this);}catch(e){console.warn('[BattleUI] deferred op failed',e);}
+    try{q[i].call(this);}catch(e){this._reportError(e);break;}
   }
+};
+// Some browsers report a lost context through the renderer before the DOM
+// event reaches the canvas. Keep one idempotent path for both cases.
+BattleUI.prototype.enterFlatMode=function(reason){
+  this.flat=true;this._flatReason=reason||this._flatReason||'webgl';
+  if(this.host){
+    this.host.classList.add('battle-flat');
+    this.host.style.background=this._flatBackground(this.s.biomeKey||'meadow');
+  }
+};
+BattleUI.prototype._flatBackground=function(key){
+  var b=BIOMES[key]||BIOMES.meadow;
+  function hex(n){return '#'+('000000'+Number(n||0).toString(16)).slice(-6);}
+  return 'linear-gradient(180deg,'+hex(b.sky)+' 0%, '+hex(b.fog&&b.fog[0])+' 48%, '+hex(b.g)+' 100%)';
+};
+BattleUI.prototype._notifyContextLost=function(ev){
+  if(this._disposed||this._unmounting||this._contextLostNotified)return;
+  this._contextLostNotified=true;
+  if(ev&&ev.preventDefault)ev.preventDefault();
+  // Keep the DOM battle alive while the browser decides whether the context
+  // can be restored. A context loss is cosmetic here; the player can continue
+  // in flat mode instead of being thrown into a dead-end error panel.
+  this.enterFlatMode('context-lost');
+  if(this.onContextLost){try{this.onContextLost(this,ev);}catch(_) {}}
+};
+BattleUI.prototype._notifyContextRestored=function(ev){
+  if(this._disposed||this._unmounting)return;
+  this._contextLostNotified=false;
+  if(this.onContextRestored){try{this.onContextRestored(this,ev);}catch(_) {}}
 };
 
 BattleUI.prototype.mount = function(host){
   if(!host||this._disposed)return;
-  if(host._bm&&host._bm!==this)return;
-  if(!window.THREE){
-    var selfT=this;
-    if(this._mountAttempts++>200){console.error('[BattleUI] THREE never loaded');return;}
-    setTimeout(function(){selfT.mount(host);},30);return;
+  if(host._bm&&host._bm!==this){
+    throw new Error('The battle host is already mounted by another renderer.');
   }
   this.host=host;
+  if(!window.THREE){
+    var selfT=this;
+    if(this._mountAttempts++>200){
+      this._failMount(host,new Error('The 3D engine did not finish loading.'));
+      return;
+    }
+    setTimeout(function(){selfT.mount(host);},30);return;
+  }
   var w=host.clientWidth,h=host.clientHeight;
   if(w<10||h<10){
     // The host can legitimately be 0x0 for a frame or two right after its
@@ -145,34 +253,30 @@ BattleUI.prototype.mount = function(host){
     // window box so a battle always renders instead of hanging forever.
     if(this._mountAttempts++<120){var retrySelf=this;requestAnimationFrame(function(){retrySelf.mount(host);});return;}
     w=window.innerWidth;h=window.innerHeight;
+    if(w<10||h<10){
+      this._failMount(host,new Error('The battle scene never became visible.'));
+      return;
+    }
   }
   this._mountAttempts=0;
+  this._unmounting=false;
+  this._contextLostNotified=false;
   host._bm=this;host.innerHTML='';
   host.style.cssText='position:absolute;inset:0;overflow:hidden;';
   var self=this;
   try{
-    // Layer 0: WebGL canvas (scenery only)
-    var isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-    // Safari can terminate a WebGL context when a high-DPR canvas grows behind
-    // its browser chrome. Cap its backing buffer more conservatively.
-    var dpr=Math.min(window.devicePixelRatio||1,isiOS?1.5:2);
-    var r=new T.WebGLRenderer({antialias:false,alpha:false});
-    r.setPixelRatio(dpr);r.setSize(w,h,false);
-    r.outputColorSpace=T.SRGBColorSpace;r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.1;
-    r.domElement.style.cssText='display:block;position:absolute;inset:0;width:100%;height:100%;z-index:1;';
-    host.appendChild(r.domElement);this.r=r;
-    // A lost GPU context must never leave a silently white canvas: stop the
-    // loop and hand the failure to the app (which surfaces the retry panel).
-    r.domElement.addEventListener('webglcontextlost',function(ev){
-      if(ev&&ev.preventDefault)ev.preventDefault();
-      if(self._raf){cancelAnimationFrame(self._raf);self._raf=null;}
-      self.s.mounted=false;
-      if(self.onContextLost){try{self.onContextLost();}catch(_){}}
-    });
-    r.domElement.addEventListener('webglcontextrestored',function(){
-      // A fresh battle mounts a fresh context; there is nothing to restore in
-      // place. The listener exists so the canvas never silently sits white.
-    });
+    // Layer 0: WebGL canvas (scenery only). Reuse the session renderer when
+    // possible; if WebGL is unavailable, keep building the DOM layers in flat
+    // mode so the battle remains playable.
+    var r=sharedRenderer(this,w,h);
+    this.r=r;
+    this.flat=!r;
+    if(r){
+      r.domElement.style.cssText='display:block;position:absolute;inset:0;width:100%;height:100%;z-index:1;';
+      host.appendChild(r.domElement);
+    }else{
+      this.enterFlatMode(SHARED_WEBGL_DISABLED?'unavailable':'context-lost');
+    }
     var sc=new T.Scene();this.sc=sc;sc.background=new T.Color(0x70c3e8);
     var cam=new T.PerspectiveCamera(45,w/Math.max(1,h),0.1,200);
     cam.position.set(0,4.8,10.5);cam.lookAt(0,1.2,0);this.cam=cam;
@@ -194,6 +298,9 @@ BattleUI.prototype.mount = function(host){
     buildWeather(this);buildField(this);this.buildBiome('meadow');
     setTimeout(function(){if(self.r){try{self.r.shadowMap.enabled=true;self.r.shadowMap.type=T.PCFSoftShadowMap;}catch(_){}}},200);
     window.addEventListener('resize',this._onResize);
+    // A context can disappear while the scene is being assembled. The shared
+    // listener has already switched this instance to flat mode, so it is still
+    // safe to finish the DOM scene and keep the battle playable.
     this.s.mounted=true;
     this._raf=requestAnimationFrame(this._anim);
     this.render();
@@ -201,19 +308,23 @@ BattleUI.prototype.mount = function(host){
     // Replay anything the game asked for while we were still waiting on layout.
     this._flushPending();
   }catch(err){
+    this._mountFailed=true;this._mountFailedError=err;
     // Transactional mount: a throw halfway through must not leave a
     // half-built scene (canvas, sprites, HUD) or a zombie mount flag that
     // blocks the next battle. Clean up, mark disposed, and let the app own
     // the error UX via battleFailed().
+    this._unmounting=true;
     try{
       if(this._raf){cancelAnimationFrame(this._raf);this._raf=null;}
       window.removeEventListener('resize',this._onResize);
-      if(this.r){try{this.r.dispose();}catch(_){}if(this.r.domElement&&this.r.domElement.parentNode)this.r.domElement.parentNode.removeChild(this.r.domElement);}
+      if(SHARED_OWNER===this)SHARED_OWNER=null;
+      if(SHARED_CANVAS&&SHARED_CANVAS.parentNode===host)host.removeChild(SHARED_CANVAS);
       if(this.sprites&&this.sprites.parentNode)this.sprites.parentNode.removeChild(this.sprites);
       if(this.hud&&this.hud.parentNode)this.hud.parentNode.removeChild(this.hud);
       if(host)host._bm=null;
     }catch(_){}
     this.r=null;this.sc=null;this.cam=null;this.sprites=null;this.hud=null;this.host=null;
+    this._contextLostHandler=null;this._contextRestoredHandler=null;
     this._disposed=true;this._pending=[];
     console.error('[BattleUI] mount failed',err);
     throw new Error('BattleUI could not mount: '+((err&&err.message)||String(err)),{cause:err});
@@ -223,38 +334,35 @@ BattleUI.prototype.mount = function(host){
 BattleUI.prototype.unmount = function(){
   this.s.mounted=false;
   // A disposed instance must never resurrect itself through a queued retry.
-  this._disposed=true;this._pending=[];
+  // Mark the teardown before removing the listeners/forcing context loss so a
+  // browser that dispatches webglcontextlost synchronously cannot call back
+  // into the app while it is halfway through unmounting.
+  this._unmounting=true;this._disposed=true;this._pending=[];
   if(this._raf)cancelAnimationFrame(this._raf);
+  this._raf=null;
   if(this._momentTouts){this._momentTouts.forEach(function(t){clearTimeout(t);});}this._momentTouts=[];
   window.removeEventListener('resize',this._onResize);
-  if(this.r){
-    try{this.r.dispose();}catch(_){}
-    // dispose() frees three.js resources but does NOT release the WebGL
-    // context. Return the context to the browser pool so contexts stop piling
-    // up (one per title visit, one per battle) -- mobile browsers, iOS Safari
-    // especially at high DPR, eventually refuse to create more and leave a
-    // pale white battle screen.
-    try{
-      if(typeof this.r.forceContextLoss==='function')this.r.forceContextLoss();
-      else if(this.r.getContext){
-        var gl=this.r.getContext();
-        var ext=gl&&gl.getExtension&&gl.getExtension('WEBGL_lose_context');
-        if(ext&&ext.loseContext)ext.loseContext();
-      }
-    }catch(_){}
-    if(this.r.domElement&&this.r.domElement.parentNode)this.r.domElement.parentNode.removeChild(this.r.domElement);
-  }
+  // The shared WebGL renderer belongs to the session, not this screen. Move
+  // its canvas out of the host and keep the context alive for the next screen.
+  if(SHARED_OWNER===this)SHARED_OWNER=null;
+  if(this.host&&SHARED_CANVAS&&SHARED_CANVAS.parentNode===this.host)this.host.removeChild(SHARED_CANVAS);
   if(this.sprites&&this.sprites.parentNode)this.sprites.parentNode.removeChild(this.sprites);
   if(this.hud&&this.hud.parentNode)this.hud.parentNode.removeChild(this.hud);
-  if(this.host)this.host._bm=false;
-  if(this.sc){try{this.sc.traverse(function(o){if(o.geometry)o.geometry.dispose();if(o.material){if(Array.isArray(o.material))o.material.forEach(function(m){m.dispose();});else o.material.dispose();}});}catch(_){}}
+  if(this.host){
+    this.host._bm=null;
+    this.host.classList.remove('battle-flat');
+    this.host.style.background='';
+  }
+  if(this.sc){try{this.sc.traverse(function(o){if(o.geometry)o.geometry.dispose();if(o.material){if(Array.isArray(o.material))o.material.forEach(function(m){m.dispose();});else o.material.dispose();}});}catch(_) {}}
+  this._contextLostHandler=null;this._contextRestoredHandler=null;
   this.r=null;this.sc=null;this.cam=null;this.hud=null;this.sprites=null;this._dom={};
 };
 BattleUI.prototype._onResize=function(){
-  if(!this.host||!this.r||!this.cam)return;
+  if(!this.host||!this.cam)return;
   var w=this.host.clientWidth,h=this.host.clientHeight;
   if(w<10||h<10){w=window.innerWidth;h=window.innerHeight;}
-  this.r.setSize(w,h,false);this.cam.aspect=w/Math.max(1,h);this.cam.updateProjectionMatrix();
+  if(this.r&&!this.flat)this.r.setSize(w,h,false);
+  this.cam.aspect=w/Math.max(1,h);this.cam.updateProjectionMatrix();
 };
 
 function buildShadow(ui,k){
@@ -286,6 +394,7 @@ BattleUI.prototype.buildBiome=function(key){
   if(!this._whenMounted(function(){this.buildBiome(key);}))return;
   var b=BIOMES[key]||BIOMES.meadow;var bg=this.g.b;clrGrp(bg);
   this.s.biomeKey=key;
+  if(this.flat&&this.host)this.host.style.background=this._flatBackground(key);
   this.sc.background=new T.Color(b.sky);this.sc.fog=new T.Fog(b.fog[0],b.fog[1],b.fog[2]);
   var amb=new T.AmbientLight(b.a[0],b.a[1]);bg.add(amb);
   var sun=new T.DirectionalLight(b.s[0],b.s[1]);sun.position.set(b.s[2][0],b.s[2][1],b.s[2][2]);
@@ -1029,7 +1138,8 @@ BattleUI.prototype._anim=function(){
   // rAF in background tabs, but the battle host also gets hidden behind other
   // screens while the instance is still alive.
   if(this.host&&this.host.offsetParent===null&&this.host.getClientRects().length===0)return;
-  var dt=Math.min(0.05,this.clock.getDelta()),t=this.clock.elapsedTime;this.s.mt+=dt;
+  try{
+    var dt=Math.min(0.05,this.clock.getDelta()),t=this.clock.elapsedTime;this.s.mt+=dt;
   // Project sprites (DOM) each frame
   this._projectSprites(t,dt);
   var mo=this.s.moment,idle=(mo==='idle'||mo==='fainted'),cs=idle?2.4:6.0;
@@ -1068,10 +1178,24 @@ BattleUI.prototype._anim=function(){
     pt.geometry.attributes.position.needsUpdate=true;}}
   for(var k=this.s.ps.length-1;k>=0;k--){var pa=this.s.ps[k];pa.life+=dt;for(var m=0;m<pa.v.length;m++){pa.a[m*3]+=pa.v[m][0]*dt;pa.a[m*3+1]+=pa.v[m][1]*dt;pa.a[m*3+2]+=pa.v[m][2]*dt;pa.v[m][1]-=4*dt;}pa.m.geometry.attributes.position.needsUpdate=true;pa.m.material.opacity=Math.max(0,1-pa.life/pa.ttl);if(pa.life>=pa.ttl){this.g.f.remove(pa.m);try{pa.m.geometry.dispose();pa.m.material.dispose();}catch(_){}this.s.ps.splice(k,1);}}
   this._stepField(t,dt);
-  // The loop re-arms itself at the very top (before any scene work), and this
+  // Some WebKit builds expose the loss through isContextLost() before the DOM
+  // event is delivered. Detect it here as well so a white canvas never keeps
+  // an animation loop alive forever.
+  if(!this.flat&&this.r&&typeof this.r.isContextLost==='function'){
+    try{if(this.r.isContextLost()){this._notifyContextLost();return;}}catch(_){}
+  }
   // render call is individually guarded -- a one-frame GPU hiccup logs a
   // warning and the next frame simply retries rather than killing the loop.
-  if(this.r){try{this.r.render(this.sc,this.cam);}catch(e){console.warn('[BattleUI] render err',e);}}
+  if(this.r&&!this.flat){try{this.r.render(this.sc,this.cam);}catch(e){
+    try{
+      if(this.r.isContextLost&&this.r.isContextLost()){this._notifyContextLost(e);return;}
+    }catch(_){}
+    this._reportError(e);
+    return;
+  }}
+  }catch(e){
+    this._reportError(e);
+  }
 };
 
 // Project 3D sprite positions into DOM coordinates and apply animation offsets.

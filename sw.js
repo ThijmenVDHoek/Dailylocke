@@ -27,7 +27,7 @@ const CACHE_PREFIX = 'dailylocke-';
 
 // ---- GENERATED: do not edit by hand -------------------------------------
 // `npm run build:sw --prefix tools` recomputes this from the shell contents.
-const SHELL_REV = '12f1cfbb683b';
+const SHELL_REV = 'b63a7f7cb67a';
 // -------------------------------------------------------------------------
 
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${SHELL_REV}`;
@@ -64,6 +64,8 @@ const APP_SHELL = [
   'vendor/three.min.js',
   'vendor/battle-ui.js',
   'src/pokedata.js',
+  'src/champions-loader.js',
+  'src/champions-learnsets.js',
   'src/core.js',
   'src/storage.js',
   'src/modal.js',
@@ -81,6 +83,8 @@ const APP_SHELL = [
   'src/savecode.js',
   'src/safari-compat.js',
   'src/pwa.js',
+  'src/renderer-loader.js',
+  'src/app-loader.js',
   'src/app.js'
 ].map((path) => new URL(path, self.location).href);
 

@@ -468,139 +468,140 @@
   //   `body` — the ONE thing to do right now. One idea, one control, phrased
   //            as an instruction ("Tap the glowing..."), with the important
   //            word in bold.
-  // This is what makes the tutorial read as a conversation with the professor
-  // rather than a wall of documentation, and it is what keeps every step
-  // isolated: dialogue first, one action second.
+  // Titles are short sentence-case labels with no trailing punctuation. This
+  // is what makes the tutorial read as a conversation with the professor rather
+  // than a wall of documentation, and it keeps every step isolated: dialogue
+  // first, one action second.
   var LESSONS = [
-    { id: 'welcome', where: 'basics', title: 'Welcome!',
-      say: 'Hello there! I am Professor Oak, and I will be your guide.',
-      body: 'Pick a <b>sprite</b>, enter a <b>name</b>, and choose how much help you want.' },
-    { id: 'starter', where: 'basics', title: 'Choose your starter!',
-      say: 'Time to pick your first Pokemon \u2014 there is no wrong choice, but a fainted Pokemon is gone for good.',
-      body: 'Tap <b>Choose</b> on the one you like, then give it a nickname.' },
+    { id: 'welcome', where: 'basics', title: 'Welcome',
+      say: 'Hello there! I am Professor Oak, and I will guide you through your first choices.',
+      body: 'Tap <b>Begin</b> when your trainer details are ready.' },
+    { id: 'starter', where: 'basics', title: 'Choose your starter',
+      say: 'I will help you choose your first Pokemon. Any of these partners can win.',
+      body: 'Tap <b>Choose</b> on the partner you want.' },
     { id: 'route', where: 'basics', title: 'The path',
-      say: 'Every section has four stops: three wild Pokemon, then a trainer.',
-      body: 'Tap the pulsing <b>Capture Encounter</b> button \u2014 your one chance this section to catch a new friend.' },
-    { id: 'battleBag', where: 'battle', title: 'Bag: heal mid-battle',
-      say: 'Your Bag works mid-battle, but healing costs your turn.',
-      body: 'Tap <b>Bag</b> and use a <b>Super Potion</b> before a big hit lands.' },
+      say: 'I will show you the route one stop at a time: three wild Pokemon, then a trainer.',
+      body: 'Tap the pulsing <b>Capture Encounter</b> button.' },
+    { id: 'battleBag', where: 'battle', title: 'Heal mid-battle',
+      say: 'I can help you heal during a battle, but healing uses your turn.',
+      body: 'Tap <b>Bag</b> to choose a healing item.' },
     { id: 'tutorialDamage', where: 'battle', title: 'Weaken Pikachu first',
-      say: 'A wild Pikachu! The lower its HP, the easier the catch.',
-      body: 'Tap the pulsing <b>damaging move</b>. Status moves are locked and Pikachu cannot be knocked out here \u2014 after the hit, the Poke Ball appears.' },
-    { id: 'tutorialCatch', where: 'battle', title: 'Throw a Poke Ball!',
-      say: 'Pikachu is weakened!',
-      body: 'Tap the pulsing <b>Poke Ball</b> on the rail to catch it.' },
-    { id: 'catch', where: 'catching', title: 'Catch your first!',
-      say: 'A wild Pokemon!',
-      body: 'Weaken it with attacks first \u2014 lower HP means better odds \u2014 then tap a <b>Poke Ball</b> on the rail.' },
-    { id: 'caught', where: 'catching', title: 'New friend!',
+      say: 'Pikachu cannot be knocked out here. Lower its HP for a better catch; status moves will wait, then I will show you a Poke Ball.',
+      body: 'Tap the pulsing <b>damaging move</b>.' },
+    { id: 'tutorialCatch', where: 'battle', title: 'Throw a Poke Ball',
+      say: 'Pikachu is weakened. Now I will show you the catching step.',
+      body: 'Tap the pulsing <b>Poke Ball</b> on the rail.' },
+    { id: 'catch', where: 'catching', title: 'Catch your first',
+      say: 'I will help you make a catch: a weaker Pokemon is easier to catch.',
+      body: 'Tap a <b>Poke Ball</b> after you weaken it.' },
+    { id: 'caught', where: 'catching', title: 'New friend',
       say: 'You did it! A caught Pokemon keeps the HP and status it had when caught.',
-      body: 'Give it a nickname \u2014 healing comes next.' },
+      body: 'Enter a nickname for your new friend.' },
     { id: 'healOpen', where: '_tutorial', title: 'Heal your new friend',
-      say: 'A good trainer heals the team between battles.',
-      body: 'Tap <b>{NAME}\u2019s card</b> on your team, then use the pulsing <b>Potion</b>.' },
+      say: 'I want you to practice healing your new teammate between battles.',
+      body: 'Tap <b>{NAME}\u2019s card</b> on your team.' },
     { id: 'healUse', where: '_tutorial', title: 'Use a Potion',
-      say: 'There it is.',
-      body: 'Tap the pulsing <b>Use Potion</b> button to heal <b>{NAME}</b>.' },
-    { id: 'onward', where: '_tutorial', title: 'Onward!',
-      say: 'Your friend is healed and ready.',
-      body: 'Tap the pulsing <b>Wild Battle 1</b> button to continue.' },
-    { id: 'effect', where: 'battle', title: 'Super effective!',
-      say: 'Hitting a type weakness doubles your damage.',
-      body: 'Tap the move with the <b>\u00d72</b> tag \u2014 the other actions stay locked until you do.' },
-    { id: 'switch', where: 'battle', title: 'How to Switch',
-      say: 'Sending in the right teammate can turn a battle around.',
+      say: 'Good. Now I will show you where healing happens.',
+      body: 'Tap the pulsing <b>Use Potion</b> button.' },
+    { id: 'onward', where: '_tutorial', title: 'Continue onward',
+      say: 'I can see your friend is healed and ready. I will lead you to the next stop.',
+      body: 'Tap the pulsing <b>Wild Battle 1</b> button.' },
+    { id: 'effect', where: 'battle', title: 'Super effective',
+      say: 'I can help you spot a type weakness. It doubles your damage.',
+      body: 'Tap the move with the <b>\u00d72</b> tag.' },
+    { id: 'switch', where: 'battle', title: 'How to switch',
+      say: 'I will show you how to send the right teammate into battle.',
       body: 'Tap <b>Party</b> to open the switch list.' },
     { id: 'switchPick', where: '_tutorial', title: 'Choose your switch',
-      say: 'Now choose who takes over.',
+      say: 'Now I want you to choose who takes over.',
       body: 'Tap <b>{NAME}</b> to send it into battle.' },
-    { id: 'trainer', where: 'basics', title: 'Heal first!',
-      say: 'Your first Trainer battle \u2014 and trainers never let you run away.',
+    { id: 'trainer', where: 'basics', title: 'Heal first',
+      say: 'Your first Trainer battle is next. Trainers never let you run away.',
       body: 'Tap <b>Trainer Battle</b> to start it.' },
-    { id: 'skipping', where: 'basics', title: 'The middle stops are a budget',
-      say: 'Wild battles pay prize money but wear your team down.',
-      body: 'If a fight goes badly, <b>Run</b> always works \u2014 it only costs the reward.' },
+    { id: 'skipping', where: 'basics', title: 'Budget the middle stops',
+      say: 'I use the middle wild battles to earn money, but I save my team when I can.',
+      body: 'Tap <b>Run</b> when you need to leave a wild battle.' },
     { id: 'save', where: 'saving', title: 'Save your game',
-      say: 'Your save lives only in <b>this browser</b> \u2014 nothing is stored online.',
-      body: 'Tap <b>Save progress</b> to download a backup you can restore later.' },
-    { id: 'mart', where: 'items', title: 'The Mart is open',
-      say: 'The Mart is open whenever you are on the route.',
-      body: 'Balls and Potions are always in stock; held items and stones rotate every section.' },
+      say: 'Your save lives only in this browser; nothing is stored online.',
+      body: 'Tap <b>Save progress</b> to download a backup.' },
+    { id: 'mart', where: 'items', title: 'Open the Mart',
+      say: 'I keep Balls and Potions in stock, while held items and stones rotate each section.',
+      body: 'Tap the <b>Mart</b> to see what is in stock.' },
     { id: 'train', where: 'training', title: 'Train your Pokemon',
-      say: 'The Train service rewrites moves, ability, nature and Stat Points for one fee.',
-      body: 'A few Stat Points in Speed often decides who moves first.' },
-    { id: 'held', where: 'training', title: 'Free power, every turn',
-      say: 'A held item works every turn without costing a move.',
-      body: 'If a \u2726Tip badge says one fits your Pokemon, it genuinely does.' },
+      say: 'I use the Train service to improve moves, ability, nature, and Stat Points.',
+      body: 'Tap a Pokemon\u2019s <b>card</b> to see its training services.' },
+    { id: 'held', where: 'training', title: 'Choose a held item',
+      say: 'A held item works every turn without costing a move. I will point out good fits.',
+      body: 'Tap <b>Buy</b> on a Tip-marked held item.' },
     { id: 'evolve', where: 'training', title: 'Evolve your starter',
-      say: 'Your starter is ready to evolve \u2014 here, evolution is done with an item.',
-      body: 'Tap the <b>Rare Candy</b> shop tile to buy it.' },
+      say: 'Your starter is ready to evolve. Here, evolution uses an item.',
+      body: 'Tap the <b>Rare Candy</b> tile in the Mart.' },
     { id: 'evoOpen', where: '_tutorial', title: 'Open your starter',
-      say: 'The Rare Candy is in your bag.',
-      body: 'Tap <b>{NAME}</b> on your team to open it.' },
-    { id: 'evoBranch', where: 'training', title: 'It can become more than one thing',
-      say: 'This evolution branches, and the choice is permanent.',
-      body: 'Check what each form does before you commit.' },
-    { id: 'moveChoice', where: 'training', title: 'Four moves, no take-backs',
-      say: 'Four moves at a time \u2014 a replaced move is forgotten for good.',
-      body: 'Prefer moves that match this Pokemon\u2019s type: the STAB bonus makes them hit 50% harder.' },
+      say: 'I put the Rare Candy in your bag. I will show you where to use it.',
+      body: 'Tap <b>{NAME}</b> on your team.' },
+    { id: 'evoBranch', where: 'training', title: 'Compare the forms',
+      say: 'This evolution branches, and I want you to see the choice before you commit.',
+      body: 'Tap a form to inspect its strengths.' },
+    { id: 'moveChoice', where: 'training', title: 'Choose a move',
+      say: 'Four moves fit at a time. I will help you choose a useful replacement.',
+      body: 'Tap a move that matches this Pokemon\u2019s type.' },
     // ---- scripted tutorial steps (hidden from the Guide) -------------------
     // These are the guided run's choreography, not reference material, so
     // they carry a where-group the Guide never renders.
-    { id: 'makeLead', where: '_tutorial', title: 'Your new lead',
-      say: 'The first Pokemon in your team opens every battle.',
-      body: 'Tap your new Pokemon\u2019s <b>card</b> on the team strip, then tap <b>Make lead</b>.' },
-    { id: 'makeLeadTap', where: '_tutorial', title: 'Make lead',
-      say: 'Almost there!',
-      body: 'Tap <b>Make lead</b> to put this Pokemon up front.' },
+    { id: 'makeLead', where: '_tutorial', title: 'Choose your new lead',
+      say: 'I use the first Pokemon in your team to open every battle.',
+      body: 'Tap your new Pokemon\u2019s <b>card</b> on the team strip.' },
+    { id: 'makeLeadTap', where: '_tutorial', title: 'Make your lead',
+      say: 'I can see you are almost there! Put your new friend up front.',
+      body: 'Tap <b>Make lead</b>.' },
     { id: 'evoUse', where: '_tutorial', title: 'Use the Rare Candy',
-      say: 'This is the moment.',
-      body: 'Tap <b>Ready to evolve</b> to spend the Rare Candy.' },
-    { id: 'evoDone', where: '_tutorial', title: 'See the result',
-      say: 'Stronger, faster \u2014 and still the same friend.',
+      say: 'This is the moment. I will be here while your partner changes.',
+      body: 'Tap <b>Ready to evolve</b>.' },
+    { id: 'evoDone', where: '_tutorial', title: 'Continue',
+      say: 'I can see your partner is stronger, faster, and still the same friend.',
       body: 'Tap <b>Continue</b> to return to the route.' },
-    { id: 'trainOpen', where: '_tutorial', title: 'Time to train',
-      say: 'One last skill: training.',
-      body: 'Tap <b>{NAME}</b> on your team to open it.' },
-    { id: 'trainButton', where: '_tutorial', title: 'Open Training',
-      say: 'This is the Train service.',
-      body: 'Tap <b>Train Pokemon</b> to open it.' },
+    { id: 'trainOpen', where: '_tutorial', title: 'Open training',
+      say: 'One last skill: I will show you the Train service.',
+      body: 'Tap <b>{NAME}</b> on your team.' },
+    { id: 'trainButton', where: '_tutorial', title: 'Open training',
+      say: 'I am showing you the Train service. It gives you several ways to improve a Pokemon.',
+      body: 'Tap <b>Train Pokemon</b>.' },
     { id: 'trainMovesSlot', where: '_tutorial', title: 'Pick a move slot',
-      say: 'We will swap one move for something better.',
-      body: 'Tap the highlighted move slot to choose what to replace.' },
+      say: 'I will help you swap one move for something better.',
+      body: 'Tap the highlighted move slot.' },
     { id: 'trainPickMove', where: '_tutorial', title: 'Learn this move',
-      say: 'Every card says what the move does.',
-      body: 'Tap the highlighted move card to learn it.' },
-    { id: 'trainAbilityTab', where: '_tutorial', title: 'Now your ability',
-      say: 'Abilities work every turn, all on their own.',
-      body: 'Tap <b>Ability</b> to see your options.' },
+      say: 'I label every card with what the move does.',
+      body: 'Tap the highlighted move card.' },
+    { id: 'trainAbilityTab', where: '_tutorial', title: 'Open ability choices',
+      say: 'I want you to see that abilities work every turn on their own.',
+      body: 'Tap <b>Ability</b>.' },
     { id: 'trainAbilityPick', where: '_tutorial', title: 'Pick this ability',
-      say: 'This one is a great fit.',
-      body: 'Tap this ability to take it.' },
-    { id: 'trainAbilityOnly', where: '_tutorial', title: 'Its only ability',
-      say: '{NAME} is born with a single ability \u2014 a good one.',
-      body: 'Tap <b>{ABILITY}</b> to confirm it and continue to Nature.' },
-    { id: 'trainNatureTab', where: '_tutorial', title: 'Now your nature',
-      say: 'A nature boosts one stat and lowers another.',
-      body: 'Tap <b>Nature</b> to pick one.' },
+      say: 'I recommend this one because it fits your Pokemon.',
+      body: 'Tap this ability.' },
+    { id: 'trainAbilityOnly', where: '_tutorial', title: 'Confirm the ability',
+      say: 'I can see that {NAME} has one legal ability, and it is a good one.',
+      body: 'Tap <b>{ABILITY}</b>.' },
+    { id: 'trainNatureTab', where: '_tutorial', title: 'Open nature choices',
+      say: 'I use the word nature for a boost to one stat and a drop to another.',
+      body: 'Tap <b>Nature</b>.' },
     { id: 'trainNaturePick', where: '_tutorial', title: 'Pick this nature',
-      say: 'This nature boosts the stat your Pokemon already loves.',
-      body: 'Tap it to take it.' },
-    { id: 'trainStatsTab', where: '_tutorial', title: 'Now Stat Points',
-      say: 'Last: Stat Points, a small budget that shapes your Pokemon.',
-      body: 'Tap <b>Stats</b> to spend them.' },
+      say: 'I chose this nature because it boosts the stat your Pokemon already loves.',
+      body: 'Tap this nature.' },
+    { id: 'trainStatsTab', where: '_tutorial', title: 'Open Stat Points',
+      say: 'Last, I will show you the small budget that shapes your Pokemon.',
+      body: 'Tap <b>Stats</b>.' },
     { id: 'trainStatsTake', where: '_tutorial', title: 'Move a point out',
-      say: 'Free a point from a stat your partner does not need.',
+      say: 'I want you to free a point from a stat your partner does not need.',
       body: 'Drag the <b>{TAKE}</b> slider down by one point.' },
     { id: 'trainStatsGive', where: '_tutorial', title: 'Move a point in',
-      say: '\u2026and give it to a stat that matters.',
+      say: 'Now I want you to give that point to a stat that matters.',
       body: 'Drag the <b>{GIVE}</b> slider up by one point.' },
-    { id: 'trainDone', where: '_tutorial', title: 'All trained!',
-      say: 'Your partner is stronger than ever.',
+    { id: 'trainDone', where: '_tutorial', title: 'Finish training',
+      say: 'I can see your partner is stronger than ever.',
       body: 'Tap <b>Done</b> to lock in your training.' },
-    { id: 'graduate', where: '_tutorial', title: 'You are ready!',
-      say: 'Catching, healing, matchups, switching, the Mart, evolution, training \u2014 you know it all. I am proud of you.',
-      body: 'Every lesson stays in the <b>Guide</b> (Menu \u2192 Guide). The rest of the run is yours!' }
+    { id: 'graduate', where: '_tutorial', title: 'Keep going',
+      say: 'I have shown you catching, healing, matchups, switching, the Mart, evolution, and training. I am proud of you.',
+      body: 'Tap <b>Got it</b> to continue your run.' },
   ];
 
   var LESSON_BY_ID = {};
@@ -889,13 +890,18 @@
     var card = el.querySelector('.overlay-card');
 
     var bodyId = 'coachBodyReveal';
+    var progress = opts.progress && opts.progress.total ? opts.progress : null;
+    var progressHtml = progress
+      ? '<div class="coach-progress" role="progressbar" aria-label="Tutorial progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + progress.percent + '">' +
+          '<span style="width:' + progress.percent + '%"></span></div>'
+      : '';
     card.innerHTML =
-      // Keep the lesson name and step counter available to assistive tech,
-      // while the visible surface reads like the compact game dialogue in the
-      // rest of the prologue: Oak, one speech box, and one clear response.
+      // Keep the lesson name available to assistive tech. The visible surface
+      // reads like the compact game dialogue in the rest of the prologue.
       '<h3 class="coach-title coach-dialogue-meta" id="coachTitle">' + esc(lesson.title) + '</h3>' +
       '<div class="coach-who coach-dialogue-meta"><b>' + esc(ADVISOR.name) + '</b>' +
         '<em>' + esc(opts.eyebrow || 'Professor Oak') + '</em></div>' +
+      progressHtml +
       '<div class="coach-dialogue-row">' +
         '<div class="coach-body" id="' + bodyId + '"></div>' +
         '<div class="coach-head immersive coach-dialogue-professor">' +
@@ -1051,10 +1057,15 @@
     }
     dismissBubble({ quiet: true });   // one coach surface at a time
     var b = ensureBubble();
+    var progress = opts.progress && opts.progress.total ? opts.progress : null;
+    var progressHtml = progress
+      ? '<div class="coach-progress" role="progressbar" aria-label="Tutorial progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + progress.percent + '"><span style="width:' + progress.percent + '%"></span></div>'
+      : '';
     b.innerHTML =
       '<span class="coach-portrait">' + advisorImg(38) + '</span>' +
       '<div class="cb-main">' +
         '<b class="cb-title">' + esc(lesson.title) + '</b>' +
+        progressHtml +
         '<p class="cb-body">' +
           (lesson.say ? esc(lesson.say) + ' ' : '') +
           fillTemplate(lesson.body, opts.template) +
@@ -1153,14 +1164,13 @@
     opts = opts || {};
     var l = lessonById(id);
     if (!l) return false;
-    // Scripted tutorial beats (bypassSeen) carry a progress marker — "Step 4
-    // of 14" — derived from the live run, so the onboarding always reads as
-    // one linear path with a visible position on it.
-    if (!opts.force && opts.bypassSeen && !opts.eyebrow &&
-        window.Game && typeof window.Game.tutorialStepLabel === 'function') {
-      var lab;
-      try { lab = window.Game.tutorialStepLabel(); } catch (e) { lab = null; }
-      if (lab) opts.eyebrow = lab;
+    // Scripted tutorial beats carry a progress value, not a card number:
+    // several cards can teach one milestone and a full-HP catch skips the
+    // Potion interaction. The sheet renders this as a bar, so it never claims
+    // that two different cards are the same numbered step.
+    if (!opts.force && opts.bypassSeen &&
+        window.Game && typeof window.Game.tutorialProgress === 'function') {
+      try { opts.progress = window.Game.tutorialProgress(); } catch (e) { opts.progress = null; }
     }
     if (!opts.force) {
       if (!tipsOn()) return false;

@@ -36,13 +36,77 @@
      parser sees this tag. Everything is deferred, so nothing blocks rendering
      and execution order stays exactly as it was in the old inline build. -->
 <link rel="preload" as="script" href="vendor/pkmn-sim.js"/>
-<link rel="preload" as="script" href="vendor/three.min.js"/>
 </head>
 <body>
 
 <!-- Toasts float above every dialog, so they are exempt from the inertness
      the modal controller applies to the rest of the page. -->
 <div id="toast" data-modal-overlay></div>
+
+<!-- A failed module load used to leave a dark, inert page with no clue that
+     boot had stopped. This is normally hidden; the tiny guard below reveals it
+     for script errors and uncaught startup promises. -->
+<div id="appBootError" class="boot-error" hidden role="alert" aria-live="assertive">
+  <div class="boot-error-card">
+    <div class="boot-error-kicker">DAILYLOCKE</div>
+    <h1 id="appBootErrorTitle">The game could not start</h1>
+    <p id="appBootErrorText">A game module did not finish loading.</p>
+    <details id="appBootErrorDetails" hidden>
+      <summary>Technical details</summary>
+      <pre id="appBootErrorDetailText"></pre>
+    </details>
+    <button type="button" id="btnAppBootReload" class="btn-primary">Reload game</button>
+  </div>
+</div>
+<script>
+(function () {
+  // Install this before the deferred game scripts. Ignore image/media/CSS
+  // failures — those have their own fallbacks — but surface failed scripts and
+  // uncaught JavaScript so a blank UI is never silent.
+  var shown = false;
+  function show(title, message, detail) {
+    var box = document.getElementById('appBootError');
+    if (!box) return;
+    var t = document.getElementById('appBootErrorTitle');
+    var m = document.getElementById('appBootErrorText');
+    var d = document.getElementById('appBootErrorDetails');
+    var dt = document.getElementById('appBootErrorDetailText');
+    if (t) t.textContent = title || 'The game could not start';
+    if (m) m.textContent = message || 'Please reload the game and try again.';
+    if (dt) dt.textContent = detail || '';
+    if (d) d.hidden = !detail;
+    box.hidden = false;
+    shown = true;
+  }
+  window.__dailylockeShowFatal = show;
+  window.addEventListener('error', function (ev) {
+    var target = ev && ev.target;
+    // Resource failures are expected for remote sprites/cries. A SCRIPT
+    // failure, or a normal window error with no element target, is fatal.
+    if (target && target !== window && target.tagName && target.tagName !== 'SCRIPT') return;
+    var msg = ev && ev.message;
+    if (!msg && target && target.src) msg = 'A game module failed to load.';
+    if (!msg) msg = 'A game module stopped unexpectedly.';
+    show('The game could not start', msg, ev && (ev.filename || ev.error && ev.error.stack));
+  });
+  window.addEventListener('unhandledrejection', function (ev) {
+    var reason = ev && ev.reason;
+    var msg = reason && reason.message ? reason.message : String(reason || 'Unknown startup error');
+    show('The game stopped unexpectedly', 'An operation failed before the screen could finish loading.', msg);
+  });
+  var reload = document.getElementById('btnAppBootReload');
+  if (reload) reload.addEventListener('click', function () { window.location.reload(); });
+  // A blocked/deferred script may never dispatch a useful error event. Give
+  // the player a clear recovery path instead of leaving the initial screen
+  // looking alive but inert forever.
+  setTimeout(function () {
+    if (!window.Game && !shown) {
+      show('The game is taking too long to load', 'Check your connection, then reload the page.', 'No app boot signal after 20 seconds.');
+    }
+  }, 20000);
+}());
+}());
+</script>
 
 <main>
   <!-- ===================== TITLE ===================== -->
@@ -635,13 +699,12 @@
 
        pkmn-sim.js    -> window.PS      (Dex, Teams, BattleStreams)
        pokedata.js    -> window.PokeData
-       three.min.js   -> window.THREE
-       battle-ui.js   -> window.BattleUI      (needs THREE)
-       ui-patch.js    -> extends BattleUI
        audio.js       -> window.GameAudio     (music + sfx volume)
-       champions-learnsets.js -> window.ChampionsLearnsets (latest move pools)
+       champions-loader.js -> lazy Champions learnset loader
        core.js        -> window.Core          (needs PS + PokeData)
-       nuzlocke.js    -> window.Nuz           (needs Core)
+       renderer-loader.js -> post-paint THREE/BattleUI upgrade
+       app-loader.js   -> post-paint game controller loader
+       nuzlocke.js    -> window.Nuz          (needs Core)
        ...feature modules...
        coach.js       -> window.Coach         (lessons + plain-language facts)
        savecode.js    -> window.SaveCode      (backup files)
@@ -653,11 +716,8 @@
      =================================================================== -->
 <script defer src="vendor/pkmn-sim.js"></script>
 <script defer src="src/pokedata.js"></script>
-<script defer src="vendor/three.min.js"></script>
-<script defer src="vendor/battle-ui.js"></script>
-<script defer src="src/ui-patch.js"></script>
 <script defer src="src/audio.js"></script>
-<script defer src="src/champions-learnsets.js"></script>
+<script defer src="src/champions-loader.js"></script>
 <script defer src="src/core.js"></script>
 <script defer src="src/storage.js"></script>
 <script defer src="src/modal.js"></script>
@@ -673,6 +733,7 @@
 <script defer src="src/savecode.js"></script>
 <script defer src="src/safari-compat.js"></script>
 <script defer src="src/pwa.js"></script>
-<script defer src="src/app.js"></script>
+<script defer src="src/renderer-loader.js"></script>
+<script defer src="src/app-loader.js"></script>
 </body>
 </html>
