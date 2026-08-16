@@ -220,7 +220,7 @@
 
     var state = {
       ended: false, turn: 0, escaped: false, caught: false,
-      pendingRequest: null, lastRequest: null,
+      pendingRequest: null, lastRequest: null, awaitingPlayer: false,
       playerHp: 1, enemyHp: 1,
       playerTypes: playerMons[0].types.slice(),
       enemyTypes: enemyMons[0].types.slice(),
@@ -699,7 +699,8 @@
               wasSkipDisabled = false;
               state.pendingRequest = req;
               state.lastRequest = req;
-              if (req.teamPreview) { streams.p1.write('default'); continue; }
+              state.awaitingPlayer = !req.wait && !req.teamPreview;
+              if (req.teamPreview) { state.awaitingPlayer = false; streams.p1.write('default'); continue; }
               if (handlers.onRequest) handlers.onRequest(req);
             } else if (line.indexOf('|error|') === 0) {
               console.warn('[battle] p1 error:', line);
@@ -778,12 +779,16 @@
       // mega: null | 'mega' | 'megax' | 'megay'  (from the battle UI toggle)
       chooseMove: function (idx, mega) {
         if (state.ended) return;
+        state.awaitingPlayer = false;
+        state.pendingRequest = null;
         var cmd = 'move ' + (idx + 1);
         if (mega) cmd += ' ' + mega;
         streams.p1.write(cmd);
       },
       chooseSwitch: function (partyIdx) {
         if (state.ended) return;
+        state.awaitingPlayer = false;
+        state.pendingRequest = null;
         streams.p1.write('switch ' + (api.partyIndexToRequestSlot(partyIdx) + 1));
       },
       // SKIP THE PLAYER'S TURN (ball throw / item use).
@@ -799,6 +804,8 @@
       // one action and restore it afterwards.
       passTurn: function () {
         if (state.ended) return;
+        state.awaitingPlayer = false;
+        state.pendingRequest = null;
         var b = stream.battle;
         var live = b && b.p1.active[0];
         if (!live) return;
@@ -884,6 +891,8 @@
       // Switch using an engine request slot directly (no translation).
       chooseSwitchSlot: function (slot) {
         if (state.ended) return;
+        state.awaitingPlayer = false;
+        state.pendingRequest = null;
         streams.p1.write('switch ' + (slot + 1));
       },
       // Map an engine switch-request slot to our party index and back.
@@ -906,6 +915,8 @@
       // End the battle early (successful catch or flee).
       finish: function (result) {
         if (state.ended) return;
+        state.awaitingPlayer = false;
+        state.pendingRequest = null;
         state.ended = true;
         syncOut();
         if (handlers.onEnd) handlers.onEnd({ result: result });

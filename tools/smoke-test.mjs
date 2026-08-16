@@ -1671,6 +1671,24 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     [...window.document.querySelectorAll('#battleHost .mb[data-i]:not([disabled])')][0], 20000);
   check('"Try again" starts the battle from scratch', !!recoveredMove);
 
+  // A live context loss must rebuild only the renderer. The current stream and
+  // encounter stay alive, so the player gets the same move request back rather
+  // than a rerolled wild Pokemon or a reset battle.
+  const oldBattleUi = window.Game.ui;
+  const liveLoss = new window.Event('webglcontextlost', { cancelable: true });
+  if (oldBattleUi && oldBattleUi.r && oldBattleUi.r.domElement) {
+    oldBattleUi.r.domElement.dispatchEvent(liveLoss);
+  }
+  const recoveredRenderer = await wait6(() => {
+    const next = window.Game.ui;
+    const move = [...window.document.querySelectorAll('#battleHost .mb[data-i]:not([disabled])')][0];
+    return next && next !== oldBattleUi && move ? next : null;
+  }, 20000);
+  check('a live context loss rebuilds the renderer in place',
+    !!recoveredRenderer && liveLoss.defaultPrevented,
+    `replaced=${!!recoveredRenderer}, prevented=${liveLoss.defaultPrevented}`);
+  check('renderer recovery preserves the active run', window.Game.run._inBattle === true);
+
   // tidy: back to a calm route for the blocks that follow.
   window.Modal.closeAll();
   window.Game.show('Crossroads');
@@ -2380,12 +2398,17 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
       this._forceContextLossCalls = 0;
     }
     setPixelRatio() {} setSize() {} render() {} dispose() {}
-    forceContextLoss() { this._forceContextLossCalls++; }
+    forceContextLoss() {
+      this._forceContextLossCalls++;
+      this.domElement.dispatchEvent(new window.Event('webglcontextlost', { cancelable: true }));
+    }
     getContext() { return null; }
   };
   const goodHost = window.document.createElement('div');
   window.document.body.appendChild(goodHost);
   const goodUi = new window.BattleUI();
+  let intentionalLossCalls = 0;
+  goodUi.onContextLost = () => { intentionalLossCalls++; };
   goodUi.mount(goodHost);
   check('a BattleUI mounts on a clean host', goodUi.s.mounted === true);
   const goodRenderer = goodUi.r;
@@ -2393,8 +2416,30 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
   check('unmount releases the WebGL context (forceContextLoss called)',
     !!goodRenderer && goodRenderer._forceContextLossCalls === 1,
     goodRenderer && String(goodRenderer._forceContextLossCalls));
+  check('forceContextLoss during unmount does not call the app handler', intentionalLossCalls === 0,
+    String(intentionalLossCalls));
   check('unmount removes the canvas/sprites/HUD it created',
     goodHost.querySelectorAll('canvas, .bm-sprites, .battle-hud').length === 0);
+
+  // A real context-loss event must be cancelled, reported once, and must not
+  // be reported again when the renderer is intentionally unmounted. The last
+  // part is important: unmount() calls forceContextLoss() to release GPU
+  // memory, and older code surfaced that normal teardown as a battle failure.
+  const lossHost = window.document.createElement('div');
+  window.document.body.appendChild(lossHost);
+  const lossUi = new window.BattleUI();
+  lossUi.mount(lossHost);
+  let lossCalls = 0;
+  lossUi.onContextLost = () => { lossCalls++; };
+  const lossEvent = new window.Event('webglcontextlost', { cancelable: true });
+  lossUi.r.domElement.dispatchEvent(lossEvent);
+  lossUi.r.domElement.dispatchEvent(new window.Event('webglcontextlost', { cancelable: true }));
+  check('a WebGL context loss is prevented and reported once',
+    lossEvent.defaultPrevented && lossCalls === 1,
+    `prevented=${lossEvent.defaultPrevented}, calls=${lossCalls}`);
+  lossUi.unmount();
+  check('intentional context release is not reported as a new loss', lossCalls === 1,
+    String(lossCalls));
 
   // A renderer whose constructor throws must rethrow a descriptive error,
   // leave the host empty, and clear its mount flag.
@@ -2439,6 +2484,7 @@ check('deferred setup is replayed on mount', ui2.s.mounted === true && !!ui2.s.b
   window.THREE.WebGLRenderer = RealWebGLRenderer;
   window.THREE.Group = RealGroup;
   goodHost.remove();
+  lossHost.remove();
   badHost.remove();
   midHost.remove();
 }

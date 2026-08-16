@@ -7,6 +7,10 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var run = null, ui = null, battle = null, bctx = null;
+  // Monotonically identifies the live battle stream. A renderer failure can
+  // leave a few async stream callbacks queued; stale callbacks must not paint
+  // into or mutate the next battle after the player backs out.
+  var battleEpoch = 0;
 
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -317,6 +321,23 @@
     try {
       titleUI = new window.BattleUI();
       titleUI.showcase = true;          // suppress every HUD element
+      // The title scene has no battle error panel. If its idle showcase loses
+      // the GPU context, discard that canvas and rebuild it while leaving the
+      // title controls usable instead of marooning a white stage.
+      titleUI.onContextLost = function (lostUI) {
+        if (lostUI && lostUI !== titleUI) return;
+        // Defer teardown until mount()/the browser's event dispatch has
+        // returned. Context loss can happen during renderer construction, and
+        // tearing down synchronously would let a half-mounted scene continue
+        // writing into a host that has already been cleared.
+        setTimeout(function () {
+          if (lostUI && lostUI !== titleUI) return;
+          stopTitleScene();
+          if (!$('screenTitle').hidden) setTimeout(startTitleScene, 80);
+        }, 0);
+      };
+      // A restored event follows a lost event; the lost handler already
+      // replaces the renderer, so do not schedule a second rebuild here.
       titleUI.mount(host);
 
       // Two random fully-evolved-ish combatants each visit, so the title is
@@ -3887,11 +3908,21 @@
   function teardownBattleUI() {
     resumePending = false;
     clearQueue();
+    if (battleRendererRecoveryTimer) {
+      clearTimeout(battleRendererRecoveryTimer);
+      battleRendererRecoveryTimer = null;
+    }
+    battleRendererRecovering = false;
+    battleRendererRecoveryAttempts = 0;
     if (ui) { try { ui.unmount(); } catch (e) {} ui = null; }
     var h = $('battleHost'); if (h) h.innerHTML = '';
   }
   function ensureUI() {
-    if (ui && !ui._disposed) return ui;
+    if (ui && !ui._disposed && ui.s && ui.s.mounted) return ui;
+    // A context-lost instance is not reusable even though BattleUI has not
+    // marked it disposed yet. Dispose it before replacing it so its dead
+    // canvas and resize listener cannot compete with the fresh renderer.
+    if (ui) { try { ui.unmount(); } catch (e) {} ui = null; }
     var host = $('battleHost');
     if (!host) throw new Error('battle host element is missing');
     if (!window.BattleUI) throw new Error('battle renderer failed to load');
@@ -3903,13 +3934,19 @@
     // setupBattle to queue and the battle to appear stuck (no biome, no
     // sprites, no moves).
     void host.offsetHeight;
-    ui = new window.BattleUI(); ui.mount(host);
-    // A lost GPU context is a recoverable "battle failed to load", never a
-    // silently white canvas. Route it into the same retry panel as any other
-    // mount failure.
-    ui.onContextLost = function () {
-      battleFailed(new Error('The 3D renderer lost its context.'));
+    ui = new window.BattleUI();
+    // Install the callback BEFORE mount(). A context can be lost while the
+    // renderer is being created (especially when the browser is reclaiming
+    // GPU memory), so assigning it afterwards leaves a narrow white-screen
+    // race.
+    ui.onContextLost = function (lostUI) {
+      handleBattleContextLost(lostUI || ui);
     };
+    ui.mount(host);
+    // A restored event follows a lost event. The lost handler already
+    // remounts a fresh BattleUI, which avoids scheduling two recoveries for
+    // the same GPU reset.
+    ui.onContextRestored = null;
     // Keep tutorial annotations glued across HUD re-renders: any redraw
     // (sprites loading, HP bars settling, ...) replaces the exact nodes a
     // coach glow or bubble points at. Re-pinning only per battle request
@@ -3962,6 +3999,14 @@
   // Two concurrent runs of this used to fight over `bctx`/`battle` and leave
   // the screen wedged.
   var battleStarting = false;
+  // A context loss is recoverable without rerolling the encounter. Keep this
+  // separate from battleStarting: the battle engine can still be alive while
+  // its presentation layer is being rebuilt.
+  var battleRendererRecovering = false;
+  var battleRendererRecoveryTimer = null;
+  var battleRendererRecoveryAttempts = 0;
+  var battleRendererRecoveryFailed = false;
+  var battleNeedsRendererRecovery = false;
 
   async function startNextBattle() {
     if (battleStarting) return;
@@ -4020,9 +4065,182 @@
     }
   }
 
+  // Rebuild only the presentation layer after a GPU reset. The Showdown
+  // streams are deliberately kept alive: restarting the battle here would
+  // reroll a wild encounter, rewind HP/PP, and could even consume a second
+  // daily turn. `battle.state.lastRequest` gives the new HUD the latest set of
+  // controls once the new scene is ready.
+  function restoreBattleRenderer() {
+    if (!run || !battle || !bctx || !bctx.cfg || !battle.battle) return false;
+    var cfg = bctx.cfg;
+    var p = battle.activeMon ? battle.activeMon() : null;
+    var e = battle.activeEnemyMon ? battle.activeEnemyMon() : null;
+    if (!p) p = run.party && run.party[0];
+    if (!e) e = bctx.enemies && bctx.enemies[0];
+    if (!p || !e) return false;
+
+    function face(mon) {
+      var sp = Dex.species.get(mon.id);
+      var types = (sp.exists && sp.types && sp.types.length)
+        ? sp.types.slice() : ((mon.types && mon.types.slice()) || ['Normal']);
+      mon.types = types;
+      if (sp.exists) mon.species = sp.name;
+      return { name: mon.name, types: types,
+               sid: (sp.exists && sp.spriteid) || mon.id,
+               num: sp.exists ? sp.num : 0, h: worldH(mon.id) };
+    }
+
+    var pf = face(p), ef = face(e);
+    var u = ensureUI();
+    if (!u || !u.s || !u.s.mounted) return false;
+    u.setRunInfo({
+      left: cfg.isWild
+        ? ('Section ' + run.section + ' · ' + (cfg.catchable ? 'Capture Encounter' : 'Wild Battle ' + run.battleInSection))
+        : (N.isGauntlet(run)
+            ? ('Gauntlet · Trainer ' + run.section + ' · ' + (cfg.trainer && cfg.trainer.name || 'Trainer'))
+            : ('Section ' + run.section + ' · Trainer Battle · ' + (cfg.trainer && cfg.trainer.name || 'Trainer'))),
+      money: N.isGauntlet(run) ? null : run.money
+    });
+    u.setSpeciesLabels(speciesOf(p), cfg.isWild ? 'Wild ' + speciesOf(e) : speciesOf(e));
+    u._catchEntrance = !!cfg.catchable;
+    u.setupBattle({
+      player: { name: pf.name, lv: 100, types: pf.types, hp: p.hpPct, max: 100,
+                st: p.status || null, h: pf.h, sid: pf.sid, num: pf.num,
+                u: spriteUrls(p.id, true, p.shiny), silent: true },
+      enemy: { name: ef.name, lv: 100, types: ef.types,
+               hp: e.hpPct != null ? e.hpPct : 1, max: 100, st: e.status || null,
+               h: ef.h, sid: ef.sid, num: ef.num,
+               u: spriteUrls(e.id, false, e.shiny), silent: true },
+      biomeSeed: run.seed + '|' + run.section + '|' + run.battleInSection,
+      biomeTypes: ef.types
+    });
+    // Match the user's selected battlefield, just as beginBattle() does.
+    try {
+      var biomeKey = profile && (profile.battlefield || 'dynamic') === 'match'
+        ? THEME_BIOME[profile.theme || 'default'] || 'meadow' : null;
+      if (biomeKey) u.buildBiome(biomeKey);
+    } catch (_) {}
+
+    // Reapply the deterministic opening field effect. The engine remains the
+    // source of truth for mechanics; this only restores the visual layer.
+    var field = cfg.fieldEffect;
+    if (field) {
+      if (field.kind === 'weather') {
+        var weather = { raindance: 'rain', primordialsea: 'rain', sunnyday: 'sun',
+          desolateland: 'sun', deltastream: 'rain', sandstorm: 'sand',
+          hail: 'hail', snow: 'snow', snowscape: 'snow' }[field.id];
+        if (u.setWeather) u.setWeather(weather || null);
+      } else if (field.kind === 'terrain' && u.setTerrain) {
+        u.setTerrain(TERRAINS[field.id] || field.id || null);
+      } else if (field.kind === 'room' && u.setRoom) {
+        u.setRoom(ROOMS[field.id] || field.id || null);
+      }
+    }
+    u.setStatus('p', p.status || null);
+    u.setStatus('e', e.status || null);
+    if (battle.state && battle.state.awaitingPlayer && battle.state.lastRequest) {
+      opening = false;
+      renderRequest(battle.state.lastRequest);
+    } else {
+      u.setMsg('Reconnecting battle…');
+    }
+    return true;
+  }
+
+  function finishBattleRendererRecovery() {
+    battleRendererRecovering = false;
+    battleRendererRecoveryFailed = false;
+    battleRendererRecoveryTimer = null;
+    battleRendererRecoveryAttempts = 0;
+    battleNeedsRendererRecovery = false;
+  }
+
+  function recoverBattleRenderer() {
+    if (battleRendererRecovering) return;
+    if (!run || !battle || !bctx || !run._inBattle || (battle.state && battle.state.ended)) {
+      battleFailed(new Error('The 3D renderer lost its context.'), { contextLost: true });
+      return;
+    }
+    // Persist the live battle before taking the old canvas away. If the tab is
+    // backgrounded again during recovery, auto-resume still has the current
+    // HP/status/PP rather than the values from the start of the fight.
+    syncBattleToRun();
+    saveGame();
+    teardownBattleUI();
+    battleRendererRecovering = true;
+    battleRendererRecoveryFailed = false;
+    battleRendererRecoveryAttempts++;
+    battleNeedsRendererRecovery = true;
+    var attempt = battleRendererRecoveryAttempts;
+    battleRendererRecoveryTimer = setTimeout(function () {
+      battleRendererRecoveryTimer = null;
+      if (!battleRendererRecovering) return;
+      try {
+        show('Battle');
+        var u = ensureUI();
+        if (battleRendererRecoveryFailed || !u || !u.s.mounted || !restoreBattleRenderer()) {
+          throw new Error('The renderer did not become ready.');
+        }
+        finishBattleRendererRecovery();
+        toast('Battle renderer recovered.');
+      } catch (err) {
+        console.error('[battle] renderer recovery failed', err);
+        battleRendererRecovering = false;
+        battleRendererRecoveryFailed = false;
+        battleRendererRecoveryTimer = null;
+        battleRendererRecoveryAttempts = attempt;
+        battleFailed(new Error('The 3D renderer lost its context.'), { contextLost: true });
+      }
+    }, 80);
+  }
+
+  function handleBattleContextLost(lostUI) {
+    // A delayed event from a renderer that has already been replaced must not
+    // tear down the new battle scene. BattleUI also suppresses intentional
+    // forceContextLoss() events during unmount, but keep the identity guard at
+    // the app boundary as a second line of defence.
+    if (lostUI && lostUI !== ui) return;
+    if (battleRendererRecovering) {
+      battleRendererRecoveryFailed = true;
+      return;
+    }
+    // Do not tear down from inside the canvas event while mount() or Three's
+    // render call is still on the stack. The identity check also turns this
+    // into a no-op if the player navigates away before the deferred recovery.
+    setTimeout(function () {
+      if (lostUI && lostUI !== ui) return;
+      // During initial battle construction there is no live stream to preserve
+      // yet. Let startNextBattle finish (or surface its own error) instead of
+      // tearing down its renderer halfway through the async team roll.
+      if (!battle || !bctx || !run || !run._inBattle) {
+        if (battleStarting) return;
+        battleFailed(new Error('The 3D renderer lost its context.'));
+      } else {
+        recoverBattleRenderer();
+      }
+    }, 0);
+  }
+
+  function abandonFailedBattle() {
+    if (!run) return;
+    // Preserve damage/PP first, then stop the old stream. Otherwise a delayed
+    // request from a dead renderer can mutate the next battle after the player
+    // has chosen "Back to route".
+    syncBattleToRun();
+    battleEpoch++;
+    if (battle && battle.destroy) { try { battle.destroy(); } catch (_) {} }
+    battle = null;
+    bctx = null;
+    run._inBattle = false;
+    run._battleCfg = null;
+    saveGame();
+  }
+
   // Recoverable dead end: tell the player what happened and let them retry or
   // walk back to the crossroads with their run intact.
-  function battleFailed(err) {
+  function battleFailed(err, opts) {
+    opts = opts || {};
+    if (opts.contextLost) battleNeedsRendererRecovery = true;
     teardownBattleUI();
     var host = $('battleHost');
     if (!host) return;
@@ -4041,8 +4259,19 @@
       '<button class="btn-secondary" id="btnBattleBail">Back to route</button>' +
       '</div>';
     var retry = $('btnBattleRetry'), bail = $('btnBattleBail');
-    if (retry) retry.addEventListener('click', function () { host.innerHTML = ''; startNextBattle(); });
-    if (bail) bail.addEventListener('click', function () { host.innerHTML = ''; renderCrossroads(); show('Crossroads'); });
+    if (retry) retry.addEventListener('click', function () {
+      host.innerHTML = '';
+      if (battleNeedsRendererRecovery) {
+        recoverBattleRenderer();
+      } else {
+        startNextBattle();
+      }
+    });
+    if (bail) bail.addEventListener('click', function () {
+      battleNeedsRendererRecovery = false;
+      if (run && run._inBattle) abandonFailedBattle();
+      host.innerHTML = ''; renderCrossroads(); show('Crossroads');
+    });
   }
 
   // Showdown wants a 4x16-bit seed. Derive it from the run seed plus the exact
@@ -4181,6 +4410,7 @@
     u.setStatus('p', p.status || null);
     u.setStatus('e', null);
 
+    var epoch = ++battleEpoch;
     battle = RB.startBattle({
       playerMons: run.party,
       enemyMons: cfg.enemies,
@@ -4198,16 +4428,20 @@
       // ... and the AI's tie-breaking jitter must be seeded too.
       rand: run.mode === 'daily' ? dailyAIRand() : null,
       handlers: {
-        onLog: handleLog,
-        onRequest: handleRequest,
-        onEnd: handleEnd,
+        onLog: function (chunk) { if (epoch === battleEpoch) handleLog(chunk); },
+        onRequest: function (req) { if (epoch === battleEpoch) handleRequest(req); },
+        onEnd: function (res) { if (epoch === battleEpoch) handleEnd(res); },
         onDamage: function (amt, mon) {
+          if (epoch !== battleEpoch) return;
           if (mon) run.damageDealt[mon.uid] = (run.damageDealt[mon.uid] || 0) + amt;
         },
         onKO: function (mon) {
+          if (epoch !== battleEpoch) return;
           if (mon) run.knockouts[mon.uid] = (run.knockouts[mon.uid] || 0) + 1;
         },
-        onError: function (e2) { console.error('[battle]', e2); }
+        onError: function (e2) {
+          if (epoch === battleEpoch) console.error('[battle]', e2);
+        }
       }
     });
   }
@@ -5754,6 +5988,7 @@
 
   // ---- battle end ----
   function handleEnd(res) {
+    if (!bctx || !run) return;
     if (bctx.ended) return;
     if (res.result === 'caught') return;
     bctx.ended = true;
