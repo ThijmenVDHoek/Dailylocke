@@ -373,11 +373,11 @@
       }
     }
 
-    // Section 1 opponents now use real legal moves instead of Splash, so the
+    // Introductory opponents use real legal moves instead of Splash, so the
     // battles feel like battles. Keep the tutorial promise separately: an
     // unlucky crit or damage roll must not delete the player's Pokemon while
-    // the UI is still teaching required actions. The cap is scoped to the
-    // guided first section only (cfg.isTutorialSafe from app.js).
+    // the run is still teaching its basics. The cap is scoped to the guided
+    // run's first two sections (cfg.isTutorialSafe from app.js).
     function installTutorialPlayerGuard() {
       var b = stream.battle;
       if (!b || !b.p1 || !b.p1.pokemon.length) return;
