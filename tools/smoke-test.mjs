@@ -1808,9 +1808,14 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     [...window.document.querySelectorAll('#battleHost .mb[data-i]:not([disabled])')][0], 20000);
   check('"Try again" starts the battle from scratch', !!recoveredMove);
 
-  // A live context loss must rebuild only the renderer. The current stream and
-  // encounter stay alive, so the player gets the same move request back rather
-  // than a rerolled wild Pokemon or a reset battle.
+  // A live context loss must never end the battle or cost it its controls.
+  // The engine either re-attaches a restored/recreated renderer in place
+  // (same instance -- the scene graph is renderer-agnostic) or the app
+  // rebuilds only the presentation layer; either way the current stream and
+  // encounter stay alive and the player gets the same move request back
+  // rather than a rerolled wild Pokemon or a reset battle. The in-place
+  // renderer-swap guarantee itself is owned by the browser smoke test --
+  // JSDOM cannot produce a real context loss/restore cycle.
   const oldBattleUi = window.Game.ui;
   const liveLoss = new window.Event('webglcontextlost', { cancelable: true });
   if (oldBattleUi && oldBattleUi.r && oldBattleUi.r.domElement) {
@@ -1822,11 +1827,12 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   const recoveredRenderer = await wait6(() => {
     const next = window.Game.ui;
     const move = [...window.document.querySelectorAll('#battleHost .mb[data-i]:not([disabled])')][0];
-    return next && next !== oldBattleUi && move ? next : null;
+    const backIn3D = next && next.r && !next.flat && window.document.querySelector('#battleHost canvas');
+    return next && move && (backIn3D || next !== oldBattleUi) ? next : null;
   }, 20000);
   check('a live context loss rebuilds the renderer in place',
     !!recoveredRenderer && liveLoss.defaultPrevented,
-    `replaced=${!!recoveredRenderer}, prevented=${liveLoss.defaultPrevented}`);
+    `recovered=${!!recoveredRenderer}, prevented=${liveLoss.defaultPrevented}`);
   check('renderer recovery preserves the active run', window.Game.run._inBattle === true);
 
   // tidy: back to a calm route for the blocks that follow.
@@ -2624,6 +2630,104 @@ host2.remove();
   goodHost.remove();
   lossHost.remove();
   badHost.remove();
+}
+
+// ===================================== RENDERER SELF-HEALING REGRESSIONS =====
+// The "3D falls back to 2D every single run" bug: one transient context
+// creation failure used to flip the session into a PERMANENT 'unavailable'
+// state, so the title and every battle of every run rendered flat forever.
+// The session must retry by itself and upgrade the live screen in place.
+{
+  const waitFx = async (fn, ms = 6000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      const v = fn();
+      if (v) return v;
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    return null;
+  };
+
+  // 1. A transient creation failure at (re)creation time heals WITHOUT a
+  // remount. Setup: lose the current healthy context so the next mount MUST
+  // create a renderer -- that creation is the one we make fail once.
+  const tmpHost = window.document.createElement('div');
+  window.document.body.appendChild(tmpHost);
+  const tmpUi = new window.BattleUI();
+  tmpUi.mount(tmpHost);
+  check('fixture: a healthy renderer exists before the hiccup', !!tmpUi.r && !tmpUi.flat);
+  const RealRendererCtor = window.THREE.WebGLRenderer;
+  let ctorCalls = 0;
+  window.THREE.WebGLRenderer = class {
+    constructor() {
+      ctorCalls++;
+      if (ctorCalls === 1) throw new Error('synthetic transient GPU hiccup');
+      return new RealRendererCtor(); // legal: ctors may return a substitute object
+    }
+  };
+  tmpUi.r.domElement.dispatchEvent(new window.Event('webglcontextlost', { cancelable: true }));
+  tmpUi.unmount();
+  tmpHost.remove();
+
+  const healHost = window.document.createElement('div');
+  window.document.body.appendChild(healHost);
+  const healUi = new window.BattleUI();
+  healUi.mount(healHost);
+  check('a transient creation failure mounts flat but stays mounted',
+    ctorCalls === 1 && healUi.flat === true && healUi.s.mounted === true && !healHost.querySelector('canvas'),
+    `ctorCalls=${ctorCalls} flat=${healUi.flat} mounted=${healUi.s.mounted}`);
+  check('the failed mount does NOT throw or poison the mount flag', healHost._bm === healUi);
+  // Restore THREE so the background retry (300ms out) uses the real renderer.
+  window.THREE.WebGLRenderer = RealRendererCtor;
+  const healed = await waitFx(() => !healUi.flat && healHost.querySelector('canvas') && healUi.r);
+  check('background recovery recreates the renderer and upgrades in place',
+    !!healed, healed ? '' : 'still flat after 6s');
+  const healRenderer = healUi.r;
+  healUi.unmount();
+
+  // 2. A healthy renderer is REUSED after recovery (no context churn).
+  const reuseHost = window.document.createElement('div');
+  window.document.body.appendChild(reuseHost);
+  const reuseUi = new window.BattleUI();
+  reuseUi.mount(reuseHost);
+  check('post-recovery mounts reuse the same renderer', reuseUi.r === healRenderer && !reuseUi.flat);
+
+  // 3. A racing mount must never throw: the newest screen takes the renderer
+  // over, the displaced one stays playable flat. This used to crash the whole
+  // battle start with "renderer is still in use".
+  const raceHost = window.document.createElement('div');
+  window.document.body.appendChild(raceHost);
+  const raceUi = new window.BattleUI();
+  let raceErr = null;
+  let reclaimCalls = 0;
+  reuseUi.onContextLost = () => { reclaimCalls++; };
+  try { raceUi.mount(raceHost); } catch (e) { raceErr = e; }
+  check('a racing mount reclaims instead of throwing',
+    raceErr == null && raceUi.s.mounted === true && !raceUi.flat && !!raceHost.querySelector('canvas'),
+    raceErr && raceErr.message);
+  check('the displaced screen degrades to flat (playable), not a crash',
+    reuseUi.flat === true, `flat=${reuseUi.flat}, reclaimCalls=${reclaimCalls}`);
+  raceUi.unmount();
+  try { reuseUi.unmount(); } catch (_) {}
+  healHost.remove();
+  reuseHost.remove();
+  raceHost.remove();
+
+  // 4. WebKit's silent loss path: a lost context with NO restored event must
+  // still heal -- by recreation, not by waiting on an event that never comes.
+  const silentHost = window.document.createElement('div');
+  window.document.body.appendChild(silentHost);
+  const silentUi = new window.BattleUI();
+  silentUi.mount(silentHost);
+  const silentOldR = silentUi.r;
+  silentUi._notifyContextLost(); // renderer reported it; no DOM event follows
+  check('silent loss enters flat mode', silentUi.flat === true);
+  const silentHealed = await waitFx(() =>
+    !silentUi.flat && silentUi.r && silentUi.r !== silentOldR && silentHost.querySelector('canvas'));
+  check('silent loss heals by RECREATING the renderer (no restored event needed)',
+    !!silentHealed, silentHealed ? '' : 'never recreated');
+  silentUi.unmount();
+  silentHost.remove();
 }
 
 // ====================================================== FLAT MODE SPRITES =====
