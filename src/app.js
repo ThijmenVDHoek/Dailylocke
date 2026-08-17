@@ -4499,7 +4499,6 @@
       trainer: cfg.trainer ? { name: cfg.trainer.name, tag: cfg.trainer.tag, sprite: cfg.trainer.sprite, boss: cfg.trainer.boss } : null,
       clause: cfg.clause || null
     };
-    run._battleCfgJSON = JSON.stringify(run._battleCfg);
 
     bctx = {
       cfg: cfg, enemies: cfg.enemies, caught: false, ended: false,
@@ -7260,6 +7259,17 @@
       } catch (e) {}
     };
     loadProfile(); applyTheme(); updateMenuAvatar();
+    // If localStorage is unavailable (Safari private mode, storage disabled,
+    // quota exceeded) the game runs but nothing persists. Say so ONCE per
+    // session instead of letting the player lose an hour of progress on
+    // refresh with no warning at all.
+    try {
+      if (window.Storage && !window.Storage.available()) {
+        setTimeout(function () {
+          toast('Saves are disabled in this browser — your run will not persist after this session.');
+        }, 1200);
+      }
+    } catch (eStorageWarn) {}
     // The coach never touches localStorage itself: it reads and writes the
     // profile object app.js already owns, so there is exactly one writer and
     // the lesson state rides along in every backup automatically.

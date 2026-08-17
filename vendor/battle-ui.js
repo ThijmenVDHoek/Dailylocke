@@ -60,37 +60,57 @@ function bm(c,o){return new T.MeshBasicMaterial(Object.assign({color:c},o||{}));
 // ===== Persistent image cache (shared across mount/unmount) =====
 // CACHE holds Image objects; FAILED marks URLs that 404'd so we never re-wait
 // on a broken preferred GIF (which used to stall until the 800ms race lost to gen5).
-var CACHE=Object.create(null);
-var FAILED=Object.create(null);
+// Persistent image cache, bounded with LRU eviction. CACHE holds Image
+// objects; FAILED marks URLs that 404'd so we never re-wait on a broken
+// preferred GIF. Without a cap, a long play session accumulates every sprite
+// URL ever seen and never releases it.
+var CACHE_MAX=600,CACHE=Object.create(null),CACHE_ORDER=[];
+var FAILED_MAX=300,FAILED=Object.create(null),FAILED_ORDER=[];
+function cachePut(url,img){
+  if(CACHE[url])return;
+  CACHE[url]=img;CACHE_ORDER.push(url);
+  if(CACHE_ORDER.length>CACHE_MAX){delete CACHE[CACHE_ORDER.shift()];}
+}
+function cacheFail(url){
+  if(FAILED[url])return;
+  FAILED[url]=1;FAILED_ORDER.push(url);
+  if(FAILED_ORDER.length>FAILED_MAX){delete FAILED[FAILED_ORDER.shift()];}
+}
 
 // One explicit renderer session owns the sole WebGL context. Previously the
 // renderer, canvas, owner and context flags were independent globals; an error
 // could update only some of them and leave a "live" owner attached to a dead
 // canvas. Keeping those transitions together makes screen swaps transactional.
 var RendererSession={
-  renderer:null,canvas:null,owner:null,state:'idle',lastError:null,
+  renderer:null,canvas:null,owner:null,state:'idle',lastError:null,_lostWatchTimer:null,
   acquire:function(owner,w,h){
     var previous=this.owner;
     if(previous&&previous!==owner&&previous.s&&previous.s.mounted&&!previous._disposed){
       throw new Error('The shared battle renderer is still in use.');
     }
-    if(this.state==='lost'||this.state==='unavailable')return null;
+    if(this.state==='lost'||this.state==='unavailable'){if(this.state==='lost')this._startLostWatch();return null;}
     if(this.renderer){
       try{
         if(this.renderer.isContextLost&&this.renderer.isContextLost()){
-          this.state='lost';this.owner=owner;return null;
+          this.state='lost';this.owner=owner;this._startLostWatch();return null;
         }
         this.renderer.setSize(w,h,false);
         if(this.renderer.resetState)this.renderer.resetState();
-      }catch(err){this.state='lost';this.lastError=err;this.owner=owner;return null;}
+      }catch(err){this.state='lost';this.lastError=err;this.owner=owner;this._startLostWatch();return null;}
       this.owner=owner;this.state='ready';return this.renderer;
     }
     try{
-      var isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+      var ua=(typeof navigator!=='undefined')?navigator.userAgent:'';
+      var isiOS=(/iPad|iPhone|iPod/.test(ua)||(typeof navigator!=='undefined'&&navigator.maxTouchPoints>1&&/MacIntel/.test(ua)));
       var dpr=Math.min(window.devicePixelRatio||1,isiOS?1.5:2);
       var r=new T.WebGLRenderer({antialias:false,alpha:false,powerPreference:'default'});
       r.setPixelRatio(dpr);r.setSize(w,h,false);
-      r.outputColorSpace=T.SRGBColorSpace;r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.1;
+      // Three.js output colour-management API changed in r152 from
+      // outputEncoding+sRGBEncoding to outputColorSpace+SRGBColorSpace.
+      // Detect at runtime so the game works correctly with either version.
+      if('outputColorSpace' in r&&typeof T.SRGBColorSpace!=='undefined'){r.outputColorSpace=T.SRGBColorSpace;}
+      else if('outputEncoding' in r&&typeof T.sRGBEncoding!=='undefined'){r.outputEncoding=T.sRGBEncoding;}
+      r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.1;
       var canvas=r.domElement,session=this;
       canvas.addEventListener('webglcontextlost',function(ev){
         if(ev&&ev.preventDefault)ev.preventDefault();
@@ -114,8 +134,27 @@ var RendererSession={
       return null;
     }
   },
+  _startLostWatch:function(){
+    var s=this;
+    if(s._lostWatchTimer)return;
+    s._lostWatchTimer=setInterval(function(){
+      if(s.state!=='lost'){clearInterval(s._lostWatchTimer);s._lostWatchTimer=null;return;}
+      try{
+        var probe=document.createElement('canvas');
+        var gl=probe.getContext('webgl')||probe.getContext('experimental-webgl');
+        if(gl){
+          clearInterval(s._lostWatchTimer);s._lostWatchTimer=null;
+          s.state='ready';s.lastError=null;
+          if(s.owner)s.owner._notifyContextRestored(null);
+        }
+      }catch(_){}
+    },2000);
+  },
+  _stopLostWatch:function(){
+    if(this._lostWatchTimer){clearInterval(this._lostWatchTimer);this._lostWatchTimer=null;}
+  },
   release:function(owner,host){
-    if(this.owner===owner)this.owner=null;
+    if(this.owner===owner){this.owner=null;this._stopLostWatch();}
     if(host&&this.canvas&&this.canvas.parentNode===host)host.removeChild(this.canvas);
   },
   reason:function(){return this.state==='unavailable'?'unavailable':'context-lost';}
@@ -129,10 +168,10 @@ function preload(url){
   // Images are only displayed as DOM <img> (never drawn to canvas / uploaded to WebGL),
   // so we don't need CORS permissions at all.
   var img=new Image();
-  CACHE[url]=img;img.decoding='async';
+  cachePut(url,img);img.decoding='async';
   // fetchPriority is a real browser hint on HTMLImageElement in Chromium/Safari 17+.
   try{if('fetchPriority' in img)img.fetchPriority='high';}catch(_){}
-  img.onerror=function(){FAILED[url]=1;};
+  img.onerror=function(){cacheFail(url);};
   img.src=url;
   return img;
 }
@@ -142,6 +181,14 @@ function preloadList(urls){(urls||[]).forEach(preload);}
 function isAnimatedSpriteUrl(u){
   return typeof u==='string'&&/\.gif(?:$|\?)/i.test(u);
 }
+
+// Accessibility: respect the OS-level "reduce motion" preference. Functional
+// animation (attack lunges, hit shake, damage popups, weather identification)
+// stays, but continuous ambient motion -- idle sway, camera drift, drifting
+// clouds and flies -- is dialled down to nothing so vestibular-sensitive
+// players are not disturbed by a scene that never sits still.
+var REDUCED_MOTION=false;
+try{REDUCED_MOTION=!!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);}catch(e){}
 
 function BattleUI(){
   this.host=null;this.r=null;this.sc=null;this.cam=null;
@@ -156,7 +203,7 @@ function BattleUI(){
     flies:null,clouds:[],wsys:null,w:null,
     hdr:{date:'',streak:0,best:0,dexV:false,dexN:0,dexT:0,sw:'streak'}
   };
-  this._dom={};this._audio=null;
+  this._dom={};this._hostRect={width:0,height:0};this._hostRectAge=0;this._audio=null;
   this._cryQueue=[];this._cryPlaying=false;this._suppressAutoCries=false;
   this._onResize=this._onResize.bind(this);this._anim=this._anim.bind(this);
   this._mountAttempts=0;this._momentTouts=[];
@@ -374,6 +421,8 @@ BattleUI.prototype._onResize=function(){
   if(w<10||h<10){w=window.innerWidth;h=window.innerHeight;}
   if(this.r&&!this.flat)this.r.setSize(w,h,false);
   this.cam.aspect=w/Math.max(1,h);this.cam.updateProjectionMatrix();
+  // Invalidate cached host rect so the next frame picks up the new size.
+  this._hostRectAge=-1;
 };
 
 function buildShadow(ui,k){
@@ -473,17 +522,21 @@ var TERRAIN_LOOK = {
 function roomTex(hex){
   var S=256,cv=document.createElement('canvas');cv.width=cv.height=S;
   var x=cv.getContext('2d');
+  if(!x){var fbTx=new T.Texture(cv);fbTx.needsUpdate=true;return fbTx;}
   x.strokeStyle=hex;x.lineWidth=9;x.globalAlpha=1;
   for(var i=0;i<=6;i++){var q=i*S/6;
     x.beginPath();x.moveTo(q,0);x.lineTo(q,S);x.stroke();
     x.beginPath();x.moveTo(0,q);x.lineTo(S,q);x.stroke();}
   var tx=new T.Texture(cv);tx.needsUpdate=true;
   tx.wrapS=tx.wrapT=T.RepeatWrapping;tx.repeat.set(2,2);
+  if('colorSpace' in tx&&typeof T.SRGBColorSpace!=='undefined')tx.colorSpace=T.SRGBColorSpace;
+  else if('encoding' in tx&&typeof T.sRGBEncoding!=='undefined')tx.encoding=T.sRGBEncoding;
   return tx;
 }
 function terrainTex(look){
   var S=256,cv=document.createElement('canvas');cv.width=cv.height=S;
   var x=cv.getContext('2d');
+  if(!x){var fbTx=new T.Texture(cv);fbTx.needsUpdate=true;return fbTx;}
   var hexA='#'+('000000'+look.c.toString(16)).slice(-6);
   var hexB='#'+('000000'+look.c2.toString(16)).slice(-6);
   // Hold the colour out to ~78% of the radius, then fade fast. A gradient that
@@ -691,7 +744,7 @@ BattleUI.prototype._stepField=function(t,dt){
   f.ring.material.opacity=f.tp*0.95*(0.7+Math.sin(f.t*1.9+0.6)*0.3);
   f.disc.rotation.z+=dt*0.06;
   f.ring.scale.setScalar(1+Math.sin(f.t*1.9)*0.012);
-  if(f.motes){
+  if(f.motes&&f.tp>0.004){
     f.motes.material.opacity=f.tp*0.9;
     var ma=f.motes.geometry.attributes.position,mArr=ma.array;
     for(var mi=0;mi<f.mv.length;mi++){
@@ -1011,13 +1064,13 @@ BattleUI.prototype.floatN=function(si,n,k){
   var s=this.s[this._rs(si)];if(!s||!this.hud||!s.grp||!this.host||!this.cam)return;
   var bfs=this._dom.bfs||this.hud.querySelector('.bfs');if(!bfs)return;
   var el=document.createElement('div');el.className='bf'+(k==='heal'?' bh':'');el.textContent=(k==='heal'?'+':'−')+Math.abs(Math.round(n));
-  var hr=this.host.getBoundingClientRect();var wp=new T.Vector3();s.grp.getWorldPosition(wp);wp.y+=s.h*0.6;var pr=wp.clone().project(this.cam);
+  var hr=this._hostRect&&this._hostRect.width?this._hostRect:this.host.getBoundingClientRect();var wp=new T.Vector3();s.grp.getWorldPosition(wp);wp.y+=s.h*0.6;var pr=wp.clone().project(this.cam);
   el.style.left=(((pr.x*0.5+0.5)*hr.width))+'px';el.style.top=(((-pr.y*0.5+0.5)*hr.height))+'px';
   bfs.appendChild(el);setTimeout(function(){el.remove();},1300);
 };
 BattleUI.prototype.floatT=function(t,k){
   if(!this.hud||!this.host)return;var bfs=this._dom.bfs||this.hud.querySelector('.bfs');if(!bfs)return;
-  var el=document.createElement('div');el.className='bp '+(k||'');el.textContent=t;var hr=this.host.getBoundingClientRect();
+  var el=document.createElement('div');el.className='bp '+(k||'');el.textContent=t;var hr=this._hostRect&&this._hostRect.width?this._hostRect:this.host.getBoundingClientRect();
   // Stagger overlapping popups (e.g. crit + super effective on the same hit):
   // keep a counter of currently-alive center popups and shift each new one up
   // so they stack vertically. Each subsequent popup in the same burst also
@@ -1144,7 +1197,7 @@ BattleUI.prototype._burst=function(pos,col,n){
 
 BattleUI.prototype._anim=function(){
   if(!this.s.mounted||this._disposed)return;this._raf=requestAnimationFrame(this._anim);
-  if(!this.r||!this.sc||!this.cam)return;
+  if(!this.sc||!this.cam)return;
   // Don't burn GPU/CPU on a scene nobody can see. The browser already throttles
   // rAF in background tabs, but the battle host also gets hidden behind other
   // screens while the instance is still alive.
@@ -1171,11 +1224,11 @@ BattleUI.prototype._anim=function(){
   // attack, which works in battle because the HUD frames it -- on the title it
   // just crams the two Pokemon together and crops them.
   if(this.showcase){des.set(-0.55,4.2,10.6);dtgt.set(0.15,1.35,-1.0);cs=2.4;}
-  if(idle||this.showcase){des.x+=Math.sin(t*0.35)*0.25;des.y+=Math.sin(t*0.5)*0.08;des.z+=Math.sin(t*0.28)*0.1;}
+  if(!REDUCED_MOTION&&(idle||this.showcase)){des.x+=Math.sin(t*0.35)*0.25;des.y+=Math.sin(t*0.5)*0.08;des.z+=Math.sin(t*0.28)*0.1;}
   this.cam.position.lerp(des,dt*cs);this._tgt.lerp(dtgt,dt*cs);this.cam.lookAt(this._tgt);
   // Scenery
-  if(this.s.clouds)for(var c=0;c<this.s.clouds.length;c++)this.s.clouds[c].position.x+=dt*0.07;
-  if(this.s.flies){var fl=this.s.flies,fp=fl.pt.geometry.attributes.position.array;for(var i=0;i<fl.m.length;i++){fp[i*3+1]+=Math.sin(t*fl.m[i].s+fl.m[i].ph)*dt*0.2;fp[i*3]+=Math.cos(t*fl.m[i].s*0.7+fl.m[i].ph)*dt*0.1;if(fp[i*3+1]>5)fp[i*3+1]=0.5;}fl.pt.geometry.attributes.position.needsUpdate=true;}
+  if(!REDUCED_MOTION&&this.s.clouds)for(var c=0;c<this.s.clouds.length;c++)this.s.clouds[c].position.x+=dt*0.07;
+  if(!REDUCED_MOTION&&this.s.flies){var fl=this.s.flies,fp=fl.pt.geometry.attributes.position.array;for(var i=0;i<fl.m.length;i++){fp[i*3+1]+=Math.sin(t*fl.m[i].s+fl.m[i].ph)*dt*0.2;fp[i*3]+=Math.cos(t*fl.m[i].s*0.7+fl.m[i].ph)*dt*0.1;if(fp[i*3+1]>5)fp[i*3+1]=0.5;}fl.pt.geometry.attributes.position.needsUpdate=true;}
   // Step EVERY visible weather system, not just the one keyed by name: harsh
   // sunlight drives 'sunmotes', which would otherwise hang frozen mid-air.
   if(this.s.wsys){for(var wk in this.s.wsys){var pt=this.s.wsys[wk];if(!pt||!pt.visible)continue;
@@ -1197,6 +1250,8 @@ BattleUI.prototype._anim=function(){
   }
   // render call is individually guarded -- a one-frame GPU hiccup logs a
   // warning and the next frame simply retries rather than killing the loop.
+  // In flat mode (no WebGL) the DOM sprite projection above still runs, so
+  // the battle is fully playable even without a 3D context.
   if(this.r&&!this.flat){try{this.r.render(this.sc,this.cam);}catch(e){
     try{
       if(this.r.isContextLost&&this.r.isContextLost()){this._notifyContextLost(e);return;}
@@ -1218,7 +1273,15 @@ BattleUI.prototype._anim=function(){
 // For the title showcase we use ultra-subtle, never-snapping motion.
 BattleUI.prototype._projectSprites=function(t,dt){
   if(!this.sprites||!this.host||!this.cam)return;
-  var hr=this.host.getBoundingClientRect();
+  // Cache the host rect to avoid forced layout every frame. Refresh at most
+  // every 20 frames (~3x/sec at 60fps) or on immediate demand when the cached
+  // size is stale (first frame, resize not yet fired).
+  var hr=this._hostRect||{width:0,height:0};
+  // The stale check must run BEFORE the frame-counter increment: a resize sets
+  // _hostRectAge=-1 to force an immediate refresh, and `-1++` would swallow it.
+  if(!hr.width||this._hostRectAge<0||this._hostRectAge++%20===0){
+    hr=this.host.getBoundingClientRect();this._hostRect=hr;this._hostRectAge=1;
+  }
   var w=hr.width,h=hr.height;
   var cam=this.cam;
   for(var ik=0;ik<2;ik++){
@@ -1276,7 +1339,8 @@ BattleUI.prototype._projectSprites=function(t,dt){
       var idleX = Math.sin(t*0.42 + s.idlePhase)*0.055 + Math.sin(t*0.17 + s.driftPhase)*0.032;
       var idleY = Math.sin(t*0.78 + s.breathePhase)*0.018 + Math.sin(t*0.23 + s.idlePhase*0.7)*0.012;
       var idleZ = Math.cos(t*0.31 + s.driftPhase)*0.04;
-      if(showcase){
+      if(REDUCED_MOTION){idleX=0;idleY=0;idleZ=0;}
+      else if(showcase){
         idleX*=1.6; idleY*=1.4; idleZ*=1.3;
       }else{
         idleX*=0.6; idleY*=0.5; idleZ*=0.4;
@@ -1295,7 +1359,7 @@ BattleUI.prototype._projectSprites=function(t,dt){
         // damped oscillation based on mt of the hit moment
         var damping=Math.exp(-mt*4.2);
         var freq= showcase? 28 : 52;
-        shake=Math.sin(mt*freq + s.idlePhase)*0.14 * s.shakeCur * damping;
+        shake=Math.sin(mt*freq + s.idlePhase)*(REDUCED_MOTION?0.05:0.14) * s.shakeCur * damping;
         // flash flicker decays with same damping
         if(mt<0.28){
           var flick=Math.sin(mt*70);
@@ -1386,7 +1450,7 @@ function injectCSS(){
     '.battle-hud{position:absolute;inset:0;pointer-events:none;font-family:VT323,"Courier New",monospace;color:#fff;overflow:visible;font-size:18px;}',
     // Top + bottom vignette gradients are painted as fixed full-width pseudo layers
     // so they span edge-to-edge regardless of the centered .col width.
-    '.battle-hud::before,.battle-hud::after{content:"";position:fixed;left:0;right:0;width:100vw;pointer-events:none;z-index:0;}',
+    '.battle-hud::before,.battle-hud::after{content:"";position:fixed;left:0;right:0;width:auto;pointer-events:none;z-index:0;}',
     // TOP gradient: extends from the top of the screen down past the enemy HP card.
     // Lighter than pure-black vignette so the 3D sky/biome still shows through.
     '.battle-hud::before{top:0;height:38vh;background:linear-gradient(180deg,rgba(0,0,0,.55) 0%,rgba(0,0,0,.40) 22%,rgba(0,0,0,.22) 55%,rgba(0,0,0,.07) 80%,rgba(0,0,0,0) 100%);}',
@@ -1396,7 +1460,7 @@ function injectCSS(){
     '.battle-hud .g{background:transparent;border:none;border-radius:0;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;}',
     '.battle-hud .col{position:absolute;inset:0;max-width:520px;margin:0 auto;left:0;right:0;display:flex;flex-direction:column;padding:0;z-index:1;}',
     // Full-width top bar — date flush left, streak/best flush right, no divider pill.
-    '.battle-hud .topbar{pointer-events:auto;position:relative;width:100vw;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;padding:10px 16px 8px;background:transparent;display:flex;justify-content:space-between;align-items:center;text-align:left;gap:14px;}',
+    '.battle-hud .topbar{pointer-events:auto;position:relative;width:100%;left:0;right:0;margin:0;padding:10px 16px 8px;background:transparent;display:flex;justify-content:space-between;align-items:center;text-align:left;gap:14px;}',
     '.battle-hud .topbar::before{display:none;}',
     '.battle-hud .topbar>*{position:relative;z-index:1;}',
     '.battle-hud .tc{font-size:0.95rem;opacity:0.95;text-shadow:0 2px 10px rgba(0,0,0,.75);white-space:nowrap;text-align:left;}',

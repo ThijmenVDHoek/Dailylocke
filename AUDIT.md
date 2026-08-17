@@ -189,4 +189,121 @@ Battle music streams from `play.pokemonshowdown.com`; the offline story covers t
 4. **Make the Daily truly deterministic:** seed the AI's move choice (M1).
 5. **Fix auto-resume:** restore the full enemy team, field effect, and elite state; fix the `_isResume` timing (M2).
 6. **Small correctness fixes:** `ui.s.p.st` (M4), bag-take forme enforcement (M3), `cause` on re-thrown errors (H1 lint).
-7. **Housekeeping:** remove dead vendor files/notices, unused exports (`validate`, `rollShiny`, `supported`, `PWA.refresh`), and update the README's app.js size claim (M6).
+7. **Housekeeping:** remove dead vendor files/notices, unused exports (`validate`, `rollShiny`, `supported`, `PWA.refresh`), and update the README's app.js size claim (M6).  
+8. **3D engine audit:** all items in the appendix below have been reviewed and fixed (see Appendix: 3D Engine Audit).
+
+---
+
+## Appendix: 3D Engine Audit
+
+**Date:** 2026-08-16 · **Scope:** `vendor/battle-ui.js` (the 3D battle scene), `vendor/three.min.js` (bundled Three.js r144), `src/renderer-loader.js` (progressive-loading orchestrator), `src/ui-patch.js` (HUD overlay), `src/app.js` (3D integration).
+
+### Summary
+
+The 3D battle engine uses a DOM-sprite-projection architecture: Three.js manages the WebGL scene (biome, weather, terrain, lighting, particles), while Pokémon sprites are rendered as DOM `<img>` elements projected from 3D world coordinates via perspective math. This avoids CORS issues with Showdown's animated GIFs and keeps GIF animation native. The renderer is loaded progressively after the first paint, so the game is usable before WebGL is available.
+
+### Issues found and fixed
+
+#### Critical
+
+| # | Issue | Severity | Fix |
+|---|-------|----------|-----|
+| C1 | **Color-space no-op on bundled Three.js r144** — `r.outputColorSpace = T.SRGBColorSpace` silently does nothing because `outputColorSpace`/`SRGBColorSpace` were added in r152. The bundled r144 uses `outputEncoding`/`sRGBEncoding`. The entire scene renders in linear color space, making colours washed out/dark. | **CRITICAL** — visual output incorrect on the bundled version | Version-agnostic detection: `if('outputColorSpace' in r && T.SRGBColorSpace) r.outputColorSpace = T.SRGBColorSpace; else if('outputEncoding' in r && T.sRGBEncoding) r.outputEncoding = T.sRGBEncoding;` |
+| C2 | **Flat mode shows no Pokémon sprites** — When WebGL is unavailable (context loss, no GPU, rendering disabled), `_anim()` returns early at `if(!this.r||!this.sc||!this.cam)return;` before `_projectSprites()` ever runs. The DOM sprites stay at `opacity: 0` and the battle is unplayable — just a gradient background and HUD. | **CRITICAL** — game broken on any device without WebGL | Split the guard: `if(!this.sc||!this.cam)return;` still allows DOM sprite projection. Only the `r.render()` call is guarded with `if(this.r&&!this.flat)`. The weather/field/particle stepping also runs in flat mode. |
+| C3 | **Unbounded image cache** — `CACHE` and `FAILED` global objects grow without limit, keeping every sprite URL ever loaded and every URL that 404'd. Over a long play session this can consume hundreds of MB of image memory. | **HIGH** — memory leak over time | Added LRU cap: `CACHE_MAX = 600`, `FAILED_MAX = 300`. New `cachePut()`/`cacheFail()` functions handle eviction. `preload()` uses them. |
+
+#### High
+
+| # | Issue | Severity | Fix |
+|---|-------|----------|-----|
+| H1 | **`getBoundingClientRect()` every frame in `_projectSprites()`** — forces layout/reflow 60 times per second. The rect is also read in `floatN()` and `floatT()` on every damage/heal/message popup. | **HIGH** — layout thrashing, poor battery life and frame drops on mobile | Cached `_hostRect` with periodic refresh: rect is read at most every 20 frames (~3×/s at 60 fps) unless `_hostRectAge` is manually invalidated (on resize, on mount). `floatN()`/`floatT()` prefer the cached rect and fall back to `getBoundingClientRect()` only when the cache is stale. |
+| H2 | **Terrain mote particles update every frame even when invisible** — `_stepField` steps the 120 mote positions, velocities, and drift every frame regardless of whether a terrain is active (Electric/Grassy/Misty/Psychic). | **HIGH** — wasted CPU on invisible particle system | Gated: `if(f.motes && f.tp > 0.004)` — the opacity threshold is the same one used to decide visibility. |
+| H3 | **Canvas 2D context not guarded** — `terrainTex()` and `roomTex()` call `cv.getContext('2d')` without checking the result. If the 2D context is unavailable (rare, but possible in privacy modes or resource-constrained environments), the crash propagates to `_reportError()` and kills the battle. | **HIGH** — crash on edge case | Added `if(!x) return solid-color texture;` guard in both functions. |
+| H4 | **Procedural textures have no colorSpace/encoding** — Terrain/Room procedural textures from `terrainTex()`/`roomTex()` use `new THREE.Texture(cv)` which defaults to `NoColorSpace`/`LinearEncoding`. With the renderer now correctly outputting sRGB, these textures would double-transform and look washed out. | **HIGH** — cosmetic / incorrect rendering | Set `texture.colorSpace = THREE.SRGBColorSpace` (or `texture.encoding = THREE.sRGBEncoding` for pre-r152) on all procedural textures. |
+
+#### Medium
+
+| # | Issue | Severity | Fix |
+|---|-------|----------|-----|
+| M1 | **iOS detection using deprecated `navigator.platform`** — `navigator.platform` is deprecated and returns empty strings in some contexts (cross-origin iframes, hardened browsers). | **MEDIUM** — wrong DPR cap on edge cases | Added `navigator.userAgent` fallback with more robust iPad detection. |
+| M2 | **Context loss polling** — When the WebGL context is lost, `RendererSession.state` is set to `'lost'` and `acquire()` returns `null` forever. If the context restores without the DOM event firing (known WebKit bug), the game stays in flat mode permanently. | **MEDIUM** — stuck in flat mode on some devices | Added `_startLostWatch()`/`_stopLostWatch()`: when in 'lost' state, a 2-second interval probes for context availability via a hidden canvas. If context is restored, state flips to 'ready' and the current owner is notified. |
+| M3 | **CSS `width: 100vw` on pseudo-elements** — On some mobile browsers (especially with visible scrollbar), `width: 100vw` can overflow the viewport and cause horizontal scrolling. | **MEDIUM** — cosmetic | Changed to `width: auto; left: 0; right: 0;` which works correctly in all browsers for fixed-position elements. Same fix applied to `.topbar` (which used `width: 100vw; margin-left: -50vw; margin-right: -50vw;`). |
+| M4 | **Renderer loader has no retry** — If `vendor/three.min.js` fails to load (transient network, CDN flake), the 3D engine never retries. The progress promise rejects permanently. | **MEDIUM** — resilience | Added single retry with 1.5 s backoff to `loadScript()` in `renderer-loader.js`. |
+
+#### Low / Design Notes
+
+| # | Issue | Severity | Fix |
+|---|-------|----------|-----|
+| L1 | **`_setTex` sprite chain walking can race with reassignment** — The `_texGen` counter approach is correct for single-thread JS, but the chain's `setTimeout`/`Promise` callbacks can fire after the sprite slot has been reassigned to a different species. The `alive()` check guards against this. | **LOW** — already guarded | No change needed; `alive()` checks `s._texGen === gen` and `s.img` existence. |
+| L2 | **`terrainTex` creates 256×256 canvas textures per terrain type** — Stored in `f.tex` map, never disposed. Only 4 terrain types exist, so memory is negligible. | **LOW** | Noted, acceptable. |
+| L3 | **Weather particles (`rain` 900, `snow` 250, `sand` 300, `hail` 220, `sunmotes` 90) all step every frame regardless of visibility** — `_anim` already checks `pt.visible` before stepping each weather system. | **LOW** — already efficient | Noted, no change needed. |
+| L4 | **`ACESFilmicToneMapping` is used regardless of Three.js version** — Present since r114, so compatible with r144+. | **LOW** | Noted, no change needed. |
+| L5 | **`_burst` particle systems are created with `new BufferGeometry` each time and disposed after TTL** — Particles are infrequent (attacks, mega evolution, status) so this is fine. | **LOW** | Noted, acceptable. |
+| L6 | **Sprite `onerror` chain in `app.js` uses `arguments.callee` in inline handler string** — The string is evaluated as code, so `arguments.callee` works inside the evaluated function. | **LOW** — works but fragile | Noted, acceptable for current usage. |
+
+### Key architectural improvements
+
+1. **Color-space version detection** — The renderer now detects the Three.js version's API at runtime and uses `outputColorSpace`/`SRGBColorSpace` (r152+) or `outputEncoding`/`sRGBEncoding` (pre-r152) as appropriate. This fixes the silent no-op on the bundled r144 and will auto-adapt if the Three.js bundle is ever upgraded.
+
+2. **Flat-mode sprite rendering** — The core fix of the audit. `_anim()` now projects DOM sprites, steps weather/field/particles, and handles context-loss detection regardless of whether a WebGL renderer exists. Only the actual `r.render()` call is guarded. This means the battle is fully playable on any device, with or without WebGL.
+
+3. **Bounded LRU image cache** — The global `CACHE` and `FAILED` maps now have caps (600 and 300 entries respectively) to prevent memory growth over time. The oldest entries are evicted as new ones arrive.
+
+4. **Layout-friendly rendering** — The per-frame `getBoundingClientRect()` call is replaced with a cached rect refreshed at most 3 times per second, plus on resize. This eliminates the primary source of layout thrashing in the animation loop.
+
+5. **Context-loss recovery** — If the WebGL context is lost but the browser never fires the `webglcontextrestored` event (a known WebKit bug), a polling mechanism probes for context availability every 2 seconds and automatically restores the 3D scene.
+
+### Test plan
+
+The 3D engine changes can be verified through:
+1. Loading the game and checking the title screen 3D showcase renders with correct colours
+2. Starting a battle with WebGL enabled — full 3D scene visible
+3. Starting a battle with WebGL disabled (e.g., via browser dev tools) — DOM sprites still visible, battle fully playable
+4. Triggering a context loss (e.g., via `WEBGL_lose_context` extension) — game falls back to flat mode gracefully
+5. Checking memory usage over time — sprite cache evicts old entries
+6. Verifying the colour space version-detection works with different Three.js versions
+
+### Future considerations
+
+- **Three.js version upgrade**: The bundled r144 (March 2023) is over two years old. Upgrading to r152+ (or the latest r17x) would simplify the colour-space code to just `outputColorSpace`/`SRGBColorSpace` and bring newer features (improved shadow maps, WebGPU support). The version-agnostic colour-space detection makes this upgrade risk-free.
+- **Shadow map quality**: The current 512×512 PCFSoft shadow maps could be increased to 1024×1024 on higher-end devices for crisper shadows, while keeping 512×512 on mobile.
+- **Sprite chain timeouts**: The fallback chain walks through up to 5 URLs per sprite with timeouts up to 12 seconds each. On very slow connections, a sprite could take 30+ seconds to fully resolve. Consider progressive timeouts (shorter for static fallbacks).
+- **ES module migration**: The IIFE-based architecture prevents tree-shaking. Loading Three.js as an ES module (`three.module.js` or via CDN) could reduce the effective bundle size significantly.
+- **WebGPU fallback**: As WebGPU becomes more widely available, a future renderer path could use it instead of WebGL for better performance, especially on Apple Silicon devices.
+
+---
+
+## Appendix B: Full-Codebase Audit Round 2
+
+**Date:** 2026-08-17 · **Scope:** every `src/*.js` module, `index.html`, `sw.js`, `manifest.json`, `tools/`, `assets/css/app.css` — a complete pass over the game beyond the 3D engine (Appendix A).
+
+### Method
+
+- Ran the full quality gate (`npm run check --prefix tools`): ESLint, the 484-check JSDOM smoke suite, and the service-worker revision guard.
+- Tried the real-browser Playwright smoke test — browsers cannot be downloaded in this sandbox (the CI workflow documents the same limitation), so it remains a CI-only gate.
+- Manually reviewed every module for correctness, escaping, RNG discipline, storage safety, accessibility and dead code.
+
+### Issues found and fixed
+
+| # | Issue | Severity | Fix |
+|---|-------|----------|-----|
+| R1 | **`run._battleCfgJSON` dead field** — written on every battle start but never read anywhere (the resume path uses `run._battleCfg`). It was serialized into every save and every full backup, permanently bloating both. | **MEDIUM** — wasted storage per battle | Removed the write entirely. |
+| R2 | **`Storage.available()` never called** — the comment says it "used to warn the player once", but no code path ever calls it. In Safari private mode or a storage-disabled browser the game silently runs without persisting; the player loses everything on refresh with no warning. | **MEDIUM** — silent data loss | Boot now probes `Storage.available()` and shows a one-time toast: "Saves are disabled in this browser — your run will not persist after this session." |
+| R3 | **Rect-cache invalidation ordering bug** (from Appendix A) — `_onResize` sets `_hostRectAge=-1` to force an immediate re-measure, but the frame-check `this._hostRectAge++%20===0` post-increments before the `<0` test, so the invalidation was swallowed for up to 20 frames (~330 ms of misaligned sprites after rotation/resize). | **LOW** — brief visual glitch after resize | Reordered: `_hostRectAge<0` is tested before the increment. |
+| R4 | **`prefers-reduced-motion` ignored by the 3D engine** — CSS animations were disabled, but the JS-driven scene (idle sprite sway, camera drift, drifting clouds/flies, hit shake) ran continuously, which can disturb vestibular-sensitive players. | **MEDIUM** — accessibility | Added a `REDUCED_MOTION` flag (from `matchMedia`). Ambient motion is zeroed (sprite drift, camera sway, clouds, flies); functional motion (attacks, damage, weather identification) stays; hit shake is softened. |
+| R5 | **Deprecated `navigator.platform` in `pwa.js`** — returns empty in cross-origin iframes/hardened browsers, silently disabling the iOS install how-to sheet. | **LOW** — edge-case feature loss | Fallback UA check (`/MacIntel/` + `maxTouchPoints > 1`) added, matching the renderer. |
+| R6 | **Stale service-worker shell revision** after source changes | — | Regenerated (`npm run build:sw`); the revision guard now passes. |
+
+### Verified healthy (no change needed)
+
+- **RNG discipline**: `Math.random()` is used only for non-gameplay cosmetics (title animation, music-track pick, AI tie-jitter fallback). All gameplay randomness is seeded (`mulberry32`), persisted (`randState`), and Daily battles are fully deterministic (`dailyBattleSeed` + `dailyAIRand`).
+- **Escaping/XSS**: every player-controlled string (nicknames, imported backup names) goes through `escapeHtml`; `profile.avatar` is allow-listed; `data-tip="text:…"` tooltip values are escaped at every call site; imported backups pass `Storage.validate` + sanitizers before touching storage.
+- **Storage**: all localStorage access is wrapped in try/catch with graceful degradation; run/profile/daily/audio keys are cleanly separated; migration is versioned and tested.
+- **Modal/a11y**: WAI-ARIA dialog pattern, focus trap, `inert` background sync, focus restore — all correct (484-check suite includes ~40 modal/coach interaction tests).
+- **PWA**: relative-path SW registration (GitHub Pages subpath safe), bounded caches with LRU eviction, content-hashed shell, self-hosted fonts, offline sprite fallbacks.
+- **Battle flow**: identity-mapped engine state (`__tag`), staged start, epoch-guarded async callbacks, debounced battle saves, renderer-loss recovery that preserves the live Showdown streams — all well-guarded.
+- **3D engine** (Appendix A): color-space version detection, flat-mode sprite projection, LRU-capped image cache, cached host rect, context-loss polling — all now covered by tests where testable.
+
+### Final state
+
+`npm run check --prefix tools` is fully green: **484/484** JSDOM checks (was 481; +3 new flat-mode renderer tests), 0 ESLint warnings, SW revision current. The real-browser WebGL smoke test remains a CI-only gate (Chromium/SwiftShader) because browsers cannot be downloaded in this sandbox.
