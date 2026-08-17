@@ -35,9 +35,12 @@
 
   // ------------------------------------------------------------ PLATFORM ---
   // iPadOS reports itself as a Mac; the touch-point count is the usual tell.
+  // navigator.platform is deprecated (empty in cross-origin iframes / hardened
+  // browsers), so fall back to the UA check on the main iPadOS tell.
   function isIOS() {
     return /iPad|iPhone|iPod/.test(ua) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+      (/MacIntel/.test(ua) && navigator.maxTouchPoints > 1);
   }
   // Safari only, and only the desktop build: every other engine on macOS puts
   // its own token (Chrome, Chromium, Edg, Firefox) in the UA.

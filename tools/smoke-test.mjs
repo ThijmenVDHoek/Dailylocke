@@ -2626,6 +2626,47 @@ host2.remove();
   badHost.remove();
 }
 
+// ====================================================== FLAT MODE SPRITES =====
+// The regression that made flat mode (no WebGL / context lost) unplayable:
+// _anim() used to return before projecting DOM sprites when this.r was null,
+// so the Pokemon stayed invisible (opacity 0, width 0) and the battle was just
+// a gradient + HUD. Projection must run with or without a WebGL renderer.
+{
+  const fh = window.document.createElement('div');
+  window.document.body.appendChild(fh);
+  const fui = new window.BattleUI();
+  fui.mount(fh);
+  fui.setPlayer({ name: 'P', lv: 100, types: ['Fire'], hp: 1, max: 100, h: 1,
+    sid: 'charizard', num: 6, u: [] });
+  fui.setEnemy({ name: 'E', lv: 100, types: ['Water'], hp: 1, max: 100, h: 1,
+    sid: 'blastoise', num: 9, u: [] });
+  // Simulate WebGL being gone: no renderer, flat mode on.
+  fui.flat = true;
+  fui.r = null;
+  // The THREE stub's Vector3.project() is an identity, which would clip the
+  // enemy at world z=-3.6 as "behind the camera". Swap in a perspective-ish
+  // divide so both combatants stay in view, like a real THREE camera does.
+  const OldV3 = window.THREE.Vector3;
+  window.THREE.Vector3 = class extends OldV3 {
+    project() { const w = 10; return this.set(this.x / w, this.y / w, this.z / w); }
+  };
+  let projErr = null;
+  try { fui._projectSprites(1, 0.016); } catch (e) { projErr = e; }
+  window.THREE.Vector3 = OldV3;
+  const pw = fui.s.p.img.style.width, ew = fui.s.e.img.style.width;
+  check('flat mode still projects DOM sprites (not stuck invisible)',
+    !projErr && pw !== '0px' && ew !== '0px', `player=${pw} enemy=${ew}${projErr ? ' err=' + projErr.message : ''}`);
+  check('flat mode leaves the HUD usable', !!fh.querySelector('.battle-hud'));
+  // A mounted flat UI must also survive the full animation loop without
+  // throwing -- it used to early-return, which was the whole bug.
+  let flatLoopError = null;
+  try { fui._anim(); fui._anim(); } catch (e) { flatLoopError = e; }
+  check('flat mode animation loop runs without a renderer', !flatLoopError,
+    flatLoopError && flatLoopError.message);
+  fui.unmount();
+  fh.remove();
+}
+
 // ============================================================== ONBOARDING ==
 // The teaching layer has three jobs and each one is worth guarding:
 //   1. never chain cards (the NN/g rule the whole design rests on)
