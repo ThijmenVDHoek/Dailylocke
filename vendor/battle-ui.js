@@ -81,24 +81,76 @@ function cacheFail(url){
 // renderer, canvas, owner and context flags were independent globals; an error
 // could update only some of them and leave a "live" owner attached to a dead
 // canvas. Keeping those transitions together makes screen swaps transactional.
+//
+// ROBUSTNESS RULE #1: nothing in here may fail PERMANENTLY. A single
+// transient context-creation error (cold GPU init, driver hiccup, a GPU
+// process bounce, one unlucky frame right after wake) used to flip a sticky
+// 'unavailable' switch, after which EVERY later mount silently rendered flat
+// for the rest of the session -- the "3D falls back to 2D every single run"
+// bug. Now a screen that cannot get WebGL right this instant renders flat
+// (fully playable) while the session keeps retrying creation in the
+// background; the moment a context can be created, the live screen is
+// upgraded back to 3D in place -- no remount, no lost battle state, no
+// reload.
+//
+// ROBUSTNESS RULE #2: a lost context is REPLACED, not awaited. The browser
+// may never deliver webglcontextrestored (killed GPU process, too many
+// contexts, WebKit's silent loss path). The scene graph is renderer-agnostic
+// Three.js data (sprites are DOM), so creating a fresh renderer+canvas and
+// re-rendering the existing scene is safe and always available.
 var RendererSession={
-  renderer:null,canvas:null,owner:null,state:'idle',lastError:null,_lostWatchTimer:null,
+  renderer:null,canvas:null,owner:null,state:'idle',lastError:null,
+  _lost:false,_recoverTimer:null,_recoverDelay:0,_lastCreateAttempt:0,
+  // Never hammer a genuinely missing GPU: two foreground creation attempts
+  // must be at least this far apart. The background recovery chain below
+  // handles everything else.
+  MIN_RETRY_MS:750,
+  RECOVER_DELAYS:[300,1000,2000], // then a steady 2000ms
+  healthy:function(){
+    if(!this.renderer)return false;
+    if(this._lost)return false;
+    try{if(this.renderer.isContextLost&&this.renderer.isContextLost())return false;}catch(_){return false;}
+    return true;
+  },
   acquire:function(owner,w,h){
     var previous=this.owner;
-    if(previous&&previous!==owner&&previous.s&&previous.s.mounted&&!previous._disposed){
-      throw new Error('The shared battle renderer is still in use.');
+    if(previous&&previous!==owner){
+      // Used to THROW ('renderer is still in use'): a racing mount crashed
+      // the whole battle start. The newest screen simply takes over; the old
+      // one keeps playing in flat mode and can re-acquire later if it ever
+      // becomes the visible screen again.
+      if(previous.s&&previous.s.mounted&&!previous._disposed){
+        try{previous._notifyRendererReclaimed();}catch(_){}
+      }
     }
-    if(this.state==='lost'||this.state==='unavailable'){if(this.state==='lost')this._startLostWatch();return null;}
-    if(this.renderer){
+    this.owner=owner;
+    if(this.healthy()){
       try{
-        if(this.renderer.isContextLost&&this.renderer.isContextLost()){
-          this.state='lost';this.owner=owner;this._startLostWatch();return null;
-        }
         this.renderer.setSize(w,h,false);
         if(this.renderer.resetState)this.renderer.resetState();
-      }catch(err){this.state='lost';this.lastError=err;this.owner=owner;this._startLostWatch();return null;}
-      this.owner=owner;this.state='ready';return this.renderer;
+      }catch(err){
+        this._markLost(err);
+        this._scheduleRecover();
+        return null;
+      }
+      this.state='ready';this.lastError=null;
+      return this.renderer;
     }
+    // No healthy renderer: dispose the corpse and make a fresh one.
+    if(this.renderer)this._disposeRenderer();
+    // Back off only when we JUST tried and failed; otherwise always try anew.
+    if(this.state==='degraded'&&this._lastCreateAttempt&&(Date.now()-this._lastCreateAttempt)<this.MIN_RETRY_MS){
+      this._scheduleRecover();
+      return null;
+    }
+    var r=this._createRenderer(w,h);
+    if(r){this.state='ready';this.lastError=null;this._cancelRecover();return r;}
+    this.state='degraded';
+    this._scheduleRecover();
+    return null;
+  },
+  _createRenderer:function(w,h){
+    this._lastCreateAttempt=Date.now();
     try{
       var ua=(typeof navigator!=='undefined')?navigator.userAgent:'';
       var isiOS=(/iPad|iPhone|iPod/.test(ua)||(typeof navigator!=='undefined'&&navigator.maxTouchPoints>1&&/MacIntel/.test(ua)));
@@ -111,53 +163,97 @@ var RendererSession={
       if('outputColorSpace' in r&&typeof T.SRGBColorSpace!=='undefined'){r.outputColorSpace=T.SRGBColorSpace;}
       else if('outputEncoding' in r&&typeof T.sRGBEncoding!=='undefined'){r.outputEncoding=T.sRGBEncoding;}
       r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.1;
-      var canvas=r.domElement,session=this;
+      // Shadow config used to be applied 200ms after mount only, which meant a
+      // recreated renderer silently lost its shadows. It belongs to creation.
+      try{r.shadowMap.enabled=true;r.shadowMap.type=T.PCFSoftShadowMap;}catch(_){}
+      var canvas=r.domElement,session=this,record=r;
       canvas.addEventListener('webglcontextlost',function(ev){
+        // A disposed renderer's canvas may still deliver a late event; it
+        // must not murder the healthy renderer that replaced it.
+        if(session.renderer!==record)return;
         if(ev&&ev.preventDefault)ev.preventDefault();
-        session.state='lost';
+        session._markLost(null);
         var current=session.owner;
         if(current)current._notifyContextLost(ev);
+        session._scheduleRecover();
       });
       canvas.addEventListener('webglcontextrestored',function(ev){
-        // Three restores its internal GL resources. Reset cached state before
-        // asking the current screen to rebuild only its scene graph.
-        session.state='ready';session.lastError=null;
+        if(session.renderer!==record)return;
+        // Three restores its internal GL resources (its own listener runs
+        // first, registered in the renderer constructor). Reset cached state
+        // before asking the current screen to rebuild only its scene graph.
+        session._lost=false;session.state='ready';session.lastError=null;
+        session._cancelRecover();
         try{if(session.renderer&&session.renderer.resetState)session.renderer.resetState();}catch(_){}
         var current=session.owner;
         if(current)current._notifyContextRestored(ev);
       });
-      this.renderer=r;this.canvas=canvas;this.owner=owner;this.state='ready';
+      this.renderer=r;this.canvas=canvas;this._lost=false;
       return r;
     }catch(err){
-      this.state='unavailable';this.lastError=err;
+      this.lastError=err;
       console.warn('[BattleUI] WebGL unavailable; using flat battle mode',err);
       return null;
     }
   },
-  _startLostWatch:function(){
-    var s=this;
-    if(s._lostWatchTimer)return;
-    s._lostWatchTimer=setInterval(function(){
-      if(s.state!=='lost'){clearInterval(s._lostWatchTimer);s._lostWatchTimer=null;return;}
-      try{
-        var probe=document.createElement('canvas');
-        var gl=probe.getContext('webgl')||probe.getContext('experimental-webgl');
-        if(gl){
-          clearInterval(s._lostWatchTimer);s._lostWatchTimer=null;
-          s.state='ready';s.lastError=null;
-          if(s.owner)s.owner._notifyContextRestored(null);
-        }
-      }catch(_){}
-    },2000);
+  _disposeRenderer:function(){
+    var old=this.renderer;
+    this.renderer=null;this.canvas=null;this._lost=false;
+    if(old){try{if(old.dispose)old.dispose();}catch(_){}}
   },
-  _stopLostWatch:function(){
-    if(this._lostWatchTimer){clearInterval(this._lostWatchTimer);this._lostWatchTimer=null;}
+  _markLost:function(err){
+    this._lost=true;this.state='lost';if(err)this.lastError=err;
+  },
+  // Called by the current owner when IT detected the loss through the
+  // renderer instead of a DOM event (a real WebKit behaviour). Guarantees the
+  // recovery chain starts even when no canvas event ever arrives.
+  noteLost:function(owner){
+    if(this.owner!==owner)return;
+    this._markLost(null);
+    this._scheduleRecover();
+  },
+  // Background recovery. The only reason flat mode may be long-lived is a
+  // machine that truly cannot create a WebGL context; everything else must
+  // heal by itself. Each attempt disposes any dead renderer and builds a
+  // fresh one; on success the live owner is offered the canvas in place.
+  _scheduleRecover:function(){
+    if(this._recoverTimer)return;
+    var delays=this.RECOVER_DELAYS;
+    var delay=delays[Math.min(this._recoverDelay,delays.length-1)];
+    this._recoverDelay+=1;
+    var session=this;
+    this._recoverTimer=setTimeout(function(){
+      session._recoverTimer=null;
+      if(session.healthy()){session.state='ready';return;}
+      if(session.renderer)session._disposeRenderer();
+      var w=0,h=0,o=session.owner;
+      if(o&&o.host){w=o.host.clientWidth||0;h=o.host.clientHeight||0;}
+      if(w<10){w=(typeof window!=='undefined'&&window.innerWidth)||640;}
+      if(h<10){h=(typeof window!=='undefined'&&window.innerHeight)||480;}
+      var r=session._createRenderer(w,h);
+      if(!r){session.state='degraded';session._scheduleRecover();return;}
+      session.state='ready';session.lastError=null;
+      var current=session.owner;
+      if(current&&current.s&&current.s.mounted&&!current._disposed){
+        try{current._notifyRendererRecreated(r);}catch(_){}
+      }
+    },delay);
+  },
+  _cancelRecover:function(){
+    if(this._recoverTimer){clearTimeout(this._recoverTimer);this._recoverTimer=null;}
+    this._recoverDelay=0;
   },
   release:function(owner,host){
-    if(this.owner===owner){this.owner=null;this._stopLostWatch();}
+    // Nobody left to hand a recovered renderer to: pause background retries
+    // (a later acquire re-arms them) so an idle game costs zero GPU work.
+    if(this.owner===owner){this.owner=null;this._cancelRecover();}
     if(host&&this.canvas&&this.canvas.parentNode===host)host.removeChild(this.canvas);
   },
-  reason:function(){return this.state==='unavailable'?'unavailable':'context-lost';}
+  reason:function(){
+    if(this.state==='degraded')return 'unavailable';
+    if(this.state==='lost')return 'context-lost';
+    return 'webgl';
+  }
 };
 function sharedRenderer(owner,w,h){return RendererSession.acquire(owner,w,h);}
 function preload(url){
@@ -280,16 +376,59 @@ BattleUI.prototype._notifyContextLost=function(ev){
   if(this._disposed||this._unmounting||this._contextLostNotified)return;
   this._contextLostNotified=true;
   if(ev&&ev.preventDefault)ev.preventDefault();
-  // Keep the DOM battle alive while the browser decides whether the context
-  // can be restored. A context loss is cosmetic here; the player can continue
-  // in flat mode instead of being thrown into a dead-end error panel.
+  // Keep the DOM battle alive while the session replaces the dead context.
+  // A context loss is cosmetic here; the player can continue in flat mode
+  // instead of being thrown into a dead-end error panel.
   this.enterFlatMode('context-lost');
+  // Tell the session a loss was observed through the renderer (not a DOM
+  // event) so the recreation chain always starts; this is a no-op when the
+  // canvas event already did it.
+  try{RendererSession.noteLost(this);}catch(_){}
   if(this.onContextLost){try{this.onContextLost(this,ev);}catch(_) {}}
 };
 BattleUI.prototype._notifyContextRestored=function(ev){
   if(this._disposed||this._unmounting)return;
   this._contextLostNotified=false;
+  // If the same context genuinely came back, drop flat mode immediately so
+  // the 3D scene resumes even when no app-level rebuild happens.
+  try{if(this.flat&&this.r&&RendererSession.healthy())this.attachRenderer(this.r);}catch(_){}
   if(this.onContextRestored){try{this.onContextRestored(this,ev);}catch(_) {}}
+};
+// The session created a FRESH renderer after a loss/creation failure and is
+// handing it to this live screen. Attach in place: the scene graph and DOM
+// battle state are renderer-agnostic, so the battle continues exactly where
+// it was -- just in 3D again.
+BattleUI.prototype._notifyRendererRecreated=function(r){
+  if(this._disposed||this._unmounting||!this.s.mounted||!r)return;
+  this._contextLostNotified=false;
+  this.attachRenderer(r);
+};
+// Another screen took the shared renderer over (navigation race). Stay
+// playable in flat mode instead of crashing the mount that replaced us.
+BattleUI.prototype._notifyRendererReclaimed=function(){
+  if(this._disposed||this._unmounting)return;
+  this.r=null;
+  this.enterFlatMode('reclaimed');
+  if(this.onContextLost){try{this.onContextLost(this,null);}catch(_) {}}
+};
+// Put the session canvas on screen as layer 0 and leave flat mode. Idempotent:
+// safe to call for both the initial mount and mid-session recovery.
+BattleUI.prototype.attachRenderer=function(r){
+  if(!r||this._disposed||this._unmounting||!this.host)return;
+  this.r=r;
+  this._renderErrs=0;
+  var d=r.domElement;
+  d.style.cssText='display:block;position:absolute;inset:0;width:100%;height:100%;z-index:1;';
+  if(d.parentNode!==this.host)this.host.insertBefore(d,this.host.firstChild);
+  this.exitFlatMode();
+  try{this._onResize();}catch(_){}
+};
+BattleUI.prototype.exitFlatMode=function(){
+  this.flat=false;this._flatReason='';
+  if(this.host){
+    this.host.classList.remove('battle-flat');
+    this.host.style.background='';
+  }
 };
 
 BattleUI.prototype.mount = function(host){
@@ -325,16 +464,17 @@ BattleUI.prototype.mount = function(host){
   host.style.cssText='position:absolute;inset:0;overflow:hidden;';
   var self=this;
   try{
-    // Layer 0: WebGL canvas (scenery only). Reuse the session renderer when
-    // possible; if WebGL is unavailable, keep building the DOM layers in flat
-    // mode so the battle remains playable.
+    // Layer 0: WebGL canvas (scenery only). The session always tries to hand
+    // back a healthy renderer -- reusing the live one or creating a fresh one
+    // if the last screen left a corpse behind. If WebGL cannot be created
+    // right now, keep building the DOM layers in flat mode so the battle
+    // remains playable; the session's background recovery will upgrade this
+    // exact mount to 3D as soon as a context exists again.
     var r=sharedRenderer(this,w,h);
-    this.r=r;
-    this.flat=!r;
     if(r){
-      r.domElement.style.cssText='display:block;position:absolute;inset:0;width:100%;height:100%;z-index:1;';
-      host.appendChild(r.domElement);
+      this.attachRenderer(r);
     }else{
+      this.r=null;
       this.enterFlatMode(RendererSession.reason());
     }
     var sc=new T.Scene();this.sc=sc;sc.background=new T.Color(0x70c3e8);
@@ -356,7 +496,8 @@ BattleUI.prototype.mount = function(host){
     buildShadow(this,'e');buildShadow(this,'p');
     buildSpriteDom(this,'e');buildSpriteDom(this,'p');
     buildWeather(this);buildField(this);this.buildBiome('meadow');
-    setTimeout(function(){if(self.r){try{self.r.shadowMap.enabled=true;self.r.shadowMap.type=T.PCFSoftShadowMap;}catch(_){}}},200);
+    // Shadow maps are configured on the renderer at creation time (see
+    // RendererSession._createRenderer), including after any recreation.
     window.addEventListener('resize',this._onResize);
     // A context can disappear while the scene is being assembled. The shared
     // listener has already switched this instance to flat mode, so it is still
@@ -419,7 +560,9 @@ BattleUI.prototype._onResize=function(){
   if(!this.host||!this.cam)return;
   var w=this.host.clientWidth,h=this.host.clientHeight;
   if(w<10||h<10){w=window.innerWidth;h=window.innerHeight;}
-  if(this.r&&!this.flat)this.r.setSize(w,h,false);
+  // A setSize throw here (e.g. during a context restore) must never bubble to
+  // the window error handler -- the next resize/frame simply retries.
+  if(this.r&&!this.flat){try{this.r.setSize(w,h,false);}catch(_){}}
   this.cam.aspect=w/Math.max(1,h);this.cam.updateProjectionMatrix();
   // Invalidate cached host rect so the next frame picks up the new size.
   this._hostRectAge=-1;
@@ -571,7 +714,12 @@ function terrainTex(look){
         th===0?x.moveTo(sx,sy):x.lineTo(sx,sy);}
       x.stroke();}
   }
-  var tx=new T.Texture(cv);tx.needsUpdate=true;return tx;
+  var tx=new T.Texture(cv);tx.needsUpdate=true;
+  // Match roomTex: without an sRGB tag the pattern is double-transformed by an
+  // sRGB-output renderer and reads washed out.
+  if('colorSpace' in tx&&typeof T.SRGBColorSpace!=='undefined')tx.colorSpace=T.SRGBColorSpace;
+  else if('encoding' in tx&&typeof T.sRGBEncoding!=='undefined')tx.encoding=T.sRGBEncoding;
+  return tx;
 }
 
 var ROOM_LOOK={
@@ -1250,13 +1398,18 @@ BattleUI.prototype._anim=function(){
   }
   // render call is individually guarded -- a one-frame GPU hiccup logs a
   // warning and the next frame simply retries rather than killing the loop.
-  // In flat mode (no WebGL) the DOM sprite projection above still runs, so
-  // the battle is fully playable even without a 3D context.
-  if(this.r&&!this.flat){try{this.r.render(this.sc,this.cam);}catch(e){
+  // Only a SUSTAINED burst of failures (≈1s of straight errors) is treated as
+  // fatal; everything before that is considered transient driver churn --
+  // exactly what happens while a context is mid-restore or the GPU channel is
+  // bouncing. In flat mode (no WebGL) the DOM sprite projection above still
+  // runs, so the battle is fully playable even without a 3D context.
+  if(this.r&&!this.flat){try{this.r.render(this.sc,this.cam);this._renderErrs=0;}catch(e){
     try{
-      if(this.r.isContextLost&&this.r.isContextLost()){this._notifyContextLost(e);return;}
+      if(this.r.isContextLost&&this.r.isContextLost()){this._renderErrs=0;this._notifyContextLost(e);return;}
     }catch(_){}
-    this._reportError(e);
+    this._renderErrs=(this._renderErrs|0)+1;
+    if(this._renderErrs>=60){this._renderErrs=0;this._reportError(e);return;}
+    if(this._renderErrs===1)console.warn('[BattleUI] transient render error; retrying',e);
     return;
   }}
   }catch(e){

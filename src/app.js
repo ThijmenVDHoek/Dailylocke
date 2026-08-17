@@ -346,6 +346,11 @@
         if (owner && owner !== titleUI) return;
         setTimeout(function () {
           if (owner && owner !== titleUI) return;
+          // The renderer session re-attaches a healthy canvas in place on
+          // restore/recreation. Only rebuild the showcase when it is actually
+          // still flat; tearing down a self-healed scene races the engine's
+          // own recovery and can strand an empty stage.
+          if (titleUI && !titleUI.flat) return;
           if (!$('screenTitle').hidden) { stopTitleScene(); startTitleScene(); }
         }, 0);
       };
@@ -4376,6 +4381,10 @@
   function handleBattleContextRestored(restoredUI) {
     if (restoredUI && restoredUI !== ui) return;
     if (battleRendererRecovering) return;
+    // The renderer session re-attaches a healthy canvas in place on
+    // restore/recreation; when the scene already left flat mode there is
+    // nothing to rebuild and a teardown would only churn the live battle.
+    if (restoredUI && !restoredUI.flat) return;
     if (!run || !battle || !bctx || !run._inBattle || (battle.state && battle.state.ended)) return;
     // Give the browser one turn to finish restoring the shared context, then
     // rebuild only the presentation layer. The active stream and encounter

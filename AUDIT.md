@@ -307,3 +307,93 @@ The 3D engine changes can be verified through:
 ### Final state
 
 `npm run check --prefix tools` is fully green: **484/484** JSDOM checks (was 481; +3 new flat-mode renderer tests), 0 ESLint warnings, SW revision current. The real-browser WebGL smoke test remains a CI-only gate (Chromium/SwiftShader) because browsers cannot be downloaded in this sandbox.
+
+---
+
+## Appendix C: 3D Engine Resilience Follow-up ("falls back to 2D every single run")
+
+**Date:** 2026-08-17 · **Scope:** `vendor/battle-ui.js` (`RendererSession`, `BattleUI` mount/lifecycle), `src/app.js` (title + battle restore handlers), `index.html` (boot watchdog), `tools/browser-smoke.mjs`, `tools/smoke-test.mjs`.
+
+### Reproduced root cause
+
+A live-browser reproduction (headless Chromium/SwiftShader with a scripted
+one-time failure of the first three WebGL `getContext` calls) proved the
+chain end-to-end:
+
+1. Every page load mounts the title showcase, which creates the session's one
+   WebGL context at a random moment — including frames where the GPU/driver
+   is momentarily unable to vend a context (cold init, process bounce, wake
+   from sleep, context-count pressure, blocklist flicker).
+2. `RendererSession.acquire()` caught that throw and flipped a **sticky
+   `unavailable` flag**. Every later `acquire()` returned `null` *without even
+   attempting creation* — for the rest of the session.
+3. Result: title flat, and **every battle of every run silently flat**, with
+   the toast "3D graphics unavailable" each time — the reported symptom. On a
+   machine where that first split-second mount consistently fails, this is
+   literally "every single run", even though WebGL was healthy again 1 ms later.
+
+Broken auxiliaries found during the same investigation:
+- The context-loss "polling recovery" (audit item M2) probed availability on a
+  **different canvas** and flipped state to `ready` while the real context was
+  still dead — it could never actually recover.
+- `acquire()` **threw** "renderer is still in use" when a mount raced a live
+  owner, turning a navigation race into a hard battle-start crash.
+- `_anim()`'s render-error path reported a *single* failed frame as fatal
+  (`_reportError` → title scene destroyed / battle error panel), despite its
+  own comment claiming one-frame hiccups "simply retry".
+- `index.html`'s boot-failure watchdog contained a duplicated `}()` — a parse
+  error that disabled the game's only fatal-error surface entirely.
+- `terrainTex()` never received the sRGB colour-space tag that `roomTex()`
+  already had (audit item H4 was only half applied).
+
+### The rebuild (safe methods only)
+
+`RendererSession` was rebuilt around two rules; everything else follows from them:
+
+1. **Nothing may fail permanently.** Flat mode is what you get *while* the
+   session cannot create a context — never *because it once failed*. Foreground
+   mounts always retry creation (rate-limited to one attempt per 750 ms when
+   degraded), and a background recovery chain (300 ms → 1 s → steady 2 s) keeps
+   trying while any screen is alive. When creation succeeds, the **already
+   mounted screen is upgraded from flat to full 3D in place** — no remount, no
+   lost battle state, no reload.
+2. **A lost context is replaced, not awaited.** Recovery creates a fresh
+   `WebGLRenderer` + canvas and re-renders the existing scene graph (Three.js
+   scene data is renderer-agnostic; sprites are DOM). This also heals WebKit's
+   silent-loss path, where `webglcontextrestored` never fires. Real
+   restore events are still honoured for the same-canvas path.
+
+Supporting changes:
+- Ownership races are reclaimed gracefully: the newest screen takes the
+  renderer; the displaced one keeps playing flat (no throw).
+- Render errors must persist for ~1 s (60 consecutive frames) before being
+  reported fatal; one-frame hiccups are logged and retried.
+- `attachRenderer`/`exitFlatMode` are defensive and idempotent; late canvas
+  events from disposed renderers are ignored via identity guards.
+- Shadow maps are configured at renderer creation (previously only 200 ms
+  after the first mount), so recreated renderers keep shadows.
+- `index.html` watchdog syntax error removed (the page's boot error surface
+  works again); `terrainTex()` colour-space tag added.
+- App restore handlers no longer tear down scenes the engine already healed
+  in place (guarded by `ui.flat`).
+
+### Verification (all green)
+
+- **JSDOM suite: 493/493** (was 484; +9 new renderer self-healing regression
+  tests: transient-failure recovery in place, renderer reuse, racing-mount
+  reclaim, silent-loss recreation; plus the rewritten context-loss contract).
+- **Real-browser battery (headless Chromium, SwiftShader WebGL): 10/10** —
+  transient boot failure heals at title and in the first battle; real
+  `WEBGL_lose_context` loss heals **without** any restore event via
+  recreation; sustained unavailability stays playable flat and upgrades
+  mid-session when the GPU returns; racing mounts never throw; 4 consecutive
+  battles share exactly one healthy context.
+- **Browser smoke test: 10/10** (extended with the same self-healing checks;
+  also hardened against slow software-GL runners by waiting on mount
+  settlement; `BROWSER_EXECUTABLE_PATH` override lets browser-less sandboxes
+  run it without changing CI).
+- **End-to-end user flow** (title → setup → starter → nickname → hub → real
+  tutorial battle) with a GPU hiccup injected mid-flow: battle assembles with
+  interactive controls in full 3D, no error surface.
+- `npm run check --prefix tools` fully green: lint, 493/493, SW revision
+  current.
