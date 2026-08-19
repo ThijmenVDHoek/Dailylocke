@@ -303,8 +303,8 @@
     // Battle music never plays outside a battle. beginBattle() starts the
     // right track; every other screen fades it out.
     if (name !== 'Battle' && window.GameAudio) window.GameAudio.stop();
-    // The showcase is a full WebGL context; never leave it running behind
-    // another screen.
+    // The animated title backdrop is CPU/DOM-only, but still stop its loop and
+    // sprite projection whenever another screen takes over.
     if (name === 'Title') startTitleScene(); else stopTitleScene();
     // The title advertises live state (today's Daily, the streak, the Free
     // Play slot), and that state changes while the player is away from it.
@@ -321,9 +321,10 @@
 
   // -------------------------------------------------------------- TITLE ---
   // ---- TITLE SHOWCASE ------------------------------------------------------
-  // A real BattleUI instance in `showcase` mode: the 3D biome and two animated
-  // Pokemon, no HUD at all. They trade attack animations forever so the title
-  // feels alive rather than being a static screenshot.
+  // The title reuses BattleUI's projected animated Pokemon and layered CSS
+  // perspective environment, but deliberately stays WebGL-free: a decorative
+  // landing page must not create, own, lose, or churn a GPU context. The one
+  // optional WebGL renderer is reserved for actual battles.
   var titleUI = null, titleLoop = null;
 
   function startTitleScene() {
@@ -332,42 +333,17 @@
     try {
       titleUI = new window.BattleUI();
       titleUI.showcase = true;          // suppress every HUD element
-      // The title scene has no battle error panel. If its idle showcase loses
-      // the GPU context, discard that canvas and rebuild it while leaving the
-      // title controls usable instead of marooning a white stage.
-      titleUI.onContextLost = function (lostUI) {
-        if (lostUI && lostUI !== titleUI) return;
-        // The showcase is cosmetic. Keep its DOM sprites and switch the stage
-        // to flat mode while the singleton context waits for restoration.
-        if (titleUI && titleUI.enterFlatMode) titleUI.enterFlatMode('context-lost');
-        toast('3D graphics paused — the game is still playable.');
-      };
-      titleUI.onContextRestored = function (owner) {
-        if (owner && owner !== titleUI) return;
-        setTimeout(function () {
-          if (owner && owner !== titleUI) return;
-          // The renderer session re-attaches a healthy canvas in place on
-          // restore/recreation. Only rebuild the showcase when it is actually
-          // still flat; tearing down a self-healed scene races the engine's
-          // own recovery and can strand an empty stage.
-          if (titleUI && !titleUI.flat) return;
-          if (!$('screenTitle').hidden) { stopTitleScene(); startTitleScene(); }
-        }, 0);
-      };
+      titleUI.flatOnly = true;          // title never acquires WebGL
       titleUI.onMountError = function (owner, err) {
         if (owner && owner !== titleUI) return;
         setTimeout(function () {
           if (owner && owner !== titleUI) return;
           stopTitleScene();
-          toast('The 3D showcase is unavailable, but the game is ready.');
           console.warn('[title] showcase unavailable', err);
         }, 0);
       };
       titleUI.onError = titleUI.onMountError;
-      // A restored event follows a lost event; the lost handler already
-      // replaces the renderer, so do not schedule a second rebuild here.
       titleUI.mount(host);
-      if (titleUI.flat) toast('3D graphics unavailable — the game is still playable.');
 
       // Two random fully-evolved-ish combatants each visit, so the title is
       // different every time you open the game. Filtered to a sane BST band
@@ -388,10 +364,12 @@
         titleBiomeKey = THEME_BIOME[(profile && profile.theme) || 'default'] || 'meadow';
       }
       titleUI.setupBattle({
+        // The showcase is visual ambience, not a battle entrance. Keep both
+        // Pokemon silent so opening or returning to the title never plays a cry.
         player: { name: sa.name, lv: 100, types: sa.types.slice(), hp: 1, max: 100, st: null,
-                  h: worldH(A), sid: sa.spriteid || A, num: sa.num, u: spriteUrls(A, true) },
+                  h: worldH(A), sid: sa.spriteid || A, num: sa.num, u: spriteUrls(A, true), silent: true },
         enemy:  { name: sb.name, lv: 100, types: sb.types.slice(), hp: 1, max: 100, st: null,
-                  h: worldH(B), sid: sb.spriteid || B, num: sb.num, u: spriteUrls(B, false) },
+                  h: worldH(B), sid: sb.spriteid || B, num: sb.num, u: spriteUrls(B, false), silent: true },
         biomeSeed: 'title|' + A + '|' + B,
         biomeTypes: sa.types
       });
@@ -465,10 +443,9 @@
       titleLoop = setTimeout(nextBeat, 800 + Math.random()*400);
     } catch (e) {
       console.warn('title scene', e);
-      // A failed title renderer must not leave a disposed instance and a
-      // cleared canvas behind. The rest of the title UI remains usable.
+      // The showcase is cosmetic. A failure removes only its backdrop; the
+      // title controls stay usable and no GPU recovery loop is involved.
       stopTitleScene();
-      toast('The 3D showcase is unavailable, but the game is ready.');
     }
   }
 
@@ -640,7 +617,7 @@
     if (!info) { go(); return; }
     var el = $('screenModeInfo');
     if (!el) { go(); return; }
-    $('modeFace').innerHTML = C2.advisorImg(46);
+    $('modeFace').innerHTML = C2.advisorImg(104);
     $('modeTitle').textContent = info.title;
     $('modeLede').textContent = info.lede;
     $('modePoints').innerHTML = info.points.map(function (p) {
@@ -889,6 +866,7 @@
     run.tutorialSwitchOpen = false;
     run.tutorialSwitchDone = false;
     run.tutorialSwitchPickDone = false;
+    run.tutorialBattleBagDone = false;
     run.tutorialTrainingUid = null;
     var backBtn = $('btnStarterBack');
     if (backBtn) backBtn.hidden = !!run.prologue;
@@ -1749,6 +1727,7 @@
       !!run.tutorialEffectDone,
       caughtIsLead(),
       !!run.tutorialSwitchDone,
+      !!run.tutorialBattleBagDone,
       !!run.tutorialTrainerDone,
       !!(CO && CO.seen('save')),
       !!run.tutorialEvolved,
@@ -2018,13 +1997,12 @@
     if (!was) return;
     // The tutorial covered everything already (battles, catching, the lead,
     // saving, the Mart, evolution, training). The just-in-time lessons that
-    // would otherwise start firing in section 3 are repetition for this
-    // player, so mark them read and let the run continue quietly. (The Bag
-    // battle beat is NOT here: it is the one lesson still owed — section 2's
-    // first wild battle teaches healing with a Super Potion after this.)
+    // would otherwise start firing later are repetition for this player, so
+    // mark them read and let the run continue quietly. In-battle Bag use was
+    // already taught immediately after the required switch in section 1.
     var CO = window.Coach;
     if (CO) {
-      ['skipping', 'mart', 'train', 'held', 'moveChoice', 'evoBranch'].forEach(function (id) {
+      ['skipping', 'mart', 'train', 'held', 'moveChoice', 'evoBranch', 'battleBag'].forEach(function (id) {
         if (!CO.seen(id)) CO.markSeen(id);
       });
     }
@@ -3842,8 +3820,9 @@
     }
     // Naming is mandatory -- there is no cancel -- so Escape and a backdrop
     // click must NOT dismiss this one. While naming a starter, give the dialog
-    // its dedicated high, transparent treatment: it belongs over the three
-    // choices (and above any retiring coach layer), not on an unrelated screen.
+    // its dedicated transparent layer above the three choices (and any retiring
+    // coach layer). CSS keeps it in the standard bottom-sheet position on
+    // phones, with the raised treatment reserved for wider screens.
     var el = $('screenNickname');
     el.classList.toggle('starter-nickname', isStarterNickname);
     window.Modal.open(el, {
@@ -4113,7 +4092,8 @@
     };
     ui.mount(host);
     if (ui._mountFailed) throw ui._mountFailedError || new Error('The battle renderer failed to mount.');
-    if (ui.flat) toast('3D graphics unavailable — continuing in flat mode.');
+    // The layered CSS battlefield is always present. WebGL can attach now or
+    // later without changing the player's battle surface or showing an error.
     // Keep tutorial annotations glued across HUD re-renders: any redraw
     // (sprites loading, HP bars settling, ...) replaces the exact nodes a
     // coach glow or bubble points at. Re-pinning only per battle request
@@ -4368,14 +4348,12 @@
   }
 
   function handleBattleContextLost(lostUI) {
-    // Context loss is cosmetic for this renderer: the scene is CPU-side and
-    // sprites/HUD are DOM. Keep the battle alive in flat mode until the browser
-    // emits webglcontextrestored, instead of creating another context or
-    // showing a dead-end retry screen.
+    // Context loss is cosmetic: the always-on CSS perspective environment,
+    // projected Pokemon and HUD are already underneath the canvas. Reveal that
+    // complete scene immediately and let WebGL recover silently in background.
     if (lostUI && lostUI !== ui) return;
     if (lostUI && lostUI.enterFlatMode) lostUI.enterFlatMode('context-lost');
     battleNeedsRendererRecovery = false;
-    toast('3D graphics paused — continuing in flat mode.');
   }
 
   function handleBattleContextRestored(restoredUI) {
@@ -5197,6 +5175,11 @@
     var isTutorialSE = !!(run && run.prologue && run.section === 1 && run.battleInSection === 1);
     var isTurn1SE = isTutorialSE && (!info || info.hpPct > 0.9);
     var isTutorialSwitch = !!(run && run.prologue && run.section === 1 && run.battleInSection === 2);
+    // The first request after the prescribed switch teaches in-battle healing.
+    // Keep it run-scoped (rather than trusting profile lesson history), so a
+    // returning player still follows the guided run's switch -> Bag sequence.
+    var isTutorialBattleBag = !!(isTutorialSwitch && run.tutorialSwitchDone &&
+      !run.tutorialBattleBagDone);
     var isScriptedSection1 = !!(run && run.prologue && run.section === 1);
     var ownTypes = activeMonForRequest && activeMonForRequest.types ? activeMonForRequest.types : [];
     var forcedDamageId = isTurn1
@@ -5239,9 +5222,10 @@
         // stays quiet rather than soft-locking the fight.
         if (d.category === 'Status' || d.id !== forcedSEId) disabled = true;
       }
-      if (isTutorialSwitch && !run.tutorialSwitchDone) {
-        // The third wild starts with a single prescribed switch. Move buttons
-        // stay locked until Party is opened and the named Pokemon is chosen.
+      if (isTutorialSwitch && (!run.tutorialSwitchDone || isTutorialBattleBag)) {
+        // The third wild starts with a single prescribed switch. On the next
+        // request, moves remain locked for one more beat while Bag is exposed
+        // on its own, making in-battle healing the immediate next action.
         disabled = true;
       }
       return { id: d.id, name: d.name, type: d.type, power: d.basePower || 0,
@@ -5317,6 +5301,13 @@
       actCanSwitch = true;
     }
 
+    if (isTutorialBattleBag) {
+      // Party stays disabled and Run stays absent. Bag is the only available
+      // utility action until it is opened, after which this battle resumes
+      // with the ordinary scripted-section controls.
+      actNoBag = false;
+    }
+
     ui.setActions({
       itemCount: itemCount,
       canSwitch: actCanSwitch,
@@ -5378,9 +5369,8 @@
   // The guided run's battle beats, in the order the run makes them matter:
   //   section 1, battle 0 (capture encounter) -> one damaging move, then one ball
   //   section 1, battle 1 (wild)              -> one ×2 move
-  //   section 1, battle 2 (wild)              -> Party, then one switch card
+  //   section 1, battle 2 (wild)              -> Party, switch card, then Bag
   //   section 1, battle 3 (trainer)           -> no in-battle choice lesson
-  //   section 2, battle 0                     -> 'battleBag' (Bag, in normal play)
   // All scripted beats are `vital`: if the surface is busy when they fire, they
   // queue and still appear instead of being silently dropped.
   //
@@ -5469,20 +5459,23 @@
     var id = bctx.tutBeat.id;
     bctx.tutBeat = null;
     if (tutorialSection1()) {
-      // Damage is confirmed from the next battle request, after the engine
-      // resolves accuracy. A miss therefore re-arms the same lesson instead
-      // of leaving the player with a weakened-only step that never happened.
-      if (id === 'tutorialCatch' && action === 'ball') run.tutorialCatchDone = true;
+      // Both scripted move lessons have the same lifecycle: choosing the
+      // highlighted move dismisses Oak, releases the action lock and completes
+      // that popup. If the attack misses, the one legal move stays available,
+      // but the explanation does not immediately repeat over the next choice.
+      if (id === 'tutorialDamage' && action === 'move') run.tutorialDamageDone = true;
       if (id === 'effect' && action === 'move') run.tutorialEffectDone = true;
+      if (id === 'tutorialCatch' && action === 'ball') run.tutorialCatchDone = true;
       if (id === 'switchPick' && action === 'switch') {
         run.tutorialSwitchPickDone = true;
         run.tutorialSwitchDone = true;
       }
+      if (id === 'battleBag' && action === 'bag') run.tutorialBattleBagDone = true;
       // Opening Party is a step, but not the final switch until its one card
       // is selected.
       if (id === 'switch' && action === 'switch') run.tutorialSwitchOpen = true;
       if (id === 'tutorialDamage' || id === 'tutorialCatch' || id === 'effect' ||
-          id === 'switch' || id === 'switchPick') {
+          id === 'switch' || id === 'switchPick' || id === 'battleBag') {
         if (window.Coach && !window.Coach.seen(id)) window.Coach.markSeen(id);
       }
       saveGame();
@@ -5542,6 +5535,18 @@
     });
   }
 
+  // The first damaging-move prompt and the next battle's super-effective
+  // prompt deliberately share every presentation/behaviour option. Keeping
+  // that contract in one helper prevents one from drifting into a modal,
+  // losing its action lock, or opening on a different schedule.
+  function teachScriptedMove(id, stillHere) {
+    return teachInBattle(id, {
+      vital: true,
+      bypassSeen: true,
+      stillValid: stillHere
+    });
+  }
+
   function battleCoach(catchOpen) {
     var CO = window.Coach;
     if (!CO || !CO.tipsOn()) return;
@@ -5581,41 +5586,48 @@
         // profile lesson history, so a previous tutorial cannot skip either.
         if (info && info.hpPct <= 0.9) run.tutorialDamageDone = true;
         if (!run.tutorialDamageDone && info && info.hpPct > 0.9) {
-          requested = teachInBattle('tutorialDamage', {
-            vital: true, bypassSeen: true, stillValid: stillHere
-          });
+          requested = teachScriptedMove('tutorialDamage', stillHere);
         } else if (!run.tutorialCatchDone && info && info.hpPct <= 0.9) {
           requested = teachInBattle('tutorialCatch', {
             vital: true, bypassSeen: true, stillValid: stillHere
           });
         }
       } else if (n === 1 && isWild && !run.tutorialEffectDone) {
-        requested = teachInBattle('effect', {
-          vital: true, bypassSeen: true, stillValid: stillHere
-        });
-      } else if (n === 2 && isWild && !run.tutorialSwitchDone) {
-        if (!bctx.tutorialSwitchOpen) {
-          requested = teachInBattle('switch', {
-            vital: true, bypassSeen: true, stillValid: stillHere
-          });
-        } else if (!run.tutorialSwitchPickDone) {
-          requested = teachInBattle('switchPick', {
-            vital: true, bypassSeen: true, stillValid: stillHere,
-            // Name the card that is actually selectable -- the armed switch
-            // target -- not the starter. They differ whenever the player
-            // skipped making the catch their lead, and naming a locked card
-            // would teach the opposite of what the screen allows.
-            template: (function () {
-              var uid = bctx && bctx.tutorialSwitchTargetUid;
-              var m = null;
-              if (uid != null) {
-                for (var pi = 0; pi < run.party.length; pi++) {
-                  if (String(run.party[pi].uid) === String(uid)) { m = run.party[pi]; break; }
+        requested = teachScriptedMove('effect', stillHere);
+      } else if (n === 2 && isWild) {
+        if (!run.tutorialSwitchDone) {
+          if (!bctx.tutorialSwitchOpen) {
+            requested = teachInBattle('switch', {
+              vital: true, bypassSeen: true, stillValid: stillHere
+            });
+          } else if (!run.tutorialSwitchPickDone) {
+            requested = teachInBattle('switchPick', {
+              vital: true, bypassSeen: true, stillValid: stillHere,
+              // Name the card that is actually selectable -- the armed switch
+              // target -- not the starter. They differ whenever the player
+              // skipped making the catch their lead, and naming a locked card
+              // would teach the opposite of what the screen allows.
+              template: (function () {
+                var uid = bctx && bctx.tutorialSwitchTargetUid;
+                var m = null;
+                if (uid != null) {
+                  for (var pi = 0; pi < run.party.length; pi++) {
+                    if (String(run.party[pi].uid) === String(uid)) { m = run.party[pi]; break; }
+                  }
                 }
-              }
-              if (!m) m = starterMon();
-              return m ? { NAME: monDisplayName(m) } : null;
-            }())
+                if (!m) m = starterMon();
+                return m ? { NAME: monDisplayName(m) } : null;
+              }())
+            });
+          }
+        } else if (!run.tutorialBattleBagDone) {
+          // This is deliberately the very next request after the switch. It
+          // bypasses profile history because the action is part of this run's
+          // required sequence, not an optional contextual reminder.
+          requested = teachInBattle('battleBag', {
+            vital: true,
+            bypassSeen: true,
+            stillValid: function () { return stillHere() && !run.tutorialBattleBagDone; }
           });
         }
       }
@@ -5629,10 +5641,9 @@
     // completed; they would create a second possible next action.
     if (pro && run.section === 1) return;
 
-    // The Bag beat is deliberately NOT fired in any TRAINER battle while the
-    // guided run is still on (its trainer fight must stay free of it); it
-    // lands in section 2's first (wild) battle instead, and in every
-    // ordinary run's first battle whatever it is.
+    // Outside the closed section-1 script, ordinary runs still receive this
+    // contextual Bag reminder on their first eligible battle. Guided runs
+    // have already completed and marked it during battle 2 above.
     if (!requested && !CO.seen('battleBag') && !(pro && !isWild)) {
       requested = teachInBattle('battleBag', {});
     }
@@ -5661,9 +5672,12 @@
         var retryId = !run.tutorialDamageDone && info && info.hpPct > 0.9
           ? 'tutorialDamage'
           : (!run.tutorialCatchDone && info && info.hpPct <= 0.9 ? 'tutorialCatch' : null);
-        if (retryId && teachInBattle(retryId, {
-          vital: true, bypassSeen: true, stillValid: stillHere
-        })) clearInterval(retry);
+        var retried = retryId === 'tutorialDamage'
+          ? teachScriptedMove(retryId, stillHere)
+          : (retryId ? teachInBattle(retryId, {
+              vital: true, bypassSeen: true, stillValid: stillHere
+            }) : false);
+        if (retried) clearInterval(retry);
       }, 250);
     }
 
@@ -5675,9 +5689,7 @@
           clearInterval(retry1);
           return;
         }
-        if (teachInBattle('effect', {
-          vital: true, bypassSeen: true, stillValid: stillHere
-        })) clearInterval(retry1);
+        if (teachScriptedMove('effect', stillHere)) clearInterval(retry1);
       }, 250);
     }
   }
@@ -7513,14 +7525,15 @@
     $('btnHistBack').addEventListener('click', backToRoute);
     $('btnGuideBack').addEventListener('click', backToRoute);
     if (!bootResumedBattle) show('Title');
-    // The first title paint is static. Upgrade it to the live showcase only
-    // after the optional renderer bundle has finished loading.
+    // The first title paint is static. Once Three/BattleUI is ready, add the
+    // animated DOM-sprite showcase in intentional flat-only mode. WebGL itself
+    // remains untouched until an actual battle starts.
     if (window.RendererReady) {
       window.RendererReady.ready.then(function () {
         if (!$('screenTitle').hidden) startTitleScene();
       }, function (err) {
-        console.warn('[boot] optional 3D showcase unavailable', err);
-        toast('The game is ready; 3D graphics are unavailable.');
+        console.warn('[boot] optional animated showcase unavailable', err);
+        toast('The game is ready; animated scenery is unavailable.');
       });
     }
   }

@@ -214,6 +214,18 @@ check('window.PWA (install button)', !!window.PWA);
 check('window.Daily (daily challenge)', !!window.Daily);
 check('window.Modal (shared dialog controller)', !!window.Modal);
 
+// Give the title showcase one tick to settle. Its decorative Pokemon use the
+// projection pipeline but must neither play cries nor acquire the WebGL canvas
+// that is now reserved for actual battles.
+await new Promise((r) => setTimeout(r, 25));
+const titleCryUrls = audioLog.filter((src) => /\/cries\//i.test(src));
+check('title-screen Pokemon do not sound their cries',
+  titleCryUrls.length === 0, titleCryUrls.join(', '));
+check('the title uses the always-on perspective environment without WebGL',
+  !window.document.querySelector('#titleStage canvas') &&
+  !!window.document.querySelector('#titleStage .bm-env[data-biome]') &&
+  window.document.querySelectorAll('#titleStage .bm-sprites img').length === 2);
+
 // -------------------------------------------------------------- daily -----
 // The Daily is now a finite, dated, scoreable mode with its own save slot.
 // These guard the parts that are pure logic; the browser suite covers the UI.
@@ -1322,6 +1334,8 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   const r3 = window.Game.run;
   r3.mode = 'free'; r3.over = false; r3.prologue = true;
   r3.section = 1; r3.battleInSection = 0;
+  r3.tutorialDamageDone = false; r3.tutorialCatchDone = false;
+  r3.tutorialEffectDone = false;
   r3.catchUsedThisSection = false; r3.catchMissed = false; r3.encounterSeen = false;
   // A Master Ball rail: the first throw lands for sure. With ordinary balls
   // the catch is dice, and dice do not belong in a test -- a string of
@@ -1329,10 +1343,11 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // mid-block (an intermittent party=0 caught=0 failure).
   r3.bag = { masterball: 3, potion: 3, superpotion: 2 };
   r3.money = 100;
-  // One dependable lead with a gentle touch (Tackle won't one-shot anything
-  // in the friendly pool).
-  const lead3 = await C.makeMon('rattata');
-  lead3.moves = ['tackle']; lead3.name = 'Scout'; lead3.hpPct = 1; lead3.item = '';
+  // One dependable starter with a gentle, accurate STAB move. Charmander also
+  // gives the following battle a real Fire weakness, so this block can compare
+  // the first-move popup with the Super Effective popup end to end.
+  const lead3 = await C.makeMon('charmander');
+  lead3.moves = ['ember']; lead3.name = 'Scout'; lead3.hpPct = 1; lead3.item = '';
   r3.party = [lead3]; window.Nuz.trackMon(r3, lead3);
 
   window.Game.startNextBattle();
@@ -1358,6 +1373,8 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('the weakening lesson points at throwing a Poke Ball', /poke ball/i.test(damageBodyText), damageBodyText.slice(0, 80));
   check('the move buttons glow while the bubble explains it',
     !!window.document.querySelector('#battleHost .mb.coach-spot'));
+  check('the first move popup action-locks its highlighted move',
+    CO3.actionLocked() === true);
   // The glowing move button must be a LEGAL DAMAGING move, never a (disabled)
   // status move -- the lesson is about choosing a damaging move.
   const glowMove = window.document.querySelector('#battleHost .mb.coach-spot');
@@ -1378,16 +1395,21 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     const okBtn = window.document.querySelector('.coach-bubble [data-coach-ok]');
     if (okBtn) okBtn.click();
   }
+  check('dismissing the first move popup keeps its move armed',
+    CO3.actionLocked() === true &&
+    !!window.document.querySelector('#battleHost .mb.coach-spot'));
   // We check that the capture battle offers move buttons on Turn 1 (before clicking)
   const moveBtn = await until3(() =>
     [...window.document.querySelectorAll('#battleHost .mb[data-i]')].find((b) => !b.disabled), 20000);
   check('the capture battle offers move buttons', !!moveBtn);
 
-  // Click the enabled move button (Tackle)
-  const tackleBtn = window.document.querySelector('#battleHost .mb:not([disabled])');
-  if (tackleBtn) {
-    tackleBtn.click();
+  // Click the one enabled move button.
+  const firstMoveBtn = window.document.querySelector('#battleHost .mb:not([disabled])');
+  if (firstMoveBtn) {
+    firstMoveBtn.click();
   }
+  check('choosing the first highlighted move completes and releases its popup',
+    r3.tutorialDamageDone === true && CO3.actionLocked() === false);
 
   // 2. Now the second turn starts, and the "Throw a Poke Ball!" lesson pops up as an anchored coach BUBBLE.
   const catchBubble2 = await until3(() => {
@@ -1551,9 +1573,110 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('pressing the glowing battle button starts stop 2 with a move to choose',
     !!nextMoveBtn);
 
-  // tidy: tear the battle down and reset the run so the blocks that follow
-  // (which reconfigure window.Game.run) start from a calm route, not a live
-  // super-effective battle.
+  // The first instructed move and this super-effective move are deliberately
+  // the same interaction: anchored bubble -> dismiss -> persistent glow/lock
+  // -> highlighted move -> release. Guard both halves so their behaviour
+  // cannot drift apart while still looking superficially similar.
+  const effectBubble = await until3(() => {
+    const title = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return title && title.textContent === 'Super effective' ? title : null;
+  }, 10000);
+  check('the next battle opens the matching super-effective move popup', !!effectBubble);
+  check('the super-effective popup action-locks its highlighted move',
+    CO3.actionLocked() === true &&
+    !!window.document.querySelector('#battleHost .mb.coach-spot'));
+  if (effectBubble) {
+    const ok = window.document.querySelector('.coach-bubble [data-coach-ok]');
+    if (ok) ok.click();
+  }
+  check('dismissing the super-effective popup keeps its move armed',
+    CO3.actionLocked() === true &&
+    !!window.document.querySelector('#battleHost .mb.coach-spot'));
+  const effectMove = window.document.querySelector('#battleHost .mb.coach-spot:not([disabled])');
+  if (effectMove) effectMove.click();
+  check('choosing the super-effective move completes and releases its popup',
+    r3.tutorialEffectDone === true && CO3.actionLocked() === false);
+
+  // Tear stop 2 down, then isolate stop 3 so the exact switch -> Bag handoff
+  // is covered without waiting for a whole random battle to end.
+  window.Modal.closeAll();
+  window.Game.show('Crossroads');
+  r3._inBattle = false; r3._battleCfg = null;
+  await new Promise((r) => setTimeout(r, 700));
+  CO3.clearMark();
+  r3.prologue = true;
+  r3.section = 1; r3.battleInSection = 2;
+  r3.tutorialSwitchOpen = false;
+  r3.tutorialSwitchPickDone = false;
+  r3.tutorialSwitchDone = false;
+  r3.tutorialBattleBagDone = false;
+  r3.tutorialStarterUid = lead3.uid;
+  r3.encounterSeen = false;
+  r3.party.forEach((m) => { m.hpPct = 1; });
+  const caughtLead3 = r3.party.find((m) => m !== lead3);
+  if (caughtLead3) r3.party = [caughtLead3, lead3];
+  window.Game.startNextBattle();
+
+  const switchBubble = await until3(() => {
+    const title = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return title && title.textContent === 'How to switch' ? title : null;
+  }, 20000);
+  check('stop 3 starts with the Switch Pokemon tutorial step', !!switchBubble);
+  check('Bag is unavailable until the required switch begins',
+    !window.document.querySelector('#battleHost [data-a="bag"]'));
+  if (switchBubble) {
+    const ok = window.document.querySelector('.coach-bubble [data-coach-ok]');
+    if (ok) ok.click();
+  }
+  const partyAction = window.document.querySelector('#battleHost [data-a="switch"]');
+  if (partyAction) partyAction.click();
+
+  const switchPickBubble = await until3(() => {
+    const title = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return title && title.textContent === 'Choose your switch' ? title : null;
+  }, 10000);
+  check('opening Party immediately teaches the required switch target', !!switchPickBubble);
+  if (switchPickBubble) {
+    const ok = window.document.querySelector('.coach-bubble [data-coach-ok]');
+    if (ok) ok.click();
+  }
+  const requiredSwitch = window.document.querySelector('#battleHost [data-tutorial="switch"]:not([disabled])');
+  check('the switch tutorial exposes exactly one highlighted Pokemon',
+    !!requiredSwitch &&
+    window.document.querySelectorAll('#battleHost [data-tutorial="switch"]:not([disabled])').length === 1);
+  if (requiredSwitch) requiredSwitch.click();
+
+  const battleBagBubble = await until3(() => {
+    const title = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return title && title.textContent === 'Heal mid-battle' ? title : null;
+  }, 30000);
+  const bagAction = window.document.querySelector('#battleHost [data-a="bag"]');
+  check('Heal mid-battle appears on the first request after the switch',
+    !!battleBagBubble && r3.tutorialSwitchDone === true && r3.tutorialBattleBagDone === false);
+  check('the healing step exposes and action-locks Bag',
+    !!bagAction && !bagAction.disabled && bagAction.classList.contains('coach-spot') &&
+    CO3.actionLocked() === true);
+  check('moves and other utility actions stay unavailable until Bag is opened',
+    [...window.document.querySelectorAll('#battleHost .mb[data-i]')].every((b) => b.disabled) &&
+    !!window.document.querySelector('#battleHost [data-a="switch"][disabled]') &&
+    !window.document.querySelector('#battleHost [data-a="run"]'));
+  if (battleBagBubble) {
+    const ok = window.document.querySelector('.coach-bubble [data-coach-ok]');
+    if (ok) ok.click();
+  }
+  check('dismissing the healing popup leaves Bag armed',
+    CO3.actionLocked() === true &&
+    !!window.document.querySelector('#battleHost [data-a="bag"].coach-spot'));
+  const armedBag = window.document.querySelector('#battleHost [data-a="bag"].coach-spot');
+  if (armedBag) armedBag.click();
+  check('opening Bag completes the relocated healing step',
+    r3.tutorialBattleBagDone === true && CO3.seen('battleBag') &&
+    CO3.actionLocked() === false &&
+    !!window.document.querySelector('#battleHost .ptitle') &&
+    /use an item/i.test(window.document.querySelector('#battleHost .ptitle').textContent));
+
+  // Tidy once more: later checks reconfigure this same run and must not inherit
+  // the live stop-3 battle or its open item panel.
   window.Modal.closeAll();
   window.Game.show('Crossroads');
   r3._inBattle = false; r3._battleCfg = null;
@@ -1571,6 +1694,13 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   const laterBall = await until3(() =>
     window.document.querySelector('#battleHost .br-btn[data-ball="masterball"]'), 20000);
   check('a later capture encounter still offers a ball', !!laterBall);
+  // Let the previous bubble's 170 ms closing animation finish. A genuinely
+  // repeated lesson remains open, so this still distinguishes repeat vs exit.
+  await new Promise((r) => setTimeout(r, 250));
+  check('the relocated Bag lesson does not repeat in section 2',
+    CO3.seen('battleBag') &&
+    ![...window.document.querySelectorAll('.coach-bubble:not([hidden]) .cb-title')]
+      .some((title) => title.textContent === 'Heal mid-battle'));
   if (laterBall) laterBall.click();
   const laterNick = await until3(() =>
     !window.document.getElementById('screenNickname').hidden, 20000);
@@ -2575,8 +2705,8 @@ host2.remove();
     !!goodRenderer && goodRenderer === sessionRenderer);
   check('unmount does not report an intentional context release', intentionalLossCalls === 0,
     String(intentionalLossCalls));
-  check('unmount removes the canvas/sprites/HUD it created',
-    goodHost.querySelectorAll('canvas, .bm-sprites, .battle-hud').length === 0);
+  check('unmount removes every canvas, environment, sprite and HUD layer',
+    goodHost.querySelectorAll('canvas, .bm-env, .bm-sprites, .battle-hud').length === 0);
 
   // A real context-loss event must be cancelled, reported once, and followed
   // by a restoration callback. Unmounting only moves the shared canvas away;
@@ -2588,18 +2718,44 @@ host2.remove();
   let lossCalls = 0, restoredCalls = 0;
   lossUi.onContextLost = () => { lossCalls++; };
   lossUi.onContextRestored = () => { restoredCalls++; };
+  const lossEnvironment = lossHost.querySelector('.bm-env[data-biome]');
+  check('the CSS environment exists before WebGL context loss', !!lossEnvironment);
   const lossEvent = new window.Event('webglcontextlost', { cancelable: true });
   lossUi.r.domElement.dispatchEvent(lossEvent);
   lossUi.r.domElement.dispatchEvent(new window.Event('webglcontextlost', { cancelable: true }));
   check('a WebGL context loss is prevented and reported once',
     lossEvent.defaultPrevented && lossCalls === 1 && lossUi.flat,
     `prevented=${lossEvent.defaultPrevented}, calls=${lossCalls}, flat=${lossUi.flat}`);
+  check('context loss reveals the same complete CSS environment',
+    !!lossEnvironment && lossEnvironment.isConnected &&
+    lossHost.classList.contains('battle-flat'));
   lossUi.r.domElement.dispatchEvent(new window.Event('webglcontextrestored'));
   check('context restoration is surfaced for scene rebuild', restoredCalls === 1,
     String(restoredCalls));
+  check('the CSS environment remains mounted after context restoration',
+    !!lossEnvironment && lossEnvironment.isConnected &&
+    lossHost.querySelector('.bm-env') === lossEnvironment);
   lossUi.unmount();
   check('unmount does not report a new context loss', lossCalls === 1,
     String(lossCalls));
+
+  // Even a sustained stream of WebGL render failures is cosmetic: the DOM HUD
+  // and sprites stay alive in flat mode while the session replaces the canvas.
+  const renderFailHost = window.document.createElement('div');
+  window.document.body.appendChild(renderFailHost);
+  const renderFailUi = new window.BattleUI();
+  let sustainedLosses = 0, sustainedFatal = 0;
+  renderFailUi.onContextLost = () => { sustainedLosses++; };
+  renderFailUi.onError = () => { sustainedFatal++; };
+  renderFailUi.mount(renderFailHost);
+  if (renderFailUi.r) renderFailUi.r.render = () => { throw new Error('synthetic sustained GPU failure'); };
+  for (let frame = 0; frame < 60; frame++) renderFailUi._anim();
+  check('sustained GPU failure reveals the complete fallback instead of crashing',
+    renderFailUi.flat === true && sustainedLosses === 1 && sustainedFatal === 0 &&
+    !!renderFailHost.querySelector('.battle-hud') && !!renderFailHost.querySelector('.bm-env'),
+    `flat=${renderFailUi.flat} losses=${sustainedLosses} fatal=${sustainedFatal}`);
+  renderFailUi.unmount();
+  renderFailHost.remove();
 
   const ownerHost = window.document.createElement('div');
   window.document.body.appendChild(ownerHost);
@@ -2623,7 +2779,7 @@ host2.remove();
     !!mountErr && /could not mount/i.test(mountErr && mountErr.message),
     mountErr && mountErr.message);
   check('a scene-build failure leaves no partial DOM in the host',
-    badHost.querySelectorAll('canvas, .bm-sprites, .battle-hud').length === 0);
+    badHost.querySelectorAll('canvas, .bm-env, .bm-sprites, .battle-hud').length === 0);
   check('a scene-build failure clears the host mount flag', badHost._bm == null);
 
   window.THREE.Group = RealGroup;
@@ -2673,8 +2829,10 @@ host2.remove();
   window.document.body.appendChild(healHost);
   const healUi = new window.BattleUI();
   healUi.mount(healHost);
-  check('a transient creation failure mounts flat but stays mounted',
-    ctorCalls === 1 && healUi.flat === true && healUi.s.mounted === true && !healHost.querySelector('canvas'),
+  const healingEnvironment = healHost.querySelector('.bm-env[data-biome]');
+  check('a transient creation failure mounts its CSS environment and stays playable',
+    ctorCalls === 1 && healUi.flat === true && healUi.s.mounted === true &&
+    !healHost.querySelector('canvas') && !!healingEnvironment,
     `ctorCalls=${ctorCalls} flat=${healUi.flat} mounted=${healUi.s.mounted}`);
   check('the failed mount does NOT throw or poison the mount flag', healHost._bm === healUi);
   // Restore THREE so the background retry (300ms out) uses the real renderer.
@@ -2682,6 +2840,9 @@ host2.remove();
   const healed = await waitFx(() => !healUi.flat && healHost.querySelector('canvas') && healUi.r);
   check('background recovery recreates the renderer and upgrades in place',
     !!healed, healed ? '' : 'still flat after 6s');
+  check('renderer recovery preserves the exact same CSS environment underneath',
+    !!healed && healingEnvironment.isConnected &&
+    healHost.querySelector('.bm-env') === healingEnvironment);
   const healRenderer = healUi.r;
   healUi.unmount();
 
@@ -2720,12 +2881,22 @@ host2.remove();
   const silentUi = new window.BattleUI();
   silentUi.mount(silentHost);
   const silentOldR = silentUi.r;
+  const silentEnvironment = silentHost.querySelector('.bm-env[data-biome]');
   silentUi._notifyContextLost(); // renderer reported it; no DOM event follows
-  check('silent loss enters flat mode', silentUi.flat === true);
+  check('silent loss enters flat mode with its environment visible',
+    silentUi.flat === true && !!silentEnvironment && silentEnvironment.isConnected &&
+    silentHost.classList.contains('battle-flat'));
   const silentHealed = await waitFx(() =>
     !silentUi.flat && silentUi.r && silentUi.r !== silentOldR && silentHost.querySelector('canvas'));
   check('silent loss heals by RECREATING the renderer (no restored event needed)',
     !!silentHealed, silentHealed ? '' : 'never recreated');
+  check('silent recovery keeps the same environment mounted beneath WebGL',
+    !!silentHealed && silentEnvironment.isConnected &&
+    silentHost.querySelector('.bm-env') === silentEnvironment);
+  check('renderer recreation removes the dead canvas instead of stacking canvases',
+    !!silentHealed && silentHost.querySelectorAll('canvas').length === 1 &&
+    !silentOldR.domElement.isConnected,
+    `canvases=${silentHost.querySelectorAll('canvas').length}`);
   silentUi.unmount();
   silentHost.remove();
 }
@@ -2740,6 +2911,15 @@ host2.remove();
   window.document.body.appendChild(fh);
   const fui = new window.BattleUI();
   fui.mount(fh);
+  fui.buildBiome('cave');
+  fui.setWeather('rain');
+  fui.setTerrain('electric');
+  fui.setRoom('trickroom');
+  const fallbackEnv = fh.querySelector('.bm-env');
+  check('the CSS environment mirrors biome, weather, terrain and room state',
+    !!fallbackEnv && fallbackEnv.dataset.biome === 'cave' &&
+    fallbackEnv.dataset.weather === 'rain' && fallbackEnv.dataset.terrain === 'electric' &&
+    fallbackEnv.dataset.room === 'trickroom');
   fui.setPlayer({ name: 'P', lv: 100, types: ['Fire'], hp: 1, max: 100, h: 1,
     sid: 'charizard', num: 6, u: [] });
   fui.setEnemy({ name: 'E', lv: 100, types: ['Water'], hp: 1, max: 100, h: 1,
@@ -2750,13 +2930,14 @@ host2.remove();
   // The THREE stub's Vector3.project() is an identity, which would clip the
   // enemy at world z=-3.6 as "behind the camera". Swap in a perspective-ish
   // divide so both combatants stay in view, like a real THREE camera does.
-  const OldV3 = window.THREE.Vector3;
-  window.THREE.Vector3 = class extends OldV3 {
-    project() { const w = 10; return this.set(this.x / w, this.y / w, this.z / w); }
-  };
+  const projectionScratch = [fui.s.p.headV, fui.s.p.feetV, fui.s.e.headV, fui.s.e.feetV];
+  const oldProjectors = projectionScratch.map((v) => v.project);
+  projectionScratch.forEach((v) => {
+    v.project = function () { const w = 10; return this.set(this.x / w, this.y / w, this.z / w); };
+  });
   let projErr = null;
   try { fui._projectSprites(1, 0.016); } catch (e) { projErr = e; }
-  window.THREE.Vector3 = OldV3;
+  projectionScratch.forEach((v, i) => { v.project = oldProjectors[i]; });
   const pw = fui.s.p.img.style.width, ew = fui.s.e.img.style.width;
   check('flat mode still projects DOM sprites (not stuck invisible)',
     !projErr && pw !== '0px' && ew !== '0px', `player=${pw} enemy=${ew}${projErr ? ' err=' + projErr.message : ''}`);
@@ -2797,6 +2978,14 @@ host2.remove();
     check('lesson ids are unique', new Set(ids).size === ids.length);
     check('all three modes have an explainer',
       !!CO.modeInfo('daily') && !!CO.modeInfo('free') && !!CO.modeInfo('gauntlet'));
+    const modeIntro = window.document.getElementById('screenModeInfo');
+    const modeCard = modeIntro && modeIntro.querySelector('.mode-card');
+    const modeOak = modeIntro && modeIntro.querySelector('#modeFace');
+    check('mode explainers use the transparent Oak dialogue surface',
+      !!modeIntro && modeIntro.classList.contains('coach-overlay') &&
+      !!modeCard && modeCard.classList.contains('coach-card') &&
+      !!modeCard.querySelector('.coach-body') &&
+      !!modeOak && !!modeOak.closest('.coach-dialogue-professor'));
 
     // ---- 1. never chain ----
     // The single rule the design depends on: a second card must not open

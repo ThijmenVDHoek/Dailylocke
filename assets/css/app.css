@@ -170,8 +170,8 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 
 /* ------------------------------------------------------------------ title */
 /* ===== TITLE ===== */
-/* The live 3D scene fills the viewport; brand at the top, a frosted action
-   sheet at the bottom -- the same glass language as the in-battle action bar. */
+/* The layered CSS perspective battlefield fills the viewport without WebGL;
+   brand at the top, a frosted action sheet at the bottom. */
 #screenTitle {
   position:fixed; inset:0; margin:0; padding:0; overflow:hidden;
   display:flex; flex-direction:column; justify-content:space-between;
@@ -189,8 +189,8 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
     linear-gradient(0deg, rgba(6,8,16,.92) 0%, rgba(6,8,16,.72) 18%, rgba(6,8,16,.3) 34%, transparent 50%);
 }
 /* Title screen's top-right menu button: same avatar pill the player sees
-   during a run, absolutely positioned so it sits in the corner over the
-   live 3D scene. `.menu-pill` provides the look; this just places it. */
+   during a run, absolutely positioned over the animated backdrop.
+   `.menu-pill` provides the look; this just places it. */
 .title-menu-pill {
   position:absolute; z-index:3;
   top:max(14px, env(safe-area-inset-top)); right:14px;
@@ -198,7 +198,7 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 
 /* ---- floating install pill ---------------------------------------------
    Sits at the top of the title screen, opposite the Menu button, floating
-   over the live 3D scene. It is inside #screenTitle, so it disappears with
+   over the animated backdrop. It is inside #screenTitle, so it disappears with
    the rest of the title the moment a run starts. Frosted like .btn-glass so
    it reads as part of the UI rather than browser chrome. */
 .install-dock {
@@ -315,8 +315,8 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
   --title-action-gap:10px;
   position:relative; z-index:2;
   padding:20px var(--pad) max(24px, env(safe-area-inset-bottom));
-  /* No panel: the buttons sit directly on the 3D scene. The title-veil
-     gradient already darkens the bottom of the frame enough for contrast. */
+  /* No panel: the buttons sit directly on the animated backdrop. The
+     title-veil gradient darkens the bottom enough for contrast. */
 }
 .title-btns {
   display:flex; flex-direction:column; gap:var(--title-action-gap);
@@ -1130,9 +1130,14 @@ textarea.search.save-code {
 }
 .nick-input { text-align:center; font-size:1.3rem; margin-top:12px; }
 /* Starter naming is a continuation of the choice itself. Keep the selected
-   grid visible beneath it and ensure no stale tutorial bubble can cover it. */
-#screenNickname.starter-nickname { z-index:1400; align-items:flex-start; padding-top:clamp(70px,12vh,140px); background:rgba(5,6,12,.42); }
+   grid visible beneath it and ensure no stale tutorial bubble can cover it.
+   On phones it keeps the standard bottom-sheet position; there is not enough
+   room for the raised desktop treatment without making it feel detached. */
+#screenNickname.starter-nickname { z-index:1400; background:rgba(5,6,12,.42); }
 #screenNickname.starter-nickname .nick-card { background:rgba(17,20,32,.90); }
+@media (min-width:600px) {
+  #screenNickname.starter-nickname { align-items:flex-start; padding-top:clamp(70px,12vh,140px); }
+}
 /* ===== CATCH WINDOW SIGNPOSTING ===== */
 .miss-note {
   margin:12px 0; padding:12px 14px; border-radius:var(--r-md);
@@ -2287,15 +2292,30 @@ body.coach-sheet-open .coach-spot { z-index:850; box-shadow:none; }
 .setup-note { margin-top:12px; font-size:.76rem; }
 
 /* ---- mode explainer ---- */
+/* The skip-tutorial picker still uses the compact standard sheet. The three
+   mode introductions use Oak's newer transparent dialogue treatment instead:
+   one frosted speech surface, the full professor overlapping its right edge,
+   and the same white response button as the rest of onboarding. */
 .mode-card { max-width:420px; border-left:3px solid var(--violet); }
-.mode-lede { margin:0 0 14px; color:var(--ink-2); font-size:.95rem; line-height:1.5; }
-.mode-points { list-style:none; margin:0 0 18px; padding:0; display:grid; gap:10px; }
+.mode-overlay .mode-card { max-width:440px; border-left:0; }
+.mode-dialogue-row { min-height:0; }
+.mode-copy {
+  max-height:min(58vh, 430px); overflow-y:auto; overscroll-behavior:contain;
+  scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.24) transparent;
+}
+.mode-who { margin:0 0 8px; }
+.mode-who h3 { margin:0; color:#fff; font-size:1.16rem; line-height:1.15; }
+.mode-lede { margin:0 0 14px; color:rgba(255,255,255,.82); font-size:.95rem; line-height:1.5; }
+.mode-points { list-style:none; margin:0; padding:0; display:grid; gap:8px; }
 .mode-points li {
   display:flex; flex-direction:column; gap:2px;
-  padding:10px 12px; border-radius:var(--r-sm); background:rgba(255,255,255,.05);
+  padding:9px 11px; border-radius:var(--r-sm);
+  background:rgba(0,0,0,.16); box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);
 }
 .mode-points b { color:#fff; font-size:.9rem; }
-.mode-points span { color:var(--ink-3); font-size:.8rem; line-height:1.4; }
+.mode-points span { color:rgba(255,255,255,.68); font-size:.8rem; line-height:1.4; }
+.mode-actions { margin-top:12px; }
+.mode-actions .coach-skip { min-height:36px; }
 
 /* ---- the guide ---- */
 .guide-hero { display:flex; gap:12px; align-items:center; margin:0 0 18px; }

@@ -109,8 +109,8 @@
 
 <main>
   <!-- ===================== TITLE ===================== -->
-  <!-- The live 3D battle scene runs behind everything; the buttons sit on a
-       frosted sheet at the bottom, matching the in-battle action bar. -->
+  <!-- A layered CSS perspective battlefield and animated Pokémon run behind
+       everything without WebGL; the GPU renderer is reserved for battles. -->
   <section id="screenTitle">
     <div id="titleStage" class="title-stage"></div>
     <div class="title-veil"></div>
@@ -566,16 +566,25 @@
   </div>
 
   <!-- ===================== MODE EXPLAINER (overlay) ===================== -->
-  <div id="screenModeInfo" class="overlay" hidden>
-    <div class="overlay-card mode-card">
-      <div class="coach-head">
-        <span class="coach-portrait" id="modeFace"></span>
-        <div class="coach-who"><b id="modeTitle">Mode</b><em>Before you start</em></div>
+  <div id="screenModeInfo" class="overlay coach-overlay mode-overlay" hidden>
+    <div class="overlay-card coach-card mode-card">
+      <div class="coach-dialogue-row mode-dialogue-row">
+        <div class="coach-body mode-copy">
+          <div class="coach-who mode-who">
+            <h3 id="modeTitle">Mode</h3>
+            <em>Before you start</em>
+          </div>
+          <p class="mode-lede" id="modeLede"></p>
+          <ul class="mode-points" id="modePoints"></ul>
+        </div>
+        <div class="coach-head immersive coach-dialogue-professor mode-dialogue-professor">
+          <span class="coach-portrait" id="modeFace"></span>
+        </div>
       </div>
-      <p class="mode-lede" id="modeLede"></p>
-      <ul class="mode-points" id="modePoints"></ul>
-      <button type="button" id="btnModeGo" class="btn-primary wide">Let's go</button>
-      <button type="button" id="btnModeBack" class="btn-secondary wide">Back</button>
+      <div class="coach-actions mode-actions">
+        <button type="button" id="btnModeGo" class="btn-primary wide">Let's go</button>
+        <button type="button" id="btnModeBack" class="coach-skip">Back</button>
+      </div>
     </div>
   </div>
 

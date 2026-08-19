@@ -216,8 +216,8 @@
   };
 
   BU.prototype.render = function () {
-    // Showcase mode: the 3D scene with NO interface at all. Used by the title
-    // screen, which wants the biome + two Pokemon and nothing else.
+    // Showcase mode: the CSS perspective scene + projected Pokemon with no HUD.
+    // The title uses it without acquiring WebGL.
     if (this.showcase) { if (this.hud) this.hud.innerHTML = ''; return; }
     _origRender.call(this);
     if (!this.hud) return;

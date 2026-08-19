@@ -152,9 +152,11 @@ var RendererSession={
   _createRenderer:function(w,h){
     this._lastCreateAttempt=Date.now();
     try{
-      var ua=(typeof navigator!=='undefined')?navigator.userAgent:'';
-      var isiOS=(/iPad|iPhone|iPod/.test(ua)||(typeof navigator!=='undefined'&&navigator.maxTouchPoints>1&&/MacIntel/.test(ua)));
-      var dpr=Math.min(window.devicePixelRatio||1,isiOS?1.5:2);
+      // Scenery does not benefit enough from a 2x/3x backing buffer to justify
+      // its GPU cost (Pokemon and controls are crisp DOM layers). A universal
+      // 1.5 DPR cap cuts the canvas allocation by 44% versus 2x and avoids
+      // context eviction on high-density phones.
+      var dpr=Math.min(window.devicePixelRatio||1,1.5);
       var r=new T.WebGLRenderer({antialias:false,alpha:false,powerPreference:'default'});
       r.setPixelRatio(dpr);r.setSize(w,h,false);
       // Three.js output colour-management API changed in r152 from
@@ -197,8 +199,12 @@ var RendererSession={
     }
   },
   _disposeRenderer:function(){
-    var old=this.renderer;
+    var old=this.renderer,oldCanvas=this.canvas||(old&&old.domElement);
+    // Detach the dead canvas BEFORE forgetting it. Context recovery used to
+    // leave every replaced canvas in the battle host; repeated losses then
+    // stacked GPU surfaces until the browser reclaimed the whole 3D process.
     this.renderer=null;this.canvas=null;this._lost=false;
+    if(oldCanvas&&oldCanvas.parentNode){try{oldCanvas.parentNode.removeChild(oldCanvas);}catch(_){}}
     if(old){try{if(old.dispose)old.dispose();}catch(_){}}
   },
   _markLost:function(err){
@@ -217,6 +223,10 @@ var RendererSession={
   // heal by itself. Each attempt disposes any dead renderer and builds a
   // fresh one; on success the live owner is offered the canvas in place.
   _scheduleRecover:function(){
+    // An ownerless renderer is detached between screens. If its context is
+    // reclaimed while idle, wait for the next acquire() instead of spinning
+    // up replacement GPU contexts behind the title screen.
+    if(!this.owner)return;
     if(this._recoverTimer)return;
     var delays=this.RECOVER_DELAYS;
     var delay=delays[Math.min(this._recoverDelay,delays.length-1)];
@@ -287,8 +297,12 @@ var REDUCED_MOTION=false;
 try{REDUCED_MOTION=!!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);}catch(e){}
 
 function BattleUI(){
-  this.host=null;this.r=null;this.sc=null;this.cam=null;
+  this.host=null;this.r=null;this.sc=null;this.cam=null;this.environment=null;
+  // Reuse frame-temporary vectors. The title and long battles used to allocate
+  // four or more Vector3 objects every frame, creating needless mobile GC/GPU
+  // pressure during the exact sessions most prone to context loss.
   this.clock=new T.Clock();this._tgt=new T.Vector3();
+  this._camDest=new T.Vector3();this._lookDest=new T.Vector3();
   this.g={b:null,p:null,e:null,w:null,f:null};
   this.s={mounted:false,moment:'idle',mt:0,locked:false,
     // Player closer to camera (z=1.6); enemy pushed farther back (z=-3.0) so
@@ -312,11 +326,15 @@ function BattleUI(){
   this._contextLostNotified=false;this._unmounting=false;
   this._mountFailed=false;this._mountFailedError=null;this._errorNotified=false;
   this.flat=false;this._flatReason='';
+  // A decorative scene may use the same DOM-sprite/camera pipeline without
+  // ever acquiring WebGL. The title uses this so only actual battles touch the
+  // GPU; `flatOnly` is intentional and must not trigger an unavailable toast.
+  this.flatOnly=false;
   // Ops requested before mount() finished; replayed by _flushPending().
   this._pending=[];this._disposed=false;
   this.onMountError=null;this.onError=null;
 }
-function mkMon(x,y,z,h){return{name:'',lv:100,types:[],hp:1,max:100,st:null,pos:new T.Vector3(x,y,z),h:h,sid:null,num:0,sh:null,shGrp:null,img:null,grp:null,tu:null,url:null,ar:1,fadeT:0,appearT:0,offX:0,offY:0,offZ:0,rotZ:0,tintW:1,lastCrySid:null};}
+function mkMon(x,y,z,h){return{name:'',lv:100,types:[],hp:1,max:100,st:null,pos:new T.Vector3(x,y,z),h:h,sid:null,num:0,sh:null,shGrp:null,img:null,grp:null,tu:null,url:null,ar:1,fadeT:0,appearT:0,offX:0,offY:0,offZ:0,rotZ:0,tintW:1,lastCrySid:null,headV:new T.Vector3(),feetV:new T.Vector3()};}
 BattleUI.preload=preload;BattleUI.preloadList=preloadList;
 
 // Anything that needs the live scene (biome, sprites, bursts) is queued while
@@ -411,14 +429,19 @@ BattleUI.prototype._notifyRendererReclaimed=function(){
   this.enterFlatMode('reclaimed');
   if(this.onContextLost){try{this.onContextLost(this,null);}catch(_) {}}
 };
-// Put the session canvas on screen as layer 0 and leave flat mode. Idempotent:
-// safe to call for both the initial mount and mid-session recovery.
+// Put the optional session canvas above the CSS environment and leave flat
+// mode. Idempotent for both initial mount and mid-session recovery.
 BattleUI.prototype.attachRenderer=function(r){
   if(!r||this._disposed||this._unmounting||!this.host)return;
   this.r=r;
   this._renderErrs=0;
   var d=r.domElement;
   d.style.cssText='display:block;position:absolute;inset:0;width:100%;height:100%;z-index:1;';
+  // A renderer replacement must leave exactly one canvas. This is also a
+  // defensive sweep for sessions created by older cached builds that leaked a
+  // dead canvas before the current service worker took over.
+  var canvases=this.host.querySelectorAll('canvas');
+  for(var i=0;i<canvases.length;i++)if(canvases[i]!==d&&canvases[i].parentNode===this.host)this.host.removeChild(canvases[i]);
   if(d.parentNode!==this.host)this.host.insertBefore(d,this.host.firstChild);
   this.exitFlatMode();
   try{this._onResize();}catch(_){}
@@ -464,27 +487,32 @@ BattleUI.prototype.mount = function(host){
   host.style.cssText='position:absolute;inset:0;overflow:hidden;';
   var self=this;
   try{
-    // Layer 0: WebGL canvas (scenery only). The session always tries to hand
+    injectCSS();
+    // Layer 0: an always-available CSS perspective environment. It remains
+    // under the WebGL canvas when 3D is healthy and is already painted if the
+    // browser refuses or loses its GPU context.
+    buildDomEnvironment(this);
+    // Layer 1: optional WebGL scenery. The session always tries to hand
     // back a healthy renderer -- reusing the live one or creating a fresh one
     // if the last screen left a corpse behind. If WebGL cannot be created
     // right now, keep building the DOM layers in flat mode so the battle
     // remains playable; the session's background recovery will upgrade this
     // exact mount to 3D as soon as a context exists again.
-    var r=sharedRenderer(this,w,h);
+    var r=this.flatOnly?null:sharedRenderer(this,w,h);
     if(r){
       this.attachRenderer(r);
     }else{
       this.r=null;
-      this.enterFlatMode(RendererSession.reason());
+      this.enterFlatMode(this.flatOnly?'flat-only':RendererSession.reason());
     }
     var sc=new T.Scene();this.sc=sc;sc.background=new T.Color(0x70c3e8);
     var cam=new T.PerspectiveCamera(45,w/Math.max(1,h),0.1,200);
     cam.position.set(0,4.8,10.5);cam.lookAt(0,1.2,0);this.cam=cam;
-    // Layer 1: Sprite container (projected <img> elements, z-index between canvas and HUD)
+    // Layer 2: Sprite container (projected <img> elements, above either scenery implementation)
     var sp=document.createElement('div');sp.className='bm-sprites';
     sp.style.cssText='position:absolute;inset:0;z-index:2;pointer-events:none;overflow:visible;';
     host.appendChild(sp);this.sprites=sp;
-    // Layer 2: HUD (glass UI + floaters)
+    // Layer 3: HUD (glass UI + floaters)
     var hud=document.createElement('div');hud.className='battle-hud';
     hud.style.cssText='position:absolute;inset:0;pointer-events:none;font-family:VT323,"Courier New",monospace;color:#fff;overflow:visible;z-index:3;';
     host.appendChild(hud);this.hud=hud;
@@ -521,9 +549,10 @@ BattleUI.prototype.mount = function(host){
       RendererSession.release(this,host);
       if(this.sprites&&this.sprites.parentNode)this.sprites.parentNode.removeChild(this.sprites);
       if(this.hud&&this.hud.parentNode)this.hud.parentNode.removeChild(this.hud);
+      if(this.environment&&this.environment.parentNode)this.environment.parentNode.removeChild(this.environment);
       if(host)host._bm=null;
     }catch(_){}
-    this.r=null;this.sc=null;this.cam=null;this.sprites=null;this.hud=null;this.host=null;
+    this.r=null;this.sc=null;this.cam=null;this.sprites=null;this.hud=null;this.environment=null;this.host=null;
     this._contextLostHandler=null;this._contextRestoredHandler=null;
     this._disposed=true;this._pending=[];
     console.error('[BattleUI] mount failed',err);
@@ -547,14 +576,20 @@ BattleUI.prototype.unmount = function(){
   RendererSession.release(this,this.host);
   if(this.sprites&&this.sprites.parentNode)this.sprites.parentNode.removeChild(this.sprites);
   if(this.hud&&this.hud.parentNode)this.hud.parentNode.removeChild(this.hud);
+  if(this.environment&&this.environment.parentNode)this.environment.parentNode.removeChild(this.environment);
   if(this.host){
     this.host._bm=null;
     this.host.classList.remove('battle-flat');
     this.host.style.background='';
   }
+  // Procedural terrain/room textures are cached outside the material tree.
+  // Dispose every cached texture when a scene ends or repeated battles retain
+  // GPU allocations even though their geometry and materials are gone.
+  var field=this.s&&this.s.field;
+  if(field&&field.tex){for(var tx in field.tex){try{if(field.tex[tx]&&field.tex[tx].dispose)field.tex[tx].dispose();}catch(_){}}field.tex={};}
   if(this.sc){try{this.sc.traverse(function(o){if(o.geometry)o.geometry.dispose();if(o.material){if(Array.isArray(o.material))o.material.forEach(function(m){m.dispose();});else o.material.dispose();}});}catch(_) {}}
   this._contextLostHandler=null;this._contextRestoredHandler=null;
-  this.r=null;this.sc=null;this.cam=null;this.hud=null;this.sprites=null;this._dom={};
+  this.r=null;this.sc=null;this.cam=null;this.hud=null;this.sprites=null;this.environment=null;this._dom={};
 };
 BattleUI.prototype._onResize=function(){
   if(!this.host||!this.cam)return;
@@ -567,6 +602,37 @@ BattleUI.prototype._onResize=function(){
   // Invalidate cached host rect so the next frame picks up the new size.
   this._hostRectAge=-1;
 };
+
+// The compatibility environment is real DOM/CSS, not a screenshot. Layered
+// sky, hills, perspective ground and battle platforms preserve the scene's
+// depth on every browser, including devices where WebGL is disabled or lost.
+function buildDomEnvironment(ui){
+  var env=document.createElement('div');
+  env.className='bm-env';env.setAttribute('aria-hidden','true');
+  env.innerHTML=
+    '<div class="be-sky"><i class="be-sun"></i><i class="be-cloud c1"></i><i class="be-cloud c2"></i></div>'+
+    '<div class="be-horizon"><i class="be-hill h1"></i><i class="be-hill h2"></i><i class="be-hill h3"></i></div>'+
+    '<div class="be-ground"><i class="be-grid"></i></div>'+
+    '<div class="be-decor"><i class="d1"></i><i class="d2"></i><i class="d3"></i><i class="d4"></i></div>'+
+    '<i class="be-platform enemy"></i><i class="be-platform player"></i>'+
+    '<div class="be-field"></div><div class="be-weather"></div><div class="be-room"></div>'+
+    '<div class="be-depth-fog"></div>';
+  ui.host.appendChild(env);ui.environment=env;
+}
+function cssHex(n){return '#'+('000000'+Number(n||0).toString(16)).slice(-6);}
+function applyDomBiome(ui,key,b){
+  var env=ui.environment;if(!env||!b)return;
+  env.dataset.biome=key||'meadow';
+  env.style.setProperty('--be-sky',cssHex(b.sky));
+  env.style.setProperty('--be-fog',cssHex(b.fog&&b.fog[0]));
+  env.style.setProperty('--be-ground',cssHex(b.g));
+  env.style.setProperty('--be-ground-dark',cssHex(b.d));
+  env.style.setProperty('--be-hill',cssHex((b.hills&&b.hills[0]&&b.hills[0][4])||b.d));
+  env.style.setProperty('--be-hill-far',cssHex((b.hills&&b.hills[2]&&b.hills[2][4])||b.d));
+  env.style.setProperty('--be-accent',cssHex((b.pf&&b.pf[1])||b.stripe||b.g));
+  env.style.setProperty('--be-platform',cssHex((b.pf&&b.pf[0])||b.g));
+  env.style.setProperty('--be-cloud',cssHex(b.cc||0xffffff));
+}
 
 function buildShadow(ui,k){
   var s=ui.s[k];s.grp=new T.Group();
@@ -595,7 +661,9 @@ function clrGrp(g){while(g.children.length){var c=g.children.pop();try{c.travers
 
 BattleUI.prototype.buildBiome=function(key){
   if(!this._whenMounted(function(){this.buildBiome(key);}))return;
-  var b=BIOMES[key]||BIOMES.meadow;var bg=this.g.b;clrGrp(bg);
+  var b=BIOMES[key]||BIOMES.meadow;
+  applyDomBiome(this,key,b);
+  var bg=this.g.b;clrGrp(bg);
   this.s.biomeKey=key;
   if(this.flat&&this.host)this.host.style.background=this._flatBackground(key);
   this.sc.background=new T.Color(b.sky);this.sc.fog=new T.Fog(b.fog[0],b.fog[1],b.fog[2]);
@@ -794,6 +862,7 @@ function buildField(ui){
 // ---- WEATHER ----
 BattleUI.prototype.setWeather=function(w){
   this.s.w=w;
+  if(this.environment)this.environment.dataset.weather=w||'';
   var s=this.s.wsys||{};
   for(var k in s)s[k].visible=(w===k);
   // 'sun' has no particles but still grades the scene, so drive the look
@@ -806,8 +875,10 @@ BattleUI.prototype.setWeather=function(w){
 BattleUI.prototype.setTerrain=function(t){
   var f=this.s.field;if(!f)return;
   f.terrain=t&&TERRAIN_LOOK[t]?t:null;
+  if(this.environment)this.environment.dataset.terrain=f.terrain||'';
   if(!f.terrain){f.disc.visible=false;f.ring.visible=false;f.motes.visible=false;return;}
   var look=TERRAIN_LOOK[f.terrain];
+  if(this.environment)this.environment.style.setProperty('--be-field',cssHex(look.c));
   if(!f.tex[f.terrain])f.tex[f.terrain]=terrainTex(look);
   f.disc.material.map=f.tex[f.terrain];f.disc.material.needsUpdate=true;
   f.disc.visible=true;f.ring.visible=true;f.motes.visible=true;
@@ -819,8 +890,10 @@ BattleUI.prototype.setTerrain=function(t){
 BattleUI.prototype.setRoom=function(r){
   var f=this.s.field;if(!f)return;
   f.room_=r&&ROOM_LOOK[r]?r:null;
+  if(this.environment)this.environment.dataset.room=f.room_||'';
   if(!f.room_){f.room.visible=false;return;}
   var look=ROOM_LOOK[f.room_];
+  if(this.environment)this.environment.style.setProperty('--be-room',cssHex(look.grid));
   f.room.visible=true;
   f.box.material.color=new T.Color(look.c);
   f.grid.material.color=new T.Color(look.grid);
@@ -836,17 +909,19 @@ BattleUI.prototype._stepField=function(t,dt){
   if(base&&lt){
     var L=st.wlook;
     var k=Math.min(1,dt*2.2);   // ease toward the target look
-    var tSky=L?new T.Color(L.sky):base.sky;
-    var tFog=L?new T.Color(L.fog):base.fog;
+    // Cache immutable colour targets on the look definition. Weather easing
+    // previously allocated four Color objects per frame for an entire battle.
+    var tSky=L?(L._skyC||(L._skyC=new T.Color(L.sky))):base.sky;
+    var tFog=L?(L._fogC||(L._fogC=new T.Color(L.fog))):base.fog;
     if(this.sc.background&&this.sc.background.lerp)this.sc.background.lerp(tSky,k);
     if(this.sc.fog){
       this.sc.fog.color.lerp(tFog,k);
       this.sc.fog.near+=((L?L.fogN:base.fn)-this.sc.fog.near)*k;
       this.sc.fog.far +=((L?L.fogF:base.ff)-this.sc.fog.far )*k;
     }
-    lt.amb.color.lerp(L?new T.Color(L.amb):base.ambC,k);
+    lt.amb.color.lerp(L?(L._ambC||(L._ambC=new T.Color(L.amb))):base.ambC,k);
     lt.amb.intensity+=((L?L.ambI:base.ambI)-lt.amb.intensity)*k;
-    lt.sun.color.lerp(L?new T.Color(L.sun):base.sunC,k);
+    lt.sun.color.lerp(L?(L._sunC||(L._sunC=new T.Color(L.sun))):base.sunC,k);
     lt.sun.intensity+=((L?L.sunI:base.sunI)-lt.sun.intensity)*k;
     // Harsh sunlight shimmers; a storm flickers with distant lightning.
     if(st.w==='sun')lt.sun.intensity+=Math.sin(t*2.1)*0.06;
@@ -1357,8 +1432,9 @@ BattleUI.prototype._anim=function(){
   var mo=this.s.moment,idle=(mo==='idle'||mo==='fainted'),cs=idle?2.4:6.0;
   // Camera shifted LEFT for mobile framing. Look target sits between the two
   // mons (player at z=1.6, enemy pushed farther to z=-3.0 so perspective makes
-  // the enemy noticeably smaller).
-  var des=new T.Vector3(-0.15,4.6,9.9),dtgt=new T.Vector3(0.05,0.55,-2.5);
+  // the enemy noticeably smaller). Reuse vectors instead of allocating two
+  // new objects on every frame.
+  var des=this._camDest.set(-0.15,4.6,9.9),dtgt=this._lookDest.set(0.05,0.55,-2.5);
   switch(mo){
     case'playerAttack':des.set(-2.0,3.0,6.0);dtgt.set(1.0,1.5,-1.2);break;
     case'enemyHit':des.set(1.2,2.8,5.6);dtgt.set(2.2,1.4,-2.0);break;
@@ -1408,7 +1484,12 @@ BattleUI.prototype._anim=function(){
       if(this.r.isContextLost&&this.r.isContextLost()){this._renderErrs=0;this._notifyContextLost(e);return;}
     }catch(_){}
     this._renderErrs=(this._renderErrs|0)+1;
-    if(this._renderErrs>=60){this._renderErrs=0;this._reportError(e);return;}
+    if(this._renderErrs>=60){
+      // WebGL is presentation only; even a sustained driver failure must not
+      // tear down the battle. Degrade to the DOM/flat renderer and let the
+      // session replace the unhealthy canvas in the background.
+      this._renderErrs=0;this._notifyContextLost(e);return;
+    }
     if(this._renderErrs===1)console.warn('[BattleUI] transient render error; retrying',e);
     return;
   }}
@@ -1522,9 +1603,10 @@ BattleUI.prototype._projectSprites=function(t,dt){
       }
     }
     wx+=shake;
-    // Project head (top) and feet (ground) using s.h world-units tall.
-    var headWorld=new T.Vector3(wx,wy+s.h,wz).project(cam);
-    var feetWorld=new T.Vector3(wx,wy,wz).project(cam);
+    // Project head (top) and feet (ground) using s.h world-units tall. These
+    // vectors are per-slot scratch objects to keep the animation loop allocation-free.
+    var headWorld=s.headV.set(wx,wy+s.h,wz).project(cam);
+    var feetWorld=s.feetV.set(wx,wy,wz).project(cam);
     if(Math.abs(headWorld.z)>1||Math.abs(feetWorld.z)>1){
       s.img.style.opacity=0;s.sh.material.opacity=0;continue;
     }
@@ -1597,6 +1679,39 @@ var CSS_INJECTED=false;
 function injectCSS(){
   if(CSS_INJECTED)return;CSS_INJECTED=true;
   var css=[
+    // Always-on CSS perspective environment. WebGL paints over this when it is
+    // healthy; context loss only reveals an already-complete scene underneath.
+    '.bm-env{--be-sky:#70c3e8;--be-fog:#a8e4ff;--be-ground:#42b96a;--be-ground-dark:#2f8b4e;--be-hill:#3a9d5a;--be-hill-far:#2a7549;--be-accent:#d4a56a;--be-platform:#3a9d5a;--be-cloud:#fff;position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;background:var(--be-sky);isolation:isolate;}',
+    '.bm-env *{position:absolute;box-sizing:border-box;pointer-events:none;}',
+    '.be-sky{inset:0 0 38%;background:radial-gradient(circle at 72% 18%,rgba(255,255,255,.72) 0 2%,rgba(255,255,255,.18) 3% 10%,transparent 22%),linear-gradient(180deg,var(--be-sky),var(--be-fog));}',
+    '.be-sun{right:18%;top:12%;width:62px;height:62px;border-radius:50%;background:rgba(255,250,220,.82);filter:blur(1px);box-shadow:0 0 42px rgba(255,245,205,.7);}',
+    '.be-cloud{width:150px;height:34px;border-radius:50%;background:var(--be-cloud);opacity:.28;filter:blur(2px);}',
+    '.be-cloud::before,.be-cloud::after{content:"";position:absolute;border-radius:50%;background:inherit;}',
+    '.be-cloud::before{width:58px;height:58px;left:24px;bottom:0}.be-cloud::after{width:78px;height:50px;right:18px;bottom:0}',
+    '.be-cloud.c1{left:7%;top:15%;transform:scale(.72)}.be-cloud.c2{right:-2%;top:29%;transform:scale(.9);opacity:.2}',
+    '.be-horizon{left:-8%;right:-8%;top:27%;height:34%;overflow:hidden;}',
+    '.be-hill{bottom:-18%;border-radius:50% 50% 18% 18%;background:linear-gradient(165deg,var(--be-hill),var(--be-hill-far));filter:saturate(.85);}',
+    '.be-hill.h1{left:-4%;width:54%;height:92%;transform:rotate(6deg)}.be-hill.h2{right:-3%;width:62%;height:104%;transform:rotate(-5deg);background:linear-gradient(165deg,var(--be-hill),var(--be-hill-far))}.be-hill.h3{left:28%;width:46%;height:70%;bottom:-24%;background:var(--be-hill-far);opacity:.8}',
+    '.be-ground{left:-18%;right:-18%;top:43%;height:88%;transform-origin:50% 0;transform:perspective(520px) rotateX(57deg);background:linear-gradient(180deg,var(--be-ground) 0%,var(--be-ground-dark) 72%);box-shadow:inset 0 14px 24px rgba(255,255,255,.12);}',
+    '.be-grid{inset:0;opacity:.16;background:repeating-linear-gradient(90deg,transparent 0 9.5%,rgba(255,255,255,.35) 10%),repeating-linear-gradient(0deg,transparent 0 13%,rgba(0,0,0,.24) 14%);mask-image:linear-gradient(180deg,transparent,black 22%,black);}',
+    '.be-platform{height:10%;border-radius:50%;background:radial-gradient(ellipse,var(--be-accent) 0 45%,var(--be-platform) 47% 66%,rgba(0,0,0,.24) 68%,transparent 72%);filter:drop-shadow(0 12px 9px rgba(0,0,0,.22));}',
+    '.be-platform.enemy{width:35%;right:5%;top:48%;transform:scale(.72)}.be-platform.player{width:43%;left:1%;top:70%;}',
+    '.be-decor{inset:33% 0 32%;}.be-decor i{bottom:0;width:7%;height:72%;background:linear-gradient(90deg,rgba(0,0,0,.25),var(--be-hill-far));clip-path:polygon(43% 100%,43% 54%,10% 57%,40% 37%,18% 40%,50% 0,82% 40%,60% 37%,90% 57%,57% 54%,57% 100%);filter:drop-shadow(0 6px 4px rgba(0,0,0,.2));opacity:.8}',
+    '.be-decor .d1{left:3%;transform:scale(.85)}.be-decor .d2{left:15%;height:48%;opacity:.6}.be-decor .d3{right:4%;transform:scale(.9)}.be-decor .d4{right:18%;height:44%;opacity:.58}',
+    '.bm-env[data-biome="cave"] .be-decor i,.bm-env[data-biome="volcano"] .be-decor i,.bm-env[data-biome="rocky"] .be-decor i,.bm-env[data-biome="void"] .be-decor i{clip-path:polygon(50% 0,100% 100%,0 100%);height:54%;width:10%}',
+    '.be-depth-fog{left:0;right:0;top:35%;height:25%;background:linear-gradient(180deg,transparent,var(--be-fog),transparent);opacity:.2;filter:blur(7px);}',
+    '.be-field{left:11%;right:11%;top:48%;height:40%;border-radius:50%;opacity:0;transform:perspective(420px) rotateX(62deg);background:radial-gradient(ellipse,var(--be-field,#8bdc72),transparent 68%);mix-blend-mode:screen;transition:opacity .35s;}',
+    '.bm-env[data-terrain]:not([data-terrain=""]) .be-field{opacity:.58;animation:bePulse 2.8s ease-in-out infinite;}',
+    '.be-room{inset:8% 5% 17%;opacity:0;border:2px solid var(--be-room,#ffc861);background:repeating-linear-gradient(90deg,transparent 0 12%,rgba(255,255,255,.14) 12.5%),repeating-linear-gradient(0deg,transparent 0 14%,rgba(255,255,255,.12) 14.5%);box-shadow:inset 0 0 45px rgba(255,255,255,.2);clip-path:polygon(8% 0,92% 0,100% 100%,0 100%);transition:opacity .35s;}',
+    '.bm-env[data-room]:not([data-room=""]) .be-room{opacity:.48;}',
+    '.be-weather{inset:-15%;opacity:0;transition:opacity .25s;}',
+    '.bm-env[data-weather="rain"] .be-weather{opacity:.65;background:repeating-linear-gradient(105deg,transparent 0 14px,rgba(210,230,255,.62) 15px 17px,transparent 18px 31px);animation:beRain .55s linear infinite;}',
+    '.bm-env[data-weather="snow"] .be-weather,.bm-env[data-weather="hail"] .be-weather{opacity:.75;background-image:radial-gradient(circle,#fff 0 2px,transparent 2.5px),radial-gradient(circle,rgba(255,255,255,.75) 0 1.5px,transparent 2px);background-size:44px 44px,67px 67px;background-position:0 0,20px 10px;animation:beSnow 4s linear infinite;}',
+    '.bm-env[data-weather="sand"] .be-weather{opacity:.42;background:repeating-linear-gradient(170deg,transparent 0 16px,rgba(225,185,105,.48) 17px 20px,transparent 21px 36px);animation:beRain 1.2s linear infinite;}',
+    '.bm-env[data-weather="sun"] .be-sun{transform:scale(1.18);box-shadow:0 0 75px rgba(255,225,130,.95)}',
+    '.battle-flat>canvas{opacity:0!important;visibility:hidden!important;}.battle-flat .bm-env{visibility:visible;}',
+    '@keyframes beRain{to{transform:translate(-28px,72px)}}@keyframes beSnow{to{background-position:44px 88px,87px 144px}}@keyframes bePulse{50%{opacity:.34;transform:perspective(420px) rotateX(62deg) scale(.96)}}',
+    '@media(prefers-reduced-motion:reduce){.be-weather,.be-field{animation:none!important}.be-cloud{transform:none!important}}',
     // HUD, all text in VT323 pixel font (matches build/loading/dead screens).
     // No glass backgrounds on cards/buttons — only full-bleed top + bottom gradients
     // frame the play field. Containers are transparent; text relies on shadow for legibility.
