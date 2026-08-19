@@ -303,8 +303,10 @@
     // Battle music never plays outside a battle. beginBattle() starts the
     // right track; every other screen fades it out.
     if (name !== 'Battle' && window.GameAudio) window.GameAudio.stop();
-    // The animated title backdrop is CPU/DOM-only, but still stop its loop and
-    // sprite projection whenever another screen takes over.
+    // The title backdrop owns the shared WebGL renderer while the title is on
+    // screen. Leaving the title (starting a game, entering a battle, opening
+    // another screen) must stop it so its canvas, loop and projection are gone
+    // before the next screen mounts; returning to the title rebuilds it.
     if (name === 'Title') startTitleScene(); else stopTitleScene();
     // The title advertises live state (today's Daily, the streak, the Free
     // Play slot), and that state changes while the player is away from it.
@@ -321,10 +323,14 @@
 
   // -------------------------------------------------------------- TITLE ---
   // ---- TITLE SHOWCASE ------------------------------------------------------
-  // The title reuses BattleUI's projected animated Pokemon and layered CSS
-  // perspective environment, but deliberately stays WebGL-free: a decorative
-  // landing page must not create, own, lose, or churn a GPU context. The one
-  // optional WebGL renderer is reserved for actual battles.
+  // The title reuses BattleUI's projected animated Pokemon, layered CSS
+  // perspective environment AND the same WebGL biome a real battle renders,
+  // so the landing page is a true preview of the game. It shares the one
+  // session renderer with battles: stopTitleScene() releases the canvas when
+  // the title is left, and whichever screen mounts next (a battle, or the
+  // title again) re-acquires the same context. If WebGL cannot be created
+  // right now the scene mounts flat and the session's background recovery
+  // upgrades it to 3D in place -- exactly like a battle.
   var titleUI = null, titleLoop = null;
 
   function startTitleScene() {
@@ -333,7 +339,10 @@
     try {
       titleUI = new window.BattleUI();
       titleUI.showcase = true;          // suppress every HUD element
-      titleUI.flatOnly = true;          // title never acquires WebGL
+      // Acquire WebGL like a battle: the same shared renderer, biome and
+      // camera. If a context is unavailable this instant, the mount degrades
+      // to the CSS environment and the session's recovery chain upgrades it
+      // to 3D in place -- no remount, no toast, no stuck 2D title.
       titleUI.onMountError = function (owner, err) {
         if (owner && owner !== titleUI) return;
         setTimeout(function () {
@@ -455,8 +464,17 @@
       try { titleUI.unmount(); } catch (e) {}
       titleUI = null;
     }
+    // The whole stage is rebuilt on the next visit. Clearing it (plus the
+    // mount flag and any flat-mode residue) guarantees no canvas, sprites or
+    // environment can leak from the title into the running game, even if an
+    // unmount was interrupted halfway.
     var host = $('titleStage');
-    if (host) { host.innerHTML = ''; host._bm = null; }
+    if (host) {
+      host.innerHTML = '';
+      host._bm = null;
+      host.classList.remove('battle-flat');
+      host.style.background = '';
+    }
   }
 
   function initTitle() {
@@ -7526,8 +7544,9 @@
     $('btnGuideBack').addEventListener('click', backToRoute);
     if (!bootResumedBattle) show('Title');
     // The first title paint is static. Once Three/BattleUI is ready, add the
-    // animated DOM-sprite showcase in intentional flat-only mode. WebGL itself
-    // remains untouched until an actual battle starts.
+    // animated showcase: projected Pokemon over the same 3D biome a battle
+    // renders, sharing the one session renderer. If WebGL is unavailable the
+    // showcase mounts flat and the recovery chain upgrades it in place.
     if (window.RendererReady) {
       window.RendererReady.ready.then(function () {
         if (!$('screenTitle').hidden) startTitleScene();

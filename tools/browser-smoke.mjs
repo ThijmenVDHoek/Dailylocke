@@ -67,6 +67,33 @@ try {
     sprites: globalThis.document.querySelectorAll('#titleStage .bm-sprites img').length,
   }));
 
+  // The title's 3D environment must vanish the moment a game starts and come
+  // back when the title returns -- no zombie canvas, no double scene. The
+  // round trip also proves the title and a later battle hand the ONE shared
+  // renderer back and forth instead of stacking WebGL contexts.
+  const titleRoundTrip = await page.evaluate(async () => {
+    globalThis.Game.show('Crossroads');
+    await new Promise((r) => globalThis.requestAnimationFrame(
+      () => globalThis.requestAnimationFrame(r)));
+    const afterLeave = {
+      canvases: globalThis.document.querySelectorAll('#titleStage canvas').length,
+      environments: globalThis.document.querySelectorAll('#titleStage .bm-env').length,
+      sprites: globalThis.document.querySelectorAll('#titleStage .bm-sprites img').length,
+    };
+    globalThis.Game.show('Title');
+    const t0 = Date.now();
+    while (Date.now() - t0 < 8000 &&
+           !globalThis.document.querySelector('#titleStage canvas')) {
+      await new Promise((r) => globalThis.requestAnimationFrame(r));
+    }
+    const afterReturn = {
+      canvases: globalThis.document.querySelectorAll('#titleStage canvas').length,
+      environments: globalThis.document.querySelectorAll('#titleStage .bm-env[data-biome]').length,
+      sprites: globalThis.document.querySelectorAll('#titleStage .bm-sprites img').length,
+    };
+    return { afterLeave, afterReturn };
+  });
+
   const result = await page.evaluate(async () => {
     globalThis.Game.show('Battle');
     const host = globalThis.document.getElementById('battleHost');
@@ -182,8 +209,14 @@ try {
   });
 
   const checks = [
-    ['title has a perspective environment without WebGL',
-      titleLightweight.canvases === 0 && titleLightweight.environments === 1 && titleLightweight.sprites === 2],
+    ['title renders its 3D environment over the perspective base',
+      titleLightweight.canvases === 1 && titleLightweight.environments === 1 && titleLightweight.sprites === 2],
+    ['starting a game removes the title 3D environment entirely',
+      titleRoundTrip.afterLeave.canvases === 0 && titleRoundTrip.afterLeave.environments === 0 &&
+      titleRoundTrip.afterLeave.sprites === 0],
+    ['returning to the title rebuilds its 3D environment',
+      titleRoundTrip.afterReturn.canvases === 1 && titleRoundTrip.afterReturn.environments === 1 &&
+      titleRoundTrip.afterReturn.sprites === 2],
     ['BattleUI reuses one renderer', result.reused],
     ['the environment exists before context loss', result.environmentBeforeLoss],
     ['context loss is cancelled', result.prevented],

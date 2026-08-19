@@ -215,14 +215,29 @@ check('window.Daily (daily challenge)', !!window.Daily);
 check('window.Modal (shared dialog controller)', !!window.Modal);
 
 // Give the title showcase one tick to settle. Its decorative Pokemon use the
-// projection pipeline but must neither play cries nor acquire the WebGL canvas
-// that is now reserved for actual battles.
+// projection pipeline and must not sound their cries, but the title now shows
+// the same 3D biome as a real battle, painted over the always-on CSS
+// perspective environment.
 await new Promise((r) => setTimeout(r, 25));
 const titleCryUrls = audioLog.filter((src) => /\/cries\//i.test(src));
 check('title-screen Pokemon do not sound their cries',
   titleCryUrls.length === 0, titleCryUrls.join(', '));
-check('the title uses the always-on perspective environment without WebGL',
+check('the title mounts the 3D environment over its perspective base',
+  window.document.querySelectorAll('#titleStage canvas').length === 1 &&
+  !!window.document.querySelector('#titleStage .bm-env[data-biome]') &&
+  window.document.querySelectorAll('#titleStage .bm-sprites img').length === 2);
+
+// The 3D title must never leak into the game: leaving the title tears the
+// whole scene down (canvas included), and coming back rebuilds it.
+window.Game.show('Crossroads');
+check('leaving the title tears its 3D environment down',
   !window.document.querySelector('#titleStage canvas') &&
+  !window.document.querySelector('#titleStage .bm-env') &&
+  !window.document.querySelector('#titleStage .bm-sprites'));
+window.Game.show('Title');
+await new Promise((r) => setTimeout(r, 25));
+check('returning to the title rebuilds its 3D environment',
+  window.document.querySelectorAll('#titleStage canvas').length === 1 &&
   !!window.document.querySelector('#titleStage .bm-env[data-biome]') &&
   window.document.querySelectorAll('#titleStage .bm-sprites img').length === 2);
 

@@ -216,8 +216,8 @@
   };
 
   BU.prototype.render = function () {
-    // Showcase mode: the CSS perspective scene + projected Pokemon with no HUD.
-    // The title uses it without acquiring WebGL.
+    // Showcase mode: projected Pokemon over the 3D biome, with no HUD. The
+    // title uses it; the shared renderer still paints the scenery underneath.
     if (this.showcase) { if (this.hud) this.hud.innerHTML = ''; return; }
     _origRender.call(this);
     if (!this.hud) return;

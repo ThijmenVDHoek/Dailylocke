@@ -2,10 +2,10 @@
 // renderer-loader.js — optional post-paint 3D upgrade.
 //
 // The title screen is usable before this runs: the title markup/CSS paints
-// first, then Three + BattleUI are fetched. The title uses their DOM-sprite
-// projection in intentional flat-only mode; WebGL is not acquired until a real
-// battle starts. A battle started during the upgrade simply awaits
-// `RendererReady.ready`.
+// first, then Three + BattleUI are fetched. Once loaded, the title uses their
+// DOM-sprite projection over the full 3D biome, sharing the one session
+// renderer with battles (no extra WebGL context). A battle started during the
+// upgrade simply awaits `RendererReady.ready`.
 //
 // If WebGL context creation fails, BattleUI keeps its layered CSS perspective
 // environment visible and retries the optional renderer in the background.

@@ -170,8 +170,9 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 
 /* ------------------------------------------------------------------ title */
 /* ===== TITLE ===== */
-/* The layered CSS perspective battlefield fills the viewport without WebGL;
-   brand at the top, a frosted action sheet at the bottom. */
+/* The layered CSS perspective battlefield fills the viewport and stays
+   painted under the shared WebGL biome (or replaces it when WebGL is
+   unavailable); brand at the top, a frosted action sheet at the bottom. */
 #screenTitle {
   position:fixed; inset:0; margin:0; padding:0; overflow:hidden;
   display:flex; flex-direction:column; justify-content:space-between;
