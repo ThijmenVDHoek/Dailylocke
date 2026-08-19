@@ -327,8 +327,9 @@ function BattleUI(){
   this._mountFailed=false;this._mountFailedError=null;this._errorNotified=false;
   this.flat=false;this._flatReason='';
   // A decorative scene may use the same DOM-sprite/camera pipeline without
-  // ever acquiring WebGL. The title uses this so only actual battles touch the
-  // GPU; `flatOnly` is intentional and must not trigger an unavailable toast.
+  // ever acquiring WebGL. `flatOnly` is the opt-out for that; the title
+  // showcase no longer sets it -- it renders the full 3D biome like a battle.
+  // When it IS set, the intentional fallback must not trigger a toast.
   this.flatOnly=false;
   // Ops requested before mount() finished; replayed by _flushPending().
   this._pending=[];this._disposed=false;

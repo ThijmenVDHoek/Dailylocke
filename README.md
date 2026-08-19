@@ -447,9 +447,10 @@ Now:
   layered CSS perspective environment—sky, distant terrain, ground plane,
   platforms, weather, terrain and room effects—plus projected DOM Pokémon.
   WebGL is now an optional enhancement painted over that complete environment,
-  never the only environment. The title never acquires WebGL, and a battle
-  seamlessly reveals the CSS scene if the browser refuses or loses its GPU
-  context while renderer recovery continues in the background.
+  never the only environment. The title renders the same 3D biome as a battle
+  through the one shared renderer, and either scene seamlessly reveals the CSS
+  environment if the browser refuses or loses its GPU context while renderer
+  recovery continues in the background.
 * **nothing blocks paint.** CSS is a real stylesheet, scripts are `defer`, and
   the sprite/audio origins are `preconnect`ed.
 
