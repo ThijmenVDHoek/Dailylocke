@@ -170,9 +170,9 @@ Section 1 is deterministic: the first encounter is Pikachu, the second wild is
 chosen from a fixed starter-specific weakness, the third is Bidoof, and the
 trainer is the friendly scripted Youngster. The first wild battle exposes one
 damaging move, then one ball; it cannot be bypassed, and Pikachu cannot faint.
-The second battle exposes one ×2 move. The third exposes Party and then one
-specific switch target. Bag, running, extra moves, and alternate switches are
-not available until the script reaches them.
+The second battle exposes one ×2 move. The third exposes Party, one specific
+switch target, and then Bag for in-battle healing. Running, extra moves, and
+alternate switches are not available until the script reaches them.
 
 1. **Welcome** (setup) — Professor Oak introduces himself and walks through
    sprite, name and the experience choice. The first beat of the path.
@@ -201,17 +201,19 @@ not available until the script reaches them.
    starter was chosen, and even if the player reordered the party early.
 8. **Your new lead** — a step teaches making the caught Pokémon the lead,
    right before the switching lesson that pairs with it.
-9. **Switching** (stop 3). The Trainer battle itself has no Bag step — the
-   route's *heal first!* warning covers it.
-10. **Saving** (the section summary) — the only place the Save button appears,
+9. **Switching** (stop 3) — open Party and choose the one highlighted switch.
+10. **Heal mid-battle** — immediately after that switch resolves, moves remain
+    locked and Bag becomes the next required action. The Trainer battle itself
+    has no Bag step — the route's *heal first!* warning covers it.
+11. **Saving** (the section summary) — the only place the Save button appears,
     and the lesson is honest: the run lives in this browser session, the
     backup file is what survives a cleared browser.
-11. **Evolution** (section 2) — *forced*: buy the Rare Candy from the Mart and
+12. **Evolution** (section 2) — *forced*: buy the Rare Candy from the Mart and
     actually use it to evolve your starter before the tutorial lets go.
-12. **Training** (section 2) — a hand-held walkthrough through the Train
+13. **Training** (section 2) — a hand-held walkthrough through the Train
     service: replace a move, pick an ability, pick a nature, move a Stat
     Point, press Done.
-13. **Graduation** — Oak's farewell card closes the tutorial the way it
+14. **Graduation** — Oak's farewell card closes the tutorial the way it
     opened: with the professor talking to the player. The prologue flags
     clear in section 2 and the run continues as an ordinary one with normal
     randomness, without any section-3 lesson repetition.
@@ -441,10 +443,13 @@ Now:
   supplement is lazy-loaded by the same pattern, so neither table is parsed on
   the title path. Both loaders are awaited before a move pool is built, so a
   slow download delays a moveset roll instead of producing an empty one.
-* **3D is a post-paint upgrade.** The title paints its static sheet first;
-  `renderer-loader.js` fetches Three.js and the DOM battle renderer after two
-  animation frames. Starting a battle during that window waits for the upgrade.
-  If WebGL itself is unavailable, the DOM battle falls back to a flat biome.
+* **The battlefield always has depth.** Every title/battle scene includes a
+  layered CSS perspective environment—sky, distant terrain, ground plane,
+  platforms, weather, terrain and room effects—plus projected DOM Pokémon.
+  WebGL is now an optional enhancement painted over that complete environment,
+  never the only environment. The title never acquires WebGL, and a battle
+  seamlessly reveals the CSS scene if the browser refuses or loses its GPU
+  context while renderer recovery continues in the background.
 * **nothing blocks paint.** CSS is a real stylesheet, scripts are `defer`, and
   the sprite/audio origins are `preconnect`ed.
 

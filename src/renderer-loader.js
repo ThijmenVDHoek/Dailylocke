@@ -2,12 +2,13 @@
 // renderer-loader.js — optional post-paint 3D upgrade.
 //
 // The title screen is usable before this runs: the title markup/CSS paints
-// first, then Three + BattleUI are fetched and attached to the showcase. A
-// battle started during the upgrade simply awaits `RendererReady.ready`.
+// first, then Three + BattleUI are fetched. The title uses their DOM-sprite
+// projection in intentional flat-only mode; WebGL is not acquired until a real
+// battle starts. A battle started during the upgrade simply awaits
+// `RendererReady.ready`.
 //
-// If the 3D scripts fail to load (transient network / offline), the game
-// falls back gracefully to flat mode — the battle is fully playable without
-// WebGL.
+// If WebGL context creation fails, BattleUI keeps its layered CSS perspective
+// environment visible and retries the optional renderer in the background.
 // ============================================================================
 (function () {
   var loaded = false;
@@ -25,8 +26,8 @@
         var script = document.createElement('script');
         script.src = src;
         script.async = true;
-        // Preload the 3D bundles at High priority so the title scene is
-        // interactive as soon as possible.
+        // Preload the renderer bundles at High priority so the animated title
+        // sprites and first real battle are ready as soon as possible.
         try { if ('fetchPriority' in script) script.fetchPriority = 'high'; } catch (e) {}
         script.onload = resolve;
         script.onerror = function () {

@@ -60,6 +60,12 @@ try {
   await page.waitForFunction(() => globalThis.Game && globalThis.RendererReady && globalThis.RendererReady.loaded,
     null, { timeout: 30000 });
   await page.waitForSelector('#screenTitle:not([hidden])', { timeout: 10000 });
+  await page.waitForSelector('#titleStage .bm-sprites img', { timeout: 10000 });
+  const titleLightweight = await page.evaluate(() => ({
+    canvases: globalThis.document.querySelectorAll('#titleStage canvas').length,
+    environments: globalThis.document.querySelectorAll('#titleStage .bm-env[data-biome]').length,
+    sprites: globalThis.document.querySelectorAll('#titleStage .bm-sprites img').length,
+  }));
 
   const result = await page.evaluate(async () => {
     globalThis.Game.show('Battle');
@@ -100,18 +106,27 @@ try {
     await untilMounted(second);
     second.setupBattle(config());
     const reused = shared ? second.r === shared : second.flat === true;
+    const environment = host.querySelector('.bm-env[data-biome]');
+    const environmentBeforeLoss = !!environment;
     const canvas = second.r && second.r.domElement;
     const lostEvent = new globalThis.Event('webglcontextlost', { cancelable: true });
     if (canvas) canvas.dispatchEvent(lostEvent);
     const flatAfterLoss = second.flat === true;
+    const fallbackEnvironmentAfterLoss = !!host.querySelector('.bm-env') &&
+      host.classList.contains('battle-flat');
     if (canvas) canvas.dispatchEvent(new globalThis.Event('webglcontextrestored'));
     const restoredOnce = canvas ? restored === 1 : true;
+    const environmentAfterRestore = !!environment && environment.isConnected &&
+      host.querySelector('.bm-env') === environment;
     const prevented = canvas ? lostEvent.defaultPrevented : true;
     const hudLoaded = !!host.querySelector('.battle-hud');
     second.unmount();
     return {
       reused, prevented, lostOnce: canvas ? lost === 1 : true,
-      flatAfterLoss, restoredOnce, hudLoaded, mountFlagCleared: host._bm == null,
+      environmentBeforeLoss, flatAfterLoss, fallbackEnvironmentAfterLoss,
+      restoredOnce, environmentAfterRestore, hudLoaded,
+      environmentCleaned: !host.querySelector('.bm-env'),
+      mountFlagCleared: host._bm == null,
     };
   });
 
@@ -131,7 +146,13 @@ try {
       })();
     });
     const startCanvas = ui3.r && ui3.r.domElement;
-    const out = { mounted3D: !!startCanvas && !ui3.flat, skipped: false, sawFlat: false, healed: false };
+    const environment = host.querySelector('.bm-env[data-biome]');
+    const out = {
+      mounted3D: !!startCanvas && !ui3.flat,
+      environmentBeforeLoss: !!environment,
+      skipped: false, sawFlat: false, environmentDuringLoss: false, healed: false,
+      environmentAfterRecovery: false,
+    };
     if (startCanvas) {
       const gl = startCanvas.getContext('webgl2') || startCanvas.getContext('webgl');
       const ext = gl && gl.getExtension('WEBGL_lose_context');
@@ -141,31 +162,51 @@ try {
         ext.loseContext();
         const t0 = Date.now();
         while (Date.now() - t0 < 9000) {
-          if (ui3.flat) out.sawFlat = true;
+          if (ui3.flat) {
+            out.sawFlat = true;
+            out.environmentDuringLoss ||= !!environment && environment.isConnected &&
+              host.classList.contains('battle-flat');
+          }
           if (!ui3.flat && ui3.r && ui3.r.domElement !== startCanvas && host.querySelector('canvas')) break;
           await new Promise((r) => setTimeout(r, 100));
         }
         out.healed = !ui3.flat && !!ui3.r && ui3.r.domElement !== startCanvas && !!host.querySelector('canvas');
+        out.environmentAfterRecovery = !!environment && environment.isConnected &&
+          host.querySelector('.bm-env') === environment;
+        out.oneCanvas = host.querySelectorAll('canvas').length === 1 && !startCanvas.isConnected;
       }
     }
     try { ui3.unmount(); } catch (_) {}
+    out.environmentCleaned = !host.querySelector('.bm-env');
     return out;
   });
 
   const checks = [
+    ['title has a perspective environment without WebGL',
+      titleLightweight.canvases === 0 && titleLightweight.environments === 1 && titleLightweight.sprites === 2],
     ['BattleUI reuses one renderer', result.reused],
+    ['the environment exists before context loss', result.environmentBeforeLoss],
     ['context loss is cancelled', result.prevented],
-    ['context loss switches to flat mode', result.flatAfterLoss],
+    ['context loss reveals the always-on environment',
+      result.flatAfterLoss && result.fallbackEnvironmentAfterLoss],
     ['context loss is reported once', result.lostOnce],
     ['context restored is reported once', result.restoredOnce],
+    ['the same environment survives context restoration', result.environmentAfterRestore],
     ['DOM HUD survives the WebGL lifecycle', result.hudLoaded],
-    ['unmount clears the host ownership flag', result.mountFlagCleared],
-    ['a fresh battle mounts in 3D', recovery.mounted3D],
+    ['unmount removes the environment and ownership flag',
+      result.environmentCleaned && result.mountFlagCleared],
+    ['a fresh battle mounts in 3D with its environment underneath',
+      recovery.mounted3D && recovery.environmentBeforeLoss],
   ];
   if (!recovery.skipped) {
-    checks.push(['a lost context degrades to flat first', recovery.sawFlat]);
+    checks.push(['a lost context degrades to its CSS environment first',
+      recovery.sawFlat && recovery.environmentDuringLoss]);
     checks.push(['renderer self-heals WITHOUT webglcontextrestored', recovery.healed]);
+    checks.push(['the same environment remains after renderer recovery',
+      recovery.environmentAfterRecovery]);
+    checks.push(['renderer replacement leaves exactly one canvas', recovery.oneCanvas]);
   }
+  checks.push(['self-healing test unmount removes its environment', recovery.environmentCleaned]);
   for (const [name, ok] of checks) console.log(`${ok ? '  ok  ' : ' FAIL '} ${name}`);
   if (pageErrors.length) {
     for (const err of pageErrors) console.error('pageerror:', err.stack || err.message);
