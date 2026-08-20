@@ -397,3 +397,76 @@ Supporting changes:
   interactive controls in full 3D, no error surface.
 - `npm run check --prefix tools` fully green: lint, 493/493, SW revision
   current.
+
+---
+
+## Appendix D: Context-Budget Leak & Tutorial Battle-Glue Fix ("3D crashes after a couple of battles")
+
+**Date:** 2026-08-19 · **Scope:** `vendor/battle-ui.js` (`RendererSession`), `src/app.js` (battle event glue), `tools/smoke-test.mjs`, `tools/browser-smoke.mjs`.
+
+### Root causes
+
+**D1. Replaced renderers never released their GL context (the 3D crash).**
+The recovery chain built in Appendix C replaces a dead renderer with a fresh
+one, but `_disposeRenderer()` only called Three r149's `dispose()` — which
+releases Three's internal resources but **not the GL context itself**
+(verified against the bundled r149: `dispose()` removes listeners and stops
+the loop; `forceContextLoss()` exists but was never called anywhere). On a
+machine with a flaky GPU, every loss/recreation cycle therefore left a live
+context behind until garbage collection. Chromium budgets 16 WebGL contexts
+per origin; once spent, the browser evicts the oldest context — which the
+loss handler answered with *another* replacement — a churn spiral that ends
+with the GPU process being killed mid-run. Each battle is a fresh mount, so
+the crash reliably lands "after a couple of battles, every single run".
+
+**D2. The creation-failure reason was invisible and unthrottled.**
+Chromium reports budget exhaustion through a `webglcontextcreationerror`
+event on the failed canvas ("Too many active WebGL contexts. Oldest context
+will be lost."). Three r149's constructor throws a generic error, so the
+session could never hear the real reason and kept retrying into the same
+wall.
+
+**D3. Battle-glue races could freeze the controls.** The drain chain's
+`step()` called `renderRequest()` outside any try/catch, so one throwing
+request silently killed the chain and left `ui.s.locked` stuck (every move
+button dead). `step()`'s `!ui` branch also forgot to drop `pendingRequest`.
+And the decision prompt was written when the request arrived but overwritten
+by log lines still draining — the tutorial's capture beat froze the message
+bar on "Cinder's Sp. Atk sharply fell!" while silently waiting for the ball.
+
+### Fixes
+
+- `_disposeRenderer()` now calls `forceContextLoss()` (guarded) before
+  `dispose()`, so a replaced renderer's context dies immediately and a
+  session never holds more than one live context.
+- `_createRenderer()` owns the canvas and listens for
+  `webglcontextcreationerror` (works because the canvas is passed into the
+  renderer via the `{canvas}` option, supported by r149). A
+  "Too many active WebGL contexts" report sets the session `_crowded`, which
+  stands the BACKGROUND replacement chain down; the flat CSS battlefield
+  keeps the game playable, and the next foreground mount still tries (a
+  successful creation clears the flag).
+- The background chain is bounded (`MAX_BG_REPLACEMENTS = 8` successful
+  replacements per session); foreground mounts are never counted.
+- `step()` retries a throwing request up to 10 times before surfacing
+  `battleFailed()`, clears `pendingRequest` when the UI is gone, and restores
+  the decision prompt once the queue drains while the engine awaits the
+  player. `handleRequest()` releases the action lock on any engine response.
+- `BattleUI.session` exposes the shared session for tests/diagnostics.
+
+### Verification
+
+- **JSDOM suite: 534/534** (was 523; +11: force-released contexts on
+  replacement, background-replacement accounting, crowded-session stand-down,
+  foreground retry + flag/budget reset, corpse release on reuse, prompt
+  restore after drain; the THREE stub gained `forceContextLoss` bookkeeping).
+- **Browser smoke extended**: after silent-loss recreation the replaced
+  renderer's context must report `isContextLost() === true` (runs on
+  Chromium/SwiftShader in CI).
+- **New stress harness** `tools/stress-tutorial.mjs`: a fresh guided run
+  auto-played through the full tutorial and several ordinary battles while
+  instrumenting renderer creations, live timers, rAF loops, canvases and DOM
+  residue. Result: exactly **one** renderer and **one** canvas for the whole
+  session, zero page errors, no timer/rAF/canvas leaks, no stuck controls.
+  (Not wired into `npm test`; run on demand — it needs ~5 minutes.)
+- `npm run check` green: lint, 534/534, SW revision regenerated.

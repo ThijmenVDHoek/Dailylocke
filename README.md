@@ -450,7 +450,11 @@ Now:
   never the only environment. The title renders the same 3D biome as a battle
   through the one shared renderer, and either scene seamlessly reveals the CSS
   environment if the browser refuses or loses its GPU context while renderer
-  recovery continues in the background.
+  recovery continues in the background. Recovery is bounded: replaced
+  renderers force-release their GL context immediately (never stacking live
+  contexts against the browser's per-origin budget), and a browser report of
+  an exhausted context budget stands the background chain down instead of
+  thrashing the GPU process.
 * **nothing blocks paint.** CSS is a real stylesheet, scripts are `defer`, and
   the sprite/audio origins are `preconnect`ed.
 

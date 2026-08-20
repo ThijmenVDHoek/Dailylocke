@@ -143,8 +143,11 @@ window.THREE = new Proxy({
   Fog: class { constructor(c, n, f) { Object.assign(this, { color: new window.THREE.Color(c), near: n, far: f }); } },
   Clock: class { getDelta() { return 0.016; } get elapsedTime() { return 1; } },
   PerspectiveCamera: class extends Obj3 { constructor() { super(); this.aspect = 1; } updateProjectionMatrix() {} },
-  WebGLRenderer: class { constructor() { this.domElement = window.document.createElement('canvas'); this.shadowMap = {}; }
-    setPixelRatio() {} setSize() {} render() {} dispose() {} },
+  WebGLRenderer: class {
+    constructor() { this.domElement = window.document.createElement('canvas'); this.shadowMap = {};
+      this.__forcedLoss = 0; }
+    setPixelRatio() {} setSize() {} render() {} dispose() {}
+    forceContextLoss() { this.__forcedLoss++; } },
   Mesh: class extends Obj3 { constructor(g, m) { super(); this.geometry = g || geo(); this.material = m || mat(); } },
   Points: class extends Obj3 { constructor(g, m) { super(); this.geometry = g || geo(); this.material = m || mat(); } },
   BufferGeometry: class { constructor() { Object.assign(this, geo()); } },
@@ -1447,6 +1450,17 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   await new Promise((r) => setTimeout(r, 300));
   check('the rail keeps glowing after the bubble is dismissed',
     !!window.document.querySelector('#battleHost .ballrail.coach-spot'));
+  // The decision prompt is written when the request arrives, but the turn's
+  // log lines are still draining behind it and used to overwrite the message
+  // bar, freezing the tutorial on "Cinder's Sp. Atk sharply fell!" while the
+  // game silently waited for the ball throw. Once the queue empties, the
+  // prompt must come back.
+  const promptRestored = await until3(() => {
+    const m = window.Game.ui && window.Game.ui.s && window.Game.ui.s.msg;
+    return m && /What will .+ do\?/.test(m);
+  }, 12000);
+  check('the decision prompt returns after the turn finishes draining',
+    !!promptRestored, (window.Game.ui && window.Game.ui.s && window.Game.ui.s.msg) || 'stuck');
 
   let ballClicks = 0;
   const ballLabelsSeen = [];
@@ -2914,6 +2928,88 @@ host2.remove();
     `canvases=${silentHost.querySelectorAll('canvas').length}`);
   silentUi.unmount();
   silentHost.remove();
+}
+
+// ======================================== CONTEXT BUDGET + RELEASE GUARDS ====
+// The crash this guards: every renderer the recovery chain replaced used to
+// leave a LIVE WebGL context behind (Three r149's dispose() does not release
+// the context). On a machine with a flaky GPU the chain minted context after
+// context; Chromium's per-origin budget (16) eventually evicted the oldest --
+// which the loss handler answered with ANOTHER replacement -- and the churn
+// killed the GPU process mid-run ("3D crashes after a couple of battles,
+// every single run"). Replacements must force-release their context, and a
+// browser that reports the budget spent must stop the background chain (flat
+// mode stays fully playable; the next foreground mount may still try).
+{
+  const session = window.BattleUI && window.BattleUI.session;
+  const waitFx2 = async (fn, ms = 6000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      const v = fn();
+      if (v) return v;
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    return null;
+  };
+  check('the shared renderer session is observable for diagnostics',
+    !!session && typeof session.healthy === 'function');
+
+  // 1. A replaced renderer force-releases its GL context immediately.
+  const relHost = window.document.createElement('div');
+  window.document.body.appendChild(relHost);
+  const relUi = new window.BattleUI();
+  relUi.mount(relHost);
+  const relOldR = relUi.r;
+  const relCreatedBefore = session._bgCreated;
+  relUi._notifyContextLost();
+  const relHealed = await waitFx2(() =>
+    !relUi.flat && relUi.r && relUi.r !== relOldR && relHost.querySelector('canvas'));
+  check('loss recovery replaces the renderer in place', !!relHealed);
+  check('the replaced renderer force-released its GL context',
+    !!relHealed && relOldR.__forcedLoss >= 1, `forced=${relOldR.__forcedLoss}`);
+  check('background replacements are counted against the budget',
+    session._bgCreated === relCreatedBefore + 1,
+    `bgCreated=${session._bgCreated}`);
+  relUi.unmount();
+  relHost.remove();
+
+  // 2. "Too many active WebGL contexts" must stand the BACKGROUND chain down.
+  const crowdHost = window.document.createElement('div');
+  window.document.body.appendChild(crowdHost);
+  const crowdUi = new window.BattleUI();
+  crowdUi.mount(crowdHost);
+  const crowdR = crowdUi.r;
+  const crowdEv = new window.Event('webglcontextcreationerror');
+  crowdEv.statusMessage = 'Too many active WebGL contexts. Oldest context will be lost.';
+  crowdR.domElement.dispatchEvent(crowdEv);
+  crowdR.domElement.dispatchEvent(new window.Event('webglcontextlost', { cancelable: true }));
+  await new Promise((r) => setTimeout(r, 1200));
+  check('the crowded session records the browser reason',
+    /active WebGL contexts/i.test(String(session.lastError && session.lastError.message)));
+  check('a crowded session stops minting replacement contexts',
+    session._crowded === true && crowdUi.flat === true && crowdUi.r === crowdR,
+    `crowded=${session._crowded} flat=${crowdUi.flat}`);
+  check('the flat battlefield stays fully mounted while crowded',
+    !!crowdHost.querySelector('.bm-env') && !!crowdHost.querySelector('.battle-hud'));
+  crowdUi.unmount();
+  crowdHost.remove();
+
+  // 3. A FOREGROUND mount still tries after the budget report -- and a
+  // successful creation clears the crowded flag and the replacement budget.
+  const nextHost = window.document.createElement('div');
+  window.document.body.appendChild(nextHost);
+  const nextUi = new window.BattleUI();
+  nextUi.mount(nextHost);
+  check('the next foreground mount creates a fresh context despite the report',
+    !nextUi.flat && !!nextUi.r && nextHost.querySelectorAll('canvas').length === 1,
+    `flat=${nextUi.flat}`);
+  check('a successful foreground creation clears the crowded flag and budget',
+    session._crowded === false && session._bgCreated === 0,
+    `crowded=${session._crowded} bgCreated=${session._bgCreated}`);
+  check('the displaced corpse context was force-released on reuse',
+    crowdR.__forcedLoss >= 1, `forced=${crowdR.__forcedLoss}`);
+  nextUi.unmount();
+  nextHost.remove();
 }
 
 // ====================================================== FLAT MODE SPRITES =====

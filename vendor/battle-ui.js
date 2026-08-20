@@ -101,11 +101,21 @@ function cacheFail(url){
 var RendererSession={
   renderer:null,canvas:null,owner:null,state:'idle',lastError:null,
   _lost:false,_recoverTimer:null,_recoverDelay:0,_lastCreateAttempt:0,
+  _bgCreated:0,_crowded:false,
   // Never hammer a genuinely missing GPU: two foreground creation attempts
   // must be at least this far apart. The background recovery chain below
   // handles everything else.
   MIN_RETRY_MS:750,
   RECOVER_DELAYS:[300,1000,2000], // then a steady 2000ms
+  // The background chain may mint at most this many replacement renderers
+  // over a session before it goes quiet (the next foreground mount still
+  // tries). A GPU that keeps failing would otherwise keep the chain alive
+  // forever, and every replacement is a fresh WebGL context: browsers cap
+  // those hard (16 per origin in Chromium), and the evictions they trigger
+  // read as ANOTHER context loss -- a churn spiral that ends with the whole
+  // GPU process being killed mid-battle. Flat mode is always playable; a
+  // dead tab is not.
+  MAX_BG_REPLACEMENTS:8,
   healthy:function(){
     if(!this.renderer)return false;
     if(this._lost)return false;
@@ -144,20 +154,51 @@ var RendererSession={
       return null;
     }
     var r=this._createRenderer(w,h);
-    if(r){this.state='ready';this.lastError=null;this._cancelRecover();return r;}
+    if(r){
+      this.state='ready';this.lastError=null;this._cancelRecover();
+      // A foreground creation succeeded: the GPU is answering again, so the
+      // crowded flag (if set) and the background-replacement budget reset.
+      this._crowded=false;this._bgCreated=0;
+      return r;
+    }
     this.state='degraded';
     this._scheduleRecover();
     return null;
   },
   _createRenderer:function(w,h){
     this._lastCreateAttempt=Date.now();
+    // Own the canvas so a FAILED context creation can still be heard: the
+    // browser reports the real reason ("Too many active WebGL contexts…")
+    // through a webglcontextcreationerror event on the canvas that failed.
+    // Three.js r149 throws a generic Error from its constructor on failure,
+    // so without our own canvas the event would fire on an unreachable node.
+    var canvas=document.createElement('canvas');
+    // Retain the canvas across the constructor: if creation throws, the
+    // browser's asynchronous webglcontextcreationerror still needs a live
+    // target to deliver the real reason (Chromium queues it as a task).
+    this._attemptCanvas=canvas;
+    var session=this;
+    var onCreationError=function(ev){
+      // Chromium refuses new contexts once the per-origin WebGL context
+      // budget (16) is exhausted. Every retry of ours that succeeded would
+      // only evict the oldest live context -- which the loss handler then
+      // replaces -- a feedback loop that thrashes the GPU process until it
+      // dies. Mark the session crowded so the BACKGROUND chain stands down;
+      // foreground mounts stay free to try (the cap clears as old contexts
+      // die, and _disposeRenderer now force-releases them immediately).
+      session._crowded=true;
+      session.lastError=new Error((ev&&ev.statusMessage)||'WebGL context creation failed');
+      console.warn('[BattleUI] WebGL context creation error',ev&&ev.statusMessage);
+      session._scheduleRecover();
+    };
+    canvas.addEventListener('webglcontextcreationerror',onCreationError,false);
     try{
       // Scenery does not benefit enough from a 2x/3x backing buffer to justify
       // its GPU cost (Pokemon and controls are crisp DOM layers). A universal
       // 1.5 DPR cap cuts the canvas allocation by 44% versus 2x and avoids
       // context eviction on high-density phones.
       var dpr=Math.min(window.devicePixelRatio||1,1.5);
-      var r=new T.WebGLRenderer({antialias:false,alpha:false,powerPreference:'default'});
+      var r=new T.WebGLRenderer({antialias:false,alpha:false,powerPreference:'default',canvas:canvas});
       r.setPixelRatio(dpr);r.setSize(w,h,false);
       // Three.js output colour-management API changed in r152 from
       // outputEncoding+sRGBEncoding to outputColorSpace+SRGBColorSpace.
@@ -168,8 +209,14 @@ var RendererSession={
       // Shadow config used to be applied 200ms after mount only, which meant a
       // recreated renderer silently lost its shadows. It belongs to creation.
       try{r.shadowMap.enabled=true;r.shadowMap.type=T.PCFSoftShadowMap;}catch(_){}
-      var canvas=r.domElement,session=this,record=r;
-      canvas.addEventListener('webglcontextlost',function(ev){
+      var record=r;
+      // The loss/restore listeners live on the canvas the renderer ACTUALLY
+      // uses. In real Three.js r149 with {canvas} passed in this is the same
+      // node; under the test stub the renderer may own a different one, and
+      // dispatched test events must reach the same node the game observes.
+      var d=r.domElement||canvas;
+      if(d!==canvas)d.addEventListener('webglcontextcreationerror',onCreationError,false);
+      d.addEventListener('webglcontextlost',function(ev){
         // A disposed renderer's canvas may still deliver a late event; it
         // must not murder the healthy renderer that replaced it.
         if(session.renderer!==record)return;
@@ -179,7 +226,7 @@ var RendererSession={
         if(current)current._notifyContextLost(ev);
         session._scheduleRecover();
       });
-      canvas.addEventListener('webglcontextrestored',function(ev){
+      d.addEventListener('webglcontextrestored',function(ev){
         if(session.renderer!==record)return;
         // Three restores its internal GL resources (its own listener runs
         // first, registered in the renderer constructor). Reset cached state
@@ -190,11 +237,14 @@ var RendererSession={
         var current=session.owner;
         if(current)current._notifyContextRestored(ev);
       });
-      this.renderer=r;this.canvas=canvas;this._lost=false;
+      this.renderer=r;this.canvas=d;this._lost=false;
+      if(this._attemptCanvas===canvas)this._attemptCanvas=null;
       return r;
     }catch(err){
       this.lastError=err;
       console.warn('[BattleUI] WebGL unavailable; using flat battle mode',err);
+      // Keep _attemptCanvas until the next attempt: the creationerror event
+      // (if any) may still be in flight and must find a live canvas.
       return null;
     }
   },
@@ -205,7 +255,18 @@ var RendererSession={
     // stacked GPU surfaces until the browser reclaimed the whole 3D process.
     this.renderer=null;this.canvas=null;this._lost=false;
     if(oldCanvas&&oldCanvas.parentNode){try{oldCanvas.parentNode.removeChild(oldCanvas);}catch(_){}}
-    if(old){try{if(old.dispose)old.dispose();}catch(_){}}
+    if(old){
+      // Three.js r149's dispose() releases its own resources but NOT the GL
+      // context itself. A replaced renderer's context used to stay alive
+      // until garbage collection -- on a machine with a flaky GPU, every
+      // recovery cycle minted a context that outlived its battle, and once
+      // the browser's per-origin context budget (16 in Chromium) was spent,
+      // the eviction/loss/replace loop thrashed the GPU process until the
+      // whole tab crashed mid-run. forceContextLoss() destroys the context
+      // NOW, so a session never holds more than one live context.
+      try{if(old.forceContextLoss)old.forceContextLoss();}catch(_){}
+      try{if(old.dispose)old.dispose();}catch(_){}
+    }
   },
   _markLost:function(err){
     this._lost=true;this.state='lost';if(err)this.lastError=err;
@@ -228,6 +289,17 @@ var RendererSession={
     // up replacement GPU contexts behind the title screen.
     if(!this.owner)return;
     if(this._recoverTimer)return;
+    // Stand down when the browser says the context budget is spent: any
+    // replacement we minted would evict a live context and re-arm this very
+    // chain -- the churn that kills GPU processes. The next foreground mount
+    // (acquire) may still succeed once the cap clears, and until then the
+    // flat CSS battlefield keeps the game fully playable.
+    if(this._crowded)return;
+    // Bound the lifetime of the BACKGROUND chain: a GPU that fails for good
+    // must strand the player in flat mode (playable), not in a tab that
+    // dies under an endless stream of half-alive contexts. Foreground mounts
+    // are never counted against this budget.
+    if(this._bgCreated>=this.MAX_BG_REPLACEMENTS)return;
     var delays=this.RECOVER_DELAYS;
     var delay=delays[Math.min(this._recoverDelay,delays.length-1)];
     this._recoverDelay+=1;
@@ -242,6 +314,7 @@ var RendererSession={
       if(h<10){h=(typeof window!=='undefined'&&window.innerHeight)||480;}
       var r=session._createRenderer(w,h);
       if(!r){session.state='degraded';session._scheduleRecover();return;}
+      session._bgCreated+=1;
       session.state='ready';session.lastError=null;
       var current=session.owner;
       if(current&&current.s&&current.s.mounted&&!current._disposed){
@@ -1884,6 +1957,13 @@ BattleUI.prototype.render = function(){
     };})(btn2));
   }
 };
+
+// Test hook: the shared renderer session is otherwise private, but the
+// regression suite (and console debugging) needs to observe it -- how many
+// renderers a session has minted, whether the browser declared the context
+// budget exhausted, and whether a replaced renderer's context was actually
+// force-released.
+BattleUI.session = RendererSession;
 
 window.BattleUI = BattleUI;
 })();

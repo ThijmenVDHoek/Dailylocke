@@ -4641,6 +4641,7 @@
   var evQ = [];            // pending [cmd, parts] events
   var evTimer = null;
   var pendingRequest = null;   // request held back until the queue is empty
+  var decisionPrompt = null;   // the "What will X do?" line, restored after the queue drains
   var atkSide = null, atkHit = false;
   var battleSaveTimer = null;
   var BATTLE_SAVE_DEBOUNCE_MS = 500;
@@ -4744,12 +4745,49 @@
     if (evTimer) return;
     step();
   }
+  // A queued request that keeps failing to render. Bounded so a permanently
+  // broken request surfaces through battleFailed() instead of either killing
+  // the queue silently (the old behaviour: one throw inside step() ended the
+  // chain and left the move buttons locked forever) or retrying forever.
+  var pendingRequestFails = 0;
   function step() {
     evTimer = null;
-    if (!ui) { evQ.length = 0; return; }
+    if (!ui) { evQ.length = 0; pendingRequest = null; return; }
     if (!evQ.length) {
       // queue drained -> now it is safe to hand control back to the player
-      if (pendingRequest) { var r = pendingRequest; pendingRequest = null; renderRequest(r); }
+      if (pendingRequest) {
+        var r = pendingRequest;
+        try {
+          renderRequest(r);
+          pendingRequest = null;
+          pendingRequestFails = 0;
+        } catch (e) {
+          // A single bad request must not kill the drain chain or leave the
+          // move buttons locked. Retry on the next tick; only a sustained
+          // failure is surfaced as a battle error.
+          pendingRequestFails++;
+          console.warn('glue: request render failed (attempt ' + pendingRequestFails + ')', e);
+          if (pendingRequestFails >= 10) {
+            pendingRequest = null;
+            pendingRequestFails = 0;
+            battleFailed(e instanceof Error ? e : new Error('The battle request could not be rendered.'));
+            return;
+          }
+          evTimer = setTimeout(step, 250);
+          return;
+        }
+      } else if (decisionPrompt && battle && battle.state && battle.state.awaitingPlayer) {
+        // The decision prompt ("What will Cinder do?") is written when the
+        // request arrives, but the log lines still draining behind it keep
+        // overwriting the message bar. When the queue finally empties and the
+        // engine is waiting for the player, put the prompt back so the
+        // tutorial's "throw the ball" moment never freezes on a stale line
+        // like "Cinder's Sp. Atk sharply fell!".
+        if (ui && ui.s && ui.s.msg !== decisionPrompt) {
+          ui.setMsg(decisionPrompt);
+          ui.log(decisionPrompt);
+        }
+      }
       return;
     }
     var parts = evQ.shift();
@@ -4763,6 +4801,8 @@
     evQ.length = 0;
     if (evTimer) { clearTimeout(evTimer); evTimer = null; }
     pendingRequest = null;
+    pendingRequestFails = 0;
+    decisionPrompt = null;
   }
 
   function handleLine(cmd, p) {
@@ -5103,6 +5143,10 @@
   // move menu from popping up in the middle of a turn.
   function handleRequest(req) {
     if (!ui || !req) return;
+    // ANY engine response proves the previous choice was consumed. Releasing
+    // the action lock here means a request that fails to render (or a wait)
+    // can never leave every move button permanently dead mid-battle.
+    if (ui.s) ui.s.locked = false;
     if (req.wait) { ui.setMoves([], {}, null); return; }
     // Flush the debounced damage/status persistence before handing control to
     // the player. This keeps reloads safe without stringifying the whole run
@@ -5253,7 +5297,9 @@
     }).filter(function (m) { return m.id !== RB.IDLE_MOVE; });
 
     var mon = activeMonForRequest;
-    ui.setMsg('What will ' + (mon ? mon.name : 'your Pokemon') + ' do?');
+    var prompt = 'What will ' + (mon ? mon.name : 'your Pokemon') + ' do?';
+    decisionPrompt = prompt;
+    ui.setMsg(prompt);
     ui.setPanel(null);
     // Mega Evolution: the engine tells us when it is available (the active mon
     // is holding its matching stone). The toggle is sticky for one action --
