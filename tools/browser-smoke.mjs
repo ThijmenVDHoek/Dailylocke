@@ -201,6 +201,13 @@ try {
         out.environmentAfterRecovery = !!environment && environment.isConnected &&
           host.querySelector('.bm-env') === environment;
         out.oneCanvas = host.querySelectorAll('canvas').length === 1 && !startCanvas.isConnected;
+        // The replaced renderer must have force-released its GL context, not
+        // left it alive until GC (the churn that exhausts Chromium's context
+        // budget and kills the GPU process mid-run).
+        let oldCtx = null;
+        try { oldCtx = startCanvas.getContext('webgl2') || startCanvas.getContext('webgl'); } catch (_) {}
+        out.oldContextReleased = !!oldCtx && typeof oldCtx.isContextLost === 'function' &&
+          oldCtx.isContextLost() === true;
       }
     }
     try { ui3.unmount(); } catch (_) {}
@@ -238,6 +245,7 @@ try {
     checks.push(['the same environment remains after renderer recovery',
       recovery.environmentAfterRecovery]);
     checks.push(['renderer replacement leaves exactly one canvas', recovery.oneCanvas]);
+    checks.push(['the replaced renderer force-released its GL context', recovery.oldContextReleased]);
   }
   checks.push(['self-healing test unmount removes its environment', recovery.environmentCleaned]);
   for (const [name, ok] of checks) console.log(`${ok ? '  ok  ' : ' FAIL '} ${name}`);
