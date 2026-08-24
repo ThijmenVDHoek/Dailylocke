@@ -47,10 +47,6 @@
       knockouts: {},             // uid -> KOs
       monMeta: {},               // uid -> {name,id} kept even after death
       catchUsedThisSection: false,
-      // Guided runs keep their safety net through the end of section 2. This
-      // is separate from `prologue`: the scripted lessons finish at the start
-      // of section 2, but its battles should still ease a new player in.
-      tutorialSafeThrough: 0,
       // rolling stats for the end-of-section summary
       sectionStats: { money: 0, won: 0, caught: null, lost: [], damage: 0, kos: 0, startedAt: 1 },
       encounterSeen: false,      // has the section's first wild appeared yet
@@ -176,12 +172,11 @@
   }
 
   // ---------------------------------------------------------- DIFFICULTY ---
-  // Endless scaling. The guided run holds BOTH opening sections at the
-  // section-1 curve; ordinary runs still begin scaling immediately. By
-  // section 10+ it is brutal, and past 15 ascension takes over (see above).
+  // Endless scaling. By section 10+ it is brutal, and past 15 ascension
+  // takes over (see above).
   function tier(run, isTrainer) {
     var actualSection = run.section;
-    var s = isTutorialSafetySection(run) ? 1 : actualSection;
+    var s = actualSection;
     var t = Math.min(1, (s - 1) / 14);              // 0..1 over 14 sections
     var a = ascension(run);
     // Opening wilds are deliberately weak so a new run does not end instantly.
@@ -245,181 +240,8 @@
   // Wild encounter. Applies the dupes clause when this is the catchable one.
   // Deterministic per seed+section+battle, so every player using the same
   // seed sees the same species (and same shiny rolls) at the same point.
-  // ---- the guided first run's safety net ----------------------------------
-  // A prologue run is a REAL run in the real Free Play slot: same engine, same
-  // rules, same permadeath. The only concession is that SECTION 1 does not
-  // sabotage the lesson it is trying to teach.
-  //
-  // Specifically: the very first catchable encounter is drawn from a short
-  // list of famously easy catches (capture rate 190-255, low BST, nothing that
-  // can one-shot a starter). Teaching "weaken it, then throw a ball" against a
-  // species with a 3% catch rate teaches the opposite lesson.
-  //
-  // Section 1 keeps this deterministic choreography. Section 2 uses ordinary
-  // encounter rolls inside the same gentle difficulty band; section 3 onward
-  // returns completely to the normal scaling curve.
-  var PROLOGUE_WILDS = ['rattata', 'pidgey', 'zigzagoon', 'bidoof', 'patrat',
-                        'lillipup', 'sentret', 'poochyena', 'starly', 'bunnelby',
-                        'yungoos', 'skwovet', 'wurmple', 'caterpie', 'weedle'];
-
-  // Extra gentle species considered ONLY for the prologue's second battle.
-  // That is the fight the coach uses to explain super-effective damage, so
-  // the wild must be weak to a move the player's lead actually carries for
-  // the lesson to make sense. Same bar as the main pool: base stat total at
-  // most 330, capture rate at least 150, nothing that can end the run.
-  var PROLOGUE_WEAK_POOL = ['sandshrew', 'geodude', 'diglett', 'psyduck', 'poliwag',
-                            'wooper', 'marill', 'oddish', 'bellsprout', 'slugma',
-                            'numel', 'vulpix'];
-
-  // Section 1 is a lesson, not a random obstacle course. The second stop is
-  // pinned to one harmless species per starter (the starter IS the lead at
-  // that point of the script) so the promised STAB weakness is always present
-  // and every first-time player sees the same choreography. A reordered party
-  // falls through to the weakness pool keyed on the lead's own STAB. Later
-  // sections return to the normal seeded encounter roll.
-  var PROLOGUE_SECOND_WILD = {
-    treecko: 'sandshrew',   // Grass -> Ground
-    charmander: 'oddish',   // Fire -> Grass
-    froakie: 'sandshrew'    // Water -> Ground
-  };
-  var PROLOGUE_THIRD_WILD = 'bidoof';
-
-  // The LEAD's STAB types. The guided run's super-effective battle must be
-  // weak to the moves of the Pokemon that will actually be attacking -- the
-  // party leader -- because the battle only lets the active mon act. In the
-  // scripted flow the starter is still the lead here (making the catch the
-  // lead is taught AFTER this battle), so this is starter-based in practice;
-  // keying it to the lead instead means a player who reorders early still
-  // gets a wild their lead can hit for 2x, and the lesson never soft-locks.
-  function leadStabTypes(run) {
-    var lead = (run && run.party && run.party[0]) || null;
-    if (!lead) return [];
-    var types = lead.types && lead.types.length ? lead.types.slice() : [];
-    if (!types.length && lead.id) {
-      var sp0 = Dex.species.get(lead.id);
-      if (sp0 && sp0.exists) types = (sp0.types || []).slice();
-    }
-    var out = [];
-    (lead.moves || []).forEach(function (mv) {
-      var d = Dex.moves.get(mv);
-      if (!d || !d.exists || d.category === 'Status') return;
-      if (types.indexOf(d.type) < 0) return;
-      if (out.indexOf(d.type) < 0) out.push(d.type);
-    });
-    if (!out.length) types.forEach(function (t) { if (out.indexOf(t) < 0) out.push(t); });
-    return out;
-  }
-
-  function isPrologueSection(run) {
-    return !!(run && run.prologue && run.section === 1);
-  }
-
-  // The choreography and the difficulty safety net deliberately have
-  // different lifetimes. Oak's scripted flow can graduate the player before
-  // section 2's first battle, but both opening sections still need to be an
-  // approachable introduction. `tutorialSafeThrough` survives graduation and
-  // becomes inert by itself when section 3 begins. The prologue fallback keeps
-  // older/in-progress saves (and repaired saves without the new field) safe.
-  function isTutorialSafetySection(run) {
-    if (!run || run.mode !== 'free') return false;
-    var through = Math.max(0, Math.floor(Number(run.tutorialSafeThrough) || 0));
-    if (!through && run.prologue) through = 2;
-    return run.section >= 1 && run.section <= through;
-  }
-
-  async function tutorialOpponentMoves(speciesId) {
-    var legal;
-    try { legal = await C.legalMoves(speciesId, { all: true }); }
-    catch (e) { legal = []; }
-    var has = {};
-    legal.forEach(function (id) { has[id] = 1; });
-    var out = [];
-    function add(id) {
-      if (!id || !has[id] || out.indexOf(id) >= 0) return false;
-      var m = Dex.moves.get(id);
-      if (!m || !m.exists) return false;
-      out.push(m.id); return true;
-    }
-
-    // Prefer recognisable early-game moves when the species can legally learn
-    // them. The opponent should feel genuine, but not threatening.
-    var preferredAttack = ['tackle', 'scratch', 'pound', 'quickattack', 'peck',
-      'gust', 'watergun', 'ember', 'vinewhip', 'absorb', 'thundershock', 'mudslap'];
-    for (var i = 0; i < preferredAttack.length && !out.length; i++) add(preferredAttack[i]);
-
-    if (!out.length) {
-      var attacks = legal.filter(function (id) {
-        var m = Dex.moves.get(id);
-        if (!m || !m.exists || m.category === 'Status' || !m.basePower) return false;
-        if (m.selfdestruct || m.ohko || (m.flags && (m.flags.recharge || m.flags.charge))) return false;
-        var acc = m.accuracy === true ? 100 : Number(m.accuracy || 100);
-        return acc >= 85 && m.basePower <= 60;
-      }).sort(function (a, b) {
-        var A = Dex.moves.get(a), B = Dex.moves.get(b);
-        return (A.basePower || 0) - (B.basePower || 0);
-      });
-      if (attacks.length) add(attacks[0]);
-    }
-
-    var preferredStatus = ['leer', 'growl', 'tailwhip', 'sandattack', 'smokescreen',
-      'withdraw', 'harden', 'defensecurl', 'tickle'];
-    for (var j = 0; j < preferredStatus.length && out.length < 2; j++) add(preferredStatus[j]);
-
-    if (out.length < 2) {
-      for (var k = 0; k < legal.length && out.length < 2; k++) {
-        var d = Dex.moves.get(legal[k]);
-        if (!d || !d.exists || d.id === 'splash' || d.category === 'Status') continue;
-        if (d.basePower && d.basePower <= 60) add(d.id);
-      }
-    }
-
-    // Last-resort fallback keeps repaired/odd saves from creating an empty set.
-    return out.length ? out : ['tackle'];
-  }
-
   function pickWild(run, opts) {
     opts = opts || {};
-    if (isPrologueSection(run)) {
-      if (run.battleInSection === 0) {
-        return 'pikachu';
-      }
-      // The capture encounter is a gentle one; the two cash battles that
-      // follow are drawn from the same friendly pool so the first section
-      // cannot end the run before the player knows what a Poke Ball is.
-      var pr = drand(run.seed + '|prologue|' + run.battleInSection);
-      // The SECOND battle teaches super-effective damage on a live target:
-      // prefer a species the LEAD's STAB actually hits for 2x+, so the
-      // lesson and the battle describe the same move no matter who the
-      // player has put at the front of the party.
-      if (run.battleInSection === 1) {
-        var lead = (run.party && run.party[0]) || null;
-        var pinned = lead && PROLOGUE_SECOND_WILD[lead.id];
-        if (pinned && !(run.seenSpecies || {})[pinned]) {
-          var pinnedSp = Dex.species.get(pinned);
-          if (pinnedSp && pinnedSp.exists && leadStabTypes(run).some(function (t) {
-            return C.typeMod(t, pinnedSp.types || []) >= 2;
-          })) return pinned;
-        }
-        var weakTo = leadStabTypes(run);
-        if (weakTo.length) {
-          var wpool = PROLOGUE_WILDS.concat(PROLOGUE_WEAK_POOL).filter(function (id) {
-            var spw = Dex.species.get(id);
-            if (!spw || !spw.exists) return false;
-            if ((run.seenSpecies || {})[id]) return false;
-            return weakTo.some(function (t) { return C.typeMod(t, spw.types || []) >= 2; });
-          });
-          if (wpool.length) return C.pick(wpool, pr);
-        }
-      }
-      if (run.battleInSection === 2 && !(run.seenSpecies || {})[PROLOGUE_THIRD_WILD]) {
-        return PROLOGUE_THIRD_WILD;
-      }
-      var pool = PROLOGUE_WILDS.filter(function (id) {
-        return Dex.species.get(id).exists && !(run.seenSpecies || {})[id];
-      });
-      if (!pool.length) pool = PROLOGUE_WILDS.filter(function (id) { return Dex.species.get(id).exists; });
-      if (pool.length) return C.pick(pool, pr);
-    }
     var tr = tier(run, false);
     var ex = null;
     if (opts.dupesClause) {
@@ -451,35 +273,20 @@
   }
 
   async function makeWild(run, speciesId) {
-    var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
-    var useTutorialMoves = isTutorialSafetySection(run);
-    if (isTutorialCapture) {
-      speciesId = 'pikachu';
-    }
     var tr = tier(run, false);
     // Wilds get a role too from ascension 1, so late-game encounters stop
     // being four-attack punching bags.
     var role = null;
-    if (ascension(run) >= 1 && !isTutorialCapture) {
+    if (ascension(run) >= 1) {
       var rr = drand(run.seed + '|wildrole|' + run.section + '|' + run.battleInSection + '|' + speciesId);
       role = pickRoleFor({ roles: ['sweeper', 'wall', 'disruptor', 'pivot'] }, speciesId,
                          Math.floor(rr() * 4));
     }
-    // Both opening tutorial sections use real legal low-power moves (not
-    // Splash). Section 1 is scripted; section 2 keeps the same gentle move
-    // ceiling even after the scripted coach has graduated the player.
-    var mon = await C.makeMon(speciesId, {
-      role: role,
-      moves: useTutorialMoves ? await tutorialOpponentMoves(speciesId) : null
-    });
+    var mon = await C.makeMon(speciesId, { role: role });
     applyTraining(run, mon, tr, false, speciesId);
-    if (isTutorialCapture) {
-      mon.shiny = false;
-    } else {
-      if (rollShinyDeterministic(run, speciesId)) mon.shiny = true;
-    }
+    if (rollShinyDeterministic(run, speciesId)) mon.shiny = true;
     var elite = eliteModFor(run, mon, 0, false);
-    if (elite && !isTutorialCapture) mon.elite = elite;
+    if (elite) mon.elite = elite;
     return mon;
   }
 
@@ -569,14 +376,6 @@
   }
 
   function trainerFor(run) {
-    // The two introductory trainers use the friendliest face on the roster.
-    // They are still real trainer battles with real teams -- just not an
-    // abrupt difficulty jump while the player is learning the run loop.
-    if (isTutorialSafetySection(run)) {
-      var t0 = TRAINER_CLASSES[0];
-      return { name: t0[0], cls: t0[1], tag: 'wants to battle!', sprite: t0[2],
-               theme: t0[3], boss: false, strategy: STRATEGIES[0] };
-    }
     var rank = Math.min(TRAINER_CLASSES.length - 1, Math.floor((run.section - 1) * 1.45));
     // Early sections use the approachable end of the roster; later sections
     // draw progressively from leaders and champions, while still varying per run.
@@ -673,13 +472,7 @@
       // The strategy assigns each slot a role, so a "Stall" trainer really
       // fields walls and a "Hyper Offence" one really fields sweepers.
       var role = pickRoleFor(strat, id, i);
-      var mon = await C.makeMon(id, {
-        role: role,
-        // Youngster Joey is still a real battle. During both introductory
-        // sections, use legal low-power moves so it feels genuine; battle.js
-        // separately protects the player's team from an unlucky early KO.
-        moves: isTutorialSafetySection(run) ? await tutorialOpponentMoves(id) : null
-      });
+      var mon = await C.makeMon(id, { role: role });
       applyTraining(run, mon, tr, true, id + '|' + i);
       // Ascension 2+: a slot may be elite, with one visible modifier.
       var elite = eliteModFor(run, mon, i, true);
@@ -1000,7 +793,6 @@
     isGauntlet: isGauntlet,
     nextIsTrainer: nextIsTrainer, advanceBattle: advanceBattle,
     resetSectionStats: resetSectionStats,
-    isTutorialSafetySection: isTutorialSafetySection,
     tier: tier, pickWild: pickWild, makeWild: makeWild,
     trainerFor: trainerFor, makeTrainerTeam: makeTrainerTeam,
     wildReward: wildReward, trainerReward: trainerReward,

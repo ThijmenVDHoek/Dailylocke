@@ -137,14 +137,13 @@
 
     <div class="title-sheet">
       <!-- FIRST VISIT: no save, no history. A brand-new player is offered
-           exactly two doors instead of three game modes they cannot yet tell
-           apart. "Start a fresh game" runs the guided prologue; "Load save"
-           is for someone arriving from another device.
+           exactly two doors: set up a trainer, or restore a backup. Everyone
+           else gets the full mode menu.
            src/app.js decides which of #titleFirst / the mode grid is shown. -->
       <div class="title-btns title-first" id="titleFirst" hidden>
         <button type="button" id="btnFreshGame" class="btn-white btn-daily">
           <span class="bd-main">Start a fresh game</span>
-          <span class="bd-sub">Pick a trainer, pick a partner, learn as you go</span>
+          <span class="bd-sub">Pick a trainer and a partner, then choose how to play</span>
         </button>
         <button type="button" id="btnTitleLoad" class="btn-glass title-action-btn">
           <span class="bd-main">Load save</span>
@@ -152,18 +151,7 @@
         </button>
       </div>
 
-      <!-- CONTINUE: a prologue run is in progress. One obvious door back in. -->
-      <div class="title-btns title-first" id="titleResume" hidden>
-        <button type="button" id="btnResumeRun" class="btn-white btn-daily">
-          <span class="bd-main">Continue</span>
-          <span class="bd-sub" id="resumeSub"></span>
-        </button>
-        <button type="button" id="btnTitleLoad2" class="btn-glass title-action-btn">
-          <span class="bd-main">Load save</span>
-        </button>
-      </div>
-
-      <!-- THE FULL MENU: shown once the player has finished their first run.
+      <!-- THE FULL MENU: shown once the player has set up a trainer.
            Daily and Free Play are SEPARATE slots, so both can be offered at
            once: finishing a Daily never costs you a Free Play run, and a good
            Free Play run never locks you out of tomorrow's Daily. -->
@@ -203,14 +191,6 @@
       <h2 class="scr-title">How it works</h2>
     </div>
     <div class="rules-body">
-      <!-- Two help surfaces, so each points at the other: this page is the
-           complete rule set, the Guide is the same material broken into one
-           idea at a time. -->
-      <button type="button" id="btnRulesGuide" class="rules-guide-link">
-        <span class="coach-portrait" id="rulesFace"></span>
-        <span><b>New here?</b> The Guide explains the same things one at a time,
-          in the order they come up. &rsaquo;</span>
-      </button>
       <div class="rule">
         <span class="rl-n">1</span>
         <div><b>Three ways to play</b><p><b>Daily</b> is the same fixed 5-section challenge for everyone, scored and recorded once a day. <b>Free Play</b> is endless and randomized. <b>Team Gauntlet</b> is a trainer rush: build any team of 6 for free, then fight trainer after trainer. Each mode has its own save slot, so one never blocks another.</p></div>
@@ -280,20 +260,6 @@
       <label class="setup-label" for="setupName">Your name</label>
       <input id="setupName" class="search setup-name" type="text" maxlength="12"
              autocomplete="off" spellcheck="false" placeholder="Trainer"/>
-
-      <div class="setup-experience">
-        <div class="setup-label">Played a Pokemon roguelike before?</div>
-        <div class="setup-choice">
-          <button type="button" class="setup-opt on" data-exp="new">
-            <b>I'm new to this</b><span>Show me the ropes as I play</span>
-          </button>
-          <button type="button" class="setup-opt" data-exp="pro">
-            <b>I know what I'm doing</b><span>No tips &mdash; just let me play</span>
-          </button>
-        </div>
-        <p class="hint center setup-note">You can change this any time in Profile,
-          and every tip stays readable in the Guide.</p>
-      </div>
     </div>
     <div class="x-battle-dock">
       <button type="button" id="btnSetupGo" class="btn-primary x-battle-btn">
@@ -458,10 +424,6 @@
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/town-map.png" alt="">
           <span class="mi-t"><b>Import save</b><em>Restore a backup file</em></span>
         </button>
-        <button type="button" id="btnMenuGuide" class="menu-item">
-          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/exp-share.png" alt="">
-          <span class="mi-t"><b>Guide</b><em id="miGuideSub">Learn the game, one idea at a time</em></span>
-        </button>
         <button type="button" id="btnMenuRules" class="menu-item">
           <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/tm-normal.png" alt="">
           <span class="mi-t"><b>How it works</b><em>The full rule set</em></span>
@@ -573,69 +535,6 @@
     </div>
   </div>
 
-  <!-- ===================== COACH (overlay) ===================== -->
-  <!-- One lesson at a time, in the professor's voice. Never chained: the
-       coach module refuses to open a second card while this one is up or
-       immediately after it closes. src/coach.js fills the card. -->
-  <div id="screenCoach" class="overlay coach-overlay" hidden>
-    <div class="overlay-card coach-card"></div>
-  </div>
-
-  <!-- ===================== MODE EXPLAINER (overlay) ===================== -->
-  <div id="screenModeInfo" class="overlay coach-overlay mode-overlay" hidden>
-    <div class="overlay-card coach-card mode-card">
-      <div class="coach-dialogue-row mode-dialogue-row">
-        <div class="coach-body mode-copy">
-          <div class="coach-who mode-who">
-            <h3 id="modeTitle">Mode</h3>
-            <em>Before you start</em>
-          </div>
-          <p class="mode-lede" id="modeLede"></p>
-          <ul class="mode-points" id="modePoints"></ul>
-        </div>
-        <div class="coach-head immersive coach-dialogue-professor mode-dialogue-professor">
-          <span class="coach-portrait" id="modeFace"></span>
-        </div>
-      </div>
-      <div class="coach-actions mode-actions">
-        <button type="button" id="btnModeGo" class="btn-primary wide">Let's go</button>
-        <button type="button" id="btnModeBack" class="coach-skip">Back</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ===================== TUTORIAL SKIP CHOICE (overlay) ===================== -->
-  <div id="screenSkipTutorialChoice" class="overlay" hidden>
-    <div class="overlay-card mode-card">
-      <div class="coach-head">
-        <span class="coach-portrait" id="skipChooseFace"></span>
-        <div class="coach-who"><b>Select Mode</b><em>Ready to play</em></div>
-      </div>
-      <p class="mode-lede">Since you know what you are doing, choose which mode you would like to play. Every mode will play as normal with no further tutorial or onboarding.</p>
-      <button type="button" id="btnSkipChooseDaily" class="btn-primary wide">Daily Run</button>
-      <button type="button" id="btnSkipChooseFree" class="btn-primary wide" style="margin-top: 8px;">Random Run</button>
-      <button type="button" id="btnSkipChooseGauntlet" class="btn-primary wide" style="margin-top: 8px;">Full Team Gauntlet</button>
-      <button type="button" id="btnSkipChooseBack" class="btn-secondary wide" style="margin-top: 16px;">Back</button>
-    </div>
-  </div>
-
-  <!-- ===================== GUIDE ===================== -->
-  <!-- Every lesson, permanently re-readable. This is what licenses the game
-       to stop nagging: if someone gets stuck later, the answer is here rather
-       than on a wiki. -->
-  <section id="screenGuide" class="screen-page codex-page" hidden>
-    <div class="sub-head">
-      <button type="button" id="btnGuideBack" class="back-pill">Back</button>
-      <h2 class="scr-title">Guide</h2>
-    </div>
-    <div class="guide-hero">
-      <span class="coach-portrait" id="guideFace"></span>
-      <p class="hint">Everything <b id="guideWho">the professor</b> explains during a run, in one place.
-         Tap any card to read it again.</p>
-    </div>
-    <div id="guideBody"></div>
-  </section>
-
   <!-- ===================== INSTALL HOW-TO (overlay) ===================== -->
   <!-- iOS/iPadOS and desktop Safari expose no install API, so the same pill
        opens this instead of calling prompt(). Steps are filled by src/pwa.js
@@ -730,7 +629,7 @@
        app-loader.js   -> post-paint game controller loader
        nuzlocke.js    -> window.Nuz          (needs Core)
        ...feature modules...
-       coach.js       -> window.Coach         (lessons + plain-language facts)
+       coach.js       -> window.Coach         (plain-language move/item facts)
        savecode.js    -> window.SaveCode      (backup files)
        pwa.js         -> window.PWA           (service worker + install button)
        app.js         -> boots the game       (needs everything above)
