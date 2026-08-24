@@ -1181,7 +1181,12 @@
       // is a small window in which a player could skip ahead by tapping another
       // control.
       if (opts.actionRequired) armActionLock(opts);
-      if (busy || Date.now() < cooldownUntil) {
+      // A scripted action can follow another scripted action across a screen
+      // transition (Route -> first battle). Do not leave a silent cooldown
+      // between them: the newly highlighted control needs its Oak prompt the
+      // instant it exists. Ordinary tips still observe the anti-stack delay.
+      var immediateGuidedAction = !!(opts.bypassSeen && opts.actionRequired);
+      if (busy || (!immediateGuidedAction && Date.now() < cooldownUntil)) {
         if (opts.vital) queueVital(id, opts);
         return false;
       }
