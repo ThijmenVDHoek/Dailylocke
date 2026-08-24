@@ -2504,3 +2504,12 @@ body.coach-sheet-open .coach-spot { z-index:850; box-shadow:none; }
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after { scroll-behavior:auto !important; transition-duration:.01ms !important; animation-duration:.01ms !important; }
 }
+
+/* Section-five milestone gift: a short, unmistakable reward moment. */
+.gift-card { max-width:360px; text-align:center; padding:28px 22px 22px; }
+.gift-star { color:var(--gold); font-size:2.25rem; text-shadow:0 0 28px rgba(255,215,110,.7); }
+.gift-kicker { margin:2px 0 7px; color:var(--ink-3); font-size:.75rem; text-transform:uppercase; letter-spacing:1.4px; }
+.gift-item { display:flex; gap:12px; align-items:center; margin:20px 0; padding:13px; text-align:left; border-radius:var(--r-md); background:rgba(192,124,232,.12); }
+.gift-item b { display:block; color:#fff; font-size:1.15rem; }
+.gift-item em { display:block; margin-top:3px; color:var(--ink-2); font-size:.78rem; font-style:normal; line-height:1.25; }
+#giftBallArt { flex:0 0 48px; display:grid; place-items:center; }

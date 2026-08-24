@@ -347,7 +347,7 @@
   // which does both. Everyone reads it as "heals everything".
   var ITEM_PLAIN = {
     fullheal:    { one: 'Status only \u2014 no HP', long: 'Cures poison, burn, paralysis, sleep or freeze. It restores <b>no HP at all</b>. For HP you want a Potion.' },
-    fullrestore: { one: 'Full HP + cures status', long: 'The one that really does everything: back to full HP <b>and</b> clears any status.' },
+    fullrestore: { one: 'Fully restores one Pokémon', long: 'The only field medicine: restores all HP and PP, and cures any status. It cannot revive a fainted Pokémon.' },
     maxpotion:   { one: 'Full HP, status stays', long: 'Restores every point of HP, but a burn or paralysis will still be there afterwards.' },
     potion:      { one: 'Small heal (20%)', long: 'Restores a fifth of max HP. Cheap, and enough to survive one more hit.' },
     superpotion: { one: 'Medium heal (35%)', long: 'A third of max HP.' },
@@ -500,9 +500,9 @@
     { id: 'healOpen', where: '_tutorial', title: 'Heal your new friend',
       say: 'I want you to practice healing your new teammate between battles.',
       body: 'Tap <b>{NAME}\u2019s card</b> on your team.' },
-    { id: 'healUse', where: '_tutorial', title: 'Use a Potion',
+    { id: 'healUse', where: '_tutorial', title: 'Use a Full Restore',
       say: 'Good. Now I will show you where healing happens.',
-      body: 'Tap the pulsing <b>Use Potion</b> button.' },
+      body: 'Tap the pulsing <b>Use Full Restore</b> button.' },
     { id: 'onward', where: '_tutorial', title: 'Continue onward',
       say: 'I can see your friend is healed and ready. I will lead you to the next stop.',
       body: 'Tap the pulsing <b>Wild Battle 1</b> button.' },
@@ -525,7 +525,7 @@
       say: 'Your save lives only in this browser; nothing is stored online.',
       body: 'Tap <b>Save progress</b> to download a backup.' },
     { id: 'mart', where: 'items', title: 'Open the Mart',
-      say: 'I keep Balls and Potions in stock, while held items and stones rotate each section.',
+      say: 'Each section has one Ball tier and Full Restores, while held items and stones rotate.',
       body: 'Tap the <b>Mart</b> to see what is in stock.' },
     { id: 'train', where: 'training', title: 'Train your Pokemon',
       say: 'I use the Train service to improve moves, ability, nature, and Stat Points.',
@@ -1166,7 +1166,7 @@
     if (!l) return false;
     // Scripted tutorial beats carry a progress value, not a card number:
     // several cards can teach one milestone and a full-HP catch skips the
-    // Potion interaction. The sheet renders this as a bar, so it never claims
+    // Full Restore interaction. The sheet renders this as a bar, so it never claims
     // that two different cards are the same numbered step.
     if (!opts.force && opts.bypassSeen &&
         window.Game && typeof window.Game.tutorialProgress === 'function') {

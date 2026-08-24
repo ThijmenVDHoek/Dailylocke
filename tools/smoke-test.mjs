@@ -1359,7 +1359,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // the catch is dice, and dice do not belong in a test -- a string of
   // break-outs lets the wild mon KO the only party member and WIPES the run
   // mid-block (an intermittent party=0 caught=0 failure).
-  r3.bag = { masterball: 3, potion: 3, superpotion: 2 };
+  r3.bag = { masterball: 3, fullrestore: 3 };
   r3.money = 100;
   // One dependable starter with a gentle, accurate STAB move. Charmander also
   // gives the following battle a real Fire weakness, so this block can compare
@@ -1555,13 +1555,13 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   if (caughtSlot) caughtSlot.click();
   const healBubble = await until3(() => {
     const b = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
-    return b && b.textContent === 'Use a Potion' ? b : null;
+    return b && b.textContent === 'Use a Full Restore' ? b : null;
   }, 8000);
-  check('the party sheet points at the Potion button', !!healBubble);
+  check('the party sheet points at the Full Restore button', !!healBubble);
   if (healBubble) window.document.querySelector('.coach-bubble [data-coach-ok]').click();
   await new Promise((r) => setTimeout(r, 250));
   const potionBtn = window.document.querySelector('#xTeamDetail .pd-potion-btn');
-  check('a Potion button is armed for the new partner', !!potionBtn);
+  check('a Full Restore button is armed for the new partner', !!potionBtn);
   const hpBefore = (() => {
     const m = r3.party.find((mm) => String(mm.uid) === String(r3._tutCatchUid));
     return m ? m.hpPct : null;
@@ -1577,7 +1577,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     const m = r3.party.find((mm) => String(mm.uid) === String(r3._tutCatchUid));
     return m ? m.hpPct : null;
   })();
-  check('using the Potion completes the heal step',
+  check('using the Full Restore completes the heal step',
     r3.tutorialHealDone === true && hpAfter != null && hpBefore != null &&
     hpAfter > hpBefore,
     `healDone=${r3.tutorialHealDone} hp=${hpBefore}->${hpAfter}`);
@@ -3122,20 +3122,11 @@ host2.remove();
       (CO.setBadges(false), CO.tipsOn() === true && CO.badgesOn() === false));
     CO.setBadges(true);
 
-    // ---- 2. tell the truth ----
-    // Full Heal restores ZERO HP but sits next to Full Restore, which does
-    // both. If this copy ever regresses, the most confusing item in the game
-    // goes back to being unexplained.
-    const fh = CO.itemPlain('fullheal');
-    check('Full Heal is explained as status-only',
-      !!fh && /status only/i.test(fh.one) && /no HP/i.test(fh.one), fh && fh.one);
-    check('Full Restore is explained as the one that does both',
-      /full hp/i.test(CO.itemOneLiner('fullrestore')));
-    check('Revives are flagged as useless in a nuzlocke',
-      /does not work/i.test(CO.itemOneLiner('revive')));
-    check('every heal item the Mart stocks has plain-language copy',
-      ['potion', 'superpotion', 'hyperpotion', 'maxpotion', 'fullrestore', 'fullheal',
-       'ether', 'maxether', 'elixir'].every((id) => !!CO.itemOneLiner(id)));
+    // ---- 2. one clear recovery item ----
+    check('Full Restore plainly promises a complete restoration',
+      /fully restores/i.test(CO.itemOneLiner('fullrestore')));
+    check('Full Restore is the only field medicine',
+      Object.keys(C.HEAL_ITEMS).length === 1 && !!C.HEAL_ITEMS.fullrestore);
     check('every ball has plain-language copy',
       Object.keys(C.BALLS).every((id) => !!CO.itemOneLiner(id)),
       Object.keys(C.BALLS).filter((id) => !CO.itemOneLiner(id)).join(', '));

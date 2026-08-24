@@ -594,6 +594,8 @@
     if (sBack) sBack.addEventListener('click', function () {
       window.Modal.close('screenSkipTutorialChoice');
     });
+    var gift = $('btnGiftTake');
+    if (gift) gift.addEventListener('click', function () { window.Modal.close('screenSectionGift'); });
   }
 
   // Commit the trainer, then start the guided first run.
@@ -991,10 +993,10 @@
           N.trackMon(run, mon);
           run.seenSpecies[mon.id] = 1;
           N.addItem(run, 'pokeball', 5);
-          N.addItem(run, 'potion', 3);
+          N.addItem(run, 'fullrestore', 3);
           // The guided run starts with a little more slack so a first-timer
           // can afford to miss a ball throw and still learn the lesson.
-          if (run.prologue) { N.addItem(run, 'greatball', 3); N.addItem(run, 'superpotion', 2); }
+          if (run.prologue) { N.addItem(run, 'fullrestore', 2); }
           N.logMsg(run, 'You set out with ' + nick + ' the ' + mon.species + '.');
           if (mon.shiny) recordShiny(mon, 'starter');
           // The Daily result records which starter you took, so the share card
@@ -1546,7 +1548,25 @@
       drawOwned();
       openMart();
     }
+    maybeOfferSectionFiveGift(isG);
     routeCoach(trainerNext, isG);
+  }
+
+  // A single milestone reward introduces the Master Ball without asking the
+  // player to compare it with shop stock. Mark it before opening the dialog so
+  // a refresh or a stacked modal can never duplicate the gift.
+  function maybeOfferSectionFiveGift(isGauntlet) {
+    if (!run || isGauntlet || run.section !== 5 || run.section5GiftClaimed) return;
+    run.section5GiftClaimed = true;
+    N.addItem(run, 'masterball', 1);
+    N.logMsg(run, 'Received a Master Ball at the start of Section 5.');
+    saveGame();
+    setTimeout(function () {
+      if (!run || $('screenCrossroads').hidden) return;
+      var art = $('giftBallArt');
+      if (art) art.innerHTML = window.ItemArt ? window.ItemArt.itemImg('masterball', 48) : '';
+      window.Modal.open('screenSectionGift');
+    }, 0);
   }
 
   // Camp keeps preparation understandable: show only the immediate decisions,
@@ -2983,7 +3003,7 @@
     var potionHtml = '';
     if (mon.hpPct < 1 && !C.isFainted(mon)) {
       var bestPotion = null;
-      var potionOrder = ['maxpotion', 'fullrestore', 'hyperpotion', 'superpotion', 'potion'];
+      var potionOrder = ['fullrestore'];
       for (var pi = 0; pi < potionOrder.length; pi++) {
         if (run.bag[potionOrder[pi]] && run.bag[potionOrder[pi]] > 0) { bestPotion = potionOrder[pi]; break; }
       }
@@ -3111,13 +3131,10 @@
     if (potionBtn) potionBtn.addEventListener('click', function () {
       var itemId = potionBtn.dataset.potion;
       var h = C.HEAL_ITEMS[itemId];
-      if (!h || !h.healPct) return;
-      var amount = Math.max(1, Math.round(mx * h.healPct));
-      var got = Math.min(mx - cur, amount);
-      if (got <= 0) { toast('Already at full HP.'); return; }
-      N.useItem(run, itemId);
-      mon.hpPct = Math.min(1, mon.hpPct + got / mx);
-      toast(mon.name + ' recovered ' + got + ' HP!');
+      if (!h) return;
+      var applied = N.applyItem(run, itemId, mon);
+      if (!applied.ok) { toast(applied.msg || 'That cannot help right now.'); return; }
+      toast(applied.msg);
       // The guided run's heal step is complete the moment the new partner is
       // healed out of battle — this is the taught action, not just a card
       // read.
@@ -7114,6 +7131,13 @@
     if (s.tutorialSafeThrough == null && r.mode === 'free' && r.tutorialStarterUid) {
       r.tutorialSafeThrough = 2;
     }
+    // The field-medicine redesign has one understandable item. Convert old
+    // healing stock rather than silently deleting a player's purchases.
+    var oldHealIds = ['potion', 'superpotion', 'hyperpotion', 'maxpotion', 'revive',
+      'maxrevive', 'fullheal', 'antidote', 'awakening', 'ether', 'maxether', 'elixir'];
+    var converted = 0;
+    oldHealIds.forEach(function (id) { converted += Number((r.bag || {})[id] || 0); if (r.bag) delete r.bag[id]; });
+    if (converted) r.bag.fullrestore = (r.bag.fullrestore || 0) + converted;
     // Restore exact RNG state if available, so catch shakes and any remaining
     // randomness stay stable across refreshes. Old saves fallback to the
     // previous best-effort formula.

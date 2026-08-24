@@ -819,27 +819,18 @@
     var stock = [];
     var s = run.section;
 
-    // --- Balls (always) ---
-    var balls = ['pokeball', 'greatball'];
-    if (s >= 2) balls.push('ultraball');
-    if (s >= 3) balls.push(C.pick(['timerball', 'netball', 'quickball', 'duskball'], rand));
-    if (s >= 7 && rand() < 0.12) balls.push('masterball');
-    balls.forEach(function (id) {
-      var b = C.BALLS[id];
-      stock.push({ kind: 'ball', id: id, name: b.name, price: b.price, desc: b.desc, stock: id === 'masterball' ? 1 : 99 });
-    });
+    // --- Capture supplies: one ball tier per section. There is no false
+    // choice between overlapping balls; the route tells the player exactly
+    // what level of catch tool is available now.
+    var ballId = s === 1 ? 'pokeball' : (s === 2 ? 'greatball' : 'ultraball');
+    var ball = C.BALLS[ballId];
+    stock.push({ kind: 'ball', id: ballId, name: ball.name, price: ball.price,
+                 desc: ball.desc, stock: 99 });
 
-    // --- Healing / status (always a useful spread) ---
-    var heals = ['potion', 'superpotion'];
-    if (s >= 2) heals.push('hyperpotion');
-    if (s >= 4) heals.push('maxpotion');
-    if (s >= 6) heals.push('fullrestore');
-    heals.push('fullheal');
-    if (rand() < 0.5) heals.push('ether'); else heals.push('elixir');
-    heals.forEach(function (id) {
-      var h = C.HEAL_ITEMS[id];
-      stock.push({ kind: 'heal', id: id, name: h.name, price: h.price, desc: h.desc, stock: 99 });
-    });
+    // --- Recovery: a single Full Restore fully prepares one survivor.
+    var restore = C.HEAL_ITEMS.fullrestore;
+    stock.push({ kind: 'heal', id: 'fullrestore', name: restore.name,
+                 price: restore.price, desc: restore.desc, stock: 99 });
 
     // --- Held items: weighted by tier, more exotic later ---
     var T = C.ITEM_TIERS;
