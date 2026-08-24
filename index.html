@@ -365,24 +365,28 @@
     <!-- the team lives on this screen; no separate menu -->
     <div class="team-strip" id="xTeam"></div>
 
-    <div class="x-bag" id="xBagBlock">
-      <div class="x-bag-head">
-        <h3 class="x-bag-title">Bag</h3>
-        <span class="x-bag-note" id="xBagNote"></span>
+    <!-- Camp is the only preparation surface. The next useful action is always
+         visible; inventory and shopping are available without filling the route. -->
+    <section class="camp" id="xCamp" aria-label="Prepare for battle">
+      <div class="camp-head">
+        <div><div class="camp-kicker">Before you go</div><h3>Prepare your team</h3></div>
+        <button type="button" class="camp-heal" id="btnCampHeal" hidden>Use recommended medicine</button>
       </div>
-      <div id="xOwned" class="owned-grid"></div>
-    </div>
+      <div id="xRecommendations" class="camp-actions" aria-live="polite"></div>
 
-    <div class="x-shop" id="xShopBlock">
-      <div class="x-shop-head">
-        <h3 class="x-shop-title">Poke Mart</h3>
-        <span class="x-shop-note">Tap a Pokemon to train or use items</span>
-      </div>
+      <details class="camp-drawer" id="xBagBlock">
+        <summary><span>Heal &amp; items</span><span class="drawer-note" id="xBagNote"></span></summary>
+        <p class="drawer-help">Use medicine, evolution items, or equip an item to a Pokémon.</p>
+        <div id="xOwned" class="owned-grid"></div>
+      </details>
 
-      <div id="martGrid" class="mart-inline"></div>
-      <h4 class="sub-title">Sell</h4>
-      <div id="martSell" class="sell-grid"></div>
-    </div>
+      <details class="camp-drawer" id="xShopBlock">
+        <summary><span>Shop</span><span class="drawer-note">Buy supplies and upgrades</span></summary>
+        <p class="drawer-help">Start with what helps your next battle. Advanced transformations appear as you discover them.</p>
+        <div id="martGrid" class="mart-inline"></div>
+        <details class="sell-drawer"><summary>Sell spare items</summary><div id="martSell" class="sell-grid"></div></details>
+      </details>
+    </section>
 
     <div class="x-battle-dock">
       <button type="button" id="btnGoBattle" class="btn-primary x-battle-btn">

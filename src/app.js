@@ -1542,11 +1542,71 @@
     if (bagBlock) bagBlock.hidden = isG;
     if (shopBlock) shopBlock.hidden = isG;
     if (!isG) {
+      drawCamp(trainerNext);
       drawOwned();
-      // the shop lives on this screen now
       openMart();
     }
     routeCoach(trainerNext, isG);
+  }
+
+  // Camp keeps preparation understandable: show only the immediate decisions,
+  // while Bag and Shop stay available in their named drawers below.
+  function drawCamp(trainerNext) {
+    var host = $('xRecommendations'), heal = $('btnCampHeal');
+    if (!host || !run) return;
+    var injured = run.party.filter(function (m) { return !C.isFainted(m) && (m.hpPct < .999 || !!m.status); });
+    var medicine = Object.keys(run.bag).filter(function (id) { return !!C.HEAL_ITEMS[id]; });
+    var actions = [];
+    if (injured.length) {
+      var names = injured.slice(0, 2).map(function (m) { return m.name; }).join(' and ');
+      actions.push({ key: medicine.length ? 'heal' : 'shop', warn: true, mark: '♥',
+        title: medicine.length ? 'Heal ' + names : 'Your team needs medicine',
+        text: medicine.length ? injured.length + ' Pokémon need attention before the next battle.' : 'Open the shop to stock up before you continue.' });
+    }
+    var evoMon = run.party.filter(function (m) {
+      return Object.keys(run.bag).some(function (id) { return bagGroupOf(id) === 'evo' && evoTargetsFor(id, m).length; });
+    })[0];
+    if (evoMon) actions.push({ key: 'team', mark: '↑', title: evoMon.name + ' is ready to evolve', text: 'Open its team card to see what it can become.' });
+    var lowBalls = Object.keys(run.bag).reduce(function (n, id) { return n + (C.BALLS[id] ? run.bag[id] : 0); }, 0) === 0;
+    if (!trainerNext && lowBalls) actions.push({ key: 'shop', mark: '○', title: 'Bring a Poké Ball', text: 'The next encounter may be your one catch for this section.' });
+    if (!actions.length) actions.push({ key: 'team', mark: '✓', title: 'Your team is ready', text: 'Check your lead or start the next battle.' });
+    host.innerHTML = actions.slice(0, 2).map(function (a) {
+      return '<button type="button" class="camp-action' + (a.warn ? ' warn' : '') + '" data-camp-action="' + a.key + '"><span class="camp-mark">' + a.mark + '</span><span><b>' + escapeHtml(a.title) + '</b><small>' + escapeHtml(a.text) + '</small></span></button>';
+    }).join('');
+    host.querySelectorAll('[data-camp-action]').forEach(function (b) { b.onclick = function () { openCampAction(b.dataset.campAction); }; });
+    if (heal) {
+      heal.hidden = !injured.length || !medicine.length;
+      heal.onclick = useRecommendedMedicine;
+    }
+  }
+
+  function openCampAction(action) {
+    if (action === 'shop') { var shop = $('xShopBlock'); if (shop) { shop.open = true; shop.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
+    if (action === 'heal') { var bag = $('xBagBlock'); if (bag) { bag.open = true; bag.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
+    partySel = 0; drawTeamStrip(); drawPartyDetail();
+  }
+
+  // A safe convenience action: consume only medicine that produces a real
+  // benefit, prioritising small heals so a Full Restore is not wasted.
+  function useRecommendedMedicine() {
+    var ids = Object.keys(run.bag).filter(function (id) { return !!C.HEAL_ITEMS[id]; }).sort(function (a, b) {
+      return (C.HEAL_ITEMS[a].healPct || 0) - (C.HEAL_ITEMS[b].healPct || 0);
+    });
+    var messages = [];
+    run.party.forEach(function (mon) {
+      if (C.isFainted(mon)) return;
+      while ((mon.hpPct < .999 || mon.status) && ids.length) {
+        var id = ids.filter(function (item) { return run.bag[item] && itemEffectOn(item, mon).dis !== true; })[0];
+        if (!id) break;
+        var result = N.applyItem(run, id, mon);
+        if (!result.ok) break;
+        messages.push(result.msg);
+      }
+    });
+    if (!messages.length) { toast('No medicine can help your team right now.'); return; }
+    N.logMsg(run, 'Prepared the team with medicine.');
+    toast('Team prepared.');
+    renderCrossroads(); saveGame();
   }
 
   // ---- route-screen teaching ----------------------------------------------

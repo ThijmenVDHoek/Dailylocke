@@ -2382,3 +2382,31 @@ body.coach-sheet-open .coach-spot { z-index:850; box-shadow:none; }
 }
 .rules-guide-link:hover { background:rgba(192,124,232,.18); }
 .rules-guide-link b { color:#fff; }
+
+/* ===== SIMPLE CAMP FLOW =====
+   The route exposes a single preparation surface instead of an inventory,
+   shop and sell screen competing with the battle CTA. */
+.camp { margin:4px 0 4px; }
+.camp-head { display:flex; gap:12px; justify-content:space-between; align-items:center; padding:14px; border-radius:var(--r-md); background:linear-gradient(135deg,rgba(91,140,255,.16),rgba(74,222,128,.07)); box-shadow:var(--e1); }
+.camp-kicker { color:var(--ink-3); font-size:.67rem; text-transform:uppercase; letter-spacing:1.4px; margin-bottom:3px; }
+.camp-head h3 { color:#fff; font-size:1.2rem; }
+.camp-heal { border:0; border-radius:var(--r-pill); padding:9px 11px; background:rgba(74,222,128,.18); color:var(--green); font:inherit; font-size:.78rem; line-height:1.1; cursor:pointer; }
+.camp-heal:hover { background:rgba(74,222,128,.28); }
+.camp-actions { display:grid; gap:7px; margin:10px 0; }
+.camp-action { width:100%; display:flex; align-items:center; gap:9px; padding:11px 12px; text-align:left; border:0; border-radius:var(--r-sm); color:var(--ink); font:inherit; background:var(--surface); box-shadow:var(--e1); cursor:pointer; }
+.camp-action:hover { background:var(--surface-hi); }
+.camp-action b { color:#fff; font-size:.9rem; }
+.camp-action small { display:block; color:var(--ink-2); font-size:.74rem; margin-top:2px; }
+.camp-action .camp-mark { color:var(--gold); font-size:1.1rem; }
+.camp-action.warn .camp-mark { color:var(--red); }
+.camp-empty { padding:11px 12px; color:var(--green); background:rgba(74,222,128,.08); border-radius:var(--r-sm); font-size:.84rem; }
+.camp-drawer { margin-top:8px; border-radius:var(--r-md); background:var(--surface); box-shadow:var(--e1); overflow:hidden; }
+.camp-drawer > summary, .sell-drawer > summary { list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; padding:13px; color:#fff; font-size:1rem; }
+.camp-drawer > summary::-webkit-details-marker, .sell-drawer > summary::-webkit-details-marker { display:none; }
+.camp-drawer > summary::after, .sell-drawer > summary::after { content:'+'; color:var(--ink-3); margin-left:8px; }
+.camp-drawer[open] > summary::after, .sell-drawer[open] > summary::after { content:'–'; }
+.drawer-note { color:var(--ink-3); font-size:.72rem; margin-left:auto; margin-right:8px; }
+.drawer-help { padding:0 13px 10px; margin:0; color:var(--ink-2); font-size:.78rem; line-height:1.35; }
+.camp-drawer .owned-grid, .camp-drawer .mart-inline { padding:0 13px 13px; }
+.sell-drawer { margin:0 13px 13px; border-top:1px solid rgba(255,255,255,.08); }
+.sell-drawer > summary { padding:12px 0; color:var(--ink-2); font-size:.82rem; }
