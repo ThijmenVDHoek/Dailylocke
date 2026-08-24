@@ -1250,21 +1250,24 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('the guided run starts at trainer setup', !!setup);
 
   // The tutorial's FIRST beat is Professor Oak introducing himself over the
-  // setup screen — dialogue first, one action after.
-  const welcomeSheet = await waitFor(() => !window.document.getElementById('screenCoach').hidden, 8000);
-  check('Professor Oak welcomes the new trainer at setup', !!welcomeSheet &&
-    (window.document.getElementById('coachTitle') || {}).textContent === 'Welcome',
-    welcomeSheet ? (window.document.getElementById('coachTitle') || {}).textContent : 'NO WELCOME');
-  if (welcomeSheet) {
-    const welcomeTyped = await waitFor(() => {
-      const b = window.document.getElementById('coachBodyReveal');
-      return b && /Professor Oak/.test(b.textContent);
-    }, 6000);
-    check('the welcome is spoken by Professor Oak', !!welcomeTyped);
+  // setup screen. It is a non-modal bubble so the player can still pick a
+  // sprite, type a name and choose the tips setting before pressing Begin.
+  const welcomeBubble = await waitFor(() => {
+    const t = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return t && t.textContent === 'Welcome' ? t : null;
+  }, 8000);
+  check('Professor Oak welcomes the new trainer at setup', !!welcomeBubble,
+    welcomeBubble ? welcomeBubble.textContent : 'NO WELCOME');
+  if (welcomeBubble) {
+    const welcomeBody = window.document.querySelector('.coach-bubble:not([hidden]) .cb-body');
+    check('the welcome is spoken by Professor Oak',
+      !!welcomeBody && /Professor Oak/.test(welcomeBody.textContent || ''));
     check('the welcome card has no stale step counter',
       !/Step \\d+ of \\d+/.test(
-        (window.document.querySelector('#screenCoach .coach-who em') || {}).textContent || ''));
-    window.document.querySelector('#screenCoach [data-coach-ok]').click();
+        (window.document.querySelector('.coach-bubble:not([hidden])') || {}).textContent || ''));
+    check('the welcome does not lock trainer setup controls', window.Coach.actionLocked() === false);
+    const ok = window.document.querySelector('.coach-bubble [data-coach-ok]');
+    if (ok) ok.click();
   }
   if (setup) {
     window.document.getElementById('setupName').value = 'Tipster';
@@ -1274,24 +1277,29 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     window.document.querySelectorAll('#starterGrid .starter-card').length === 3, 40000);
   check('the guided run offers the fixed trio', !!cards);
 
-  // The starter lesson halos the grid but must NOT action-lock a card: all
-  // three Choose buttons stay live.
-  const sheet = await waitFor(() => !window.document.getElementById('screenCoach').hidden, 10000);
-  check('the starter lesson opens over the trio', !!sheet &&
-    window.document.getElementById('coachTitle').textContent === 'Choose your starter',
-    sheet ? window.document.getElementById('coachTitle').textContent : 'NO SHEET');
+  // The starter lesson halos the whole grid but must NOT lock a particular
+  // card: all three Choose buttons stay live.
+  const sheet = await waitFor(() => {
+    const t = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return t && t.textContent === 'Choose your starter' ? t : null;
+  }, 10000);
+  check('the starter lesson opens over the trio', !!sheet,
+    sheet ? sheet.textContent : 'NO BUBBLE');
   check('the starter lesson uses a progress bar instead of a card number',
-    !!sheet && !!window.document.querySelector('#screenCoach .coach-progress[role="progressbar"]'),
-    sheet ? window.document.querySelector('#screenCoach .coach-progress') && 'present' : 'missing');
-  check('no starter card is action-locked by the lesson',
-    !window.Coach.actionLocked() &&
-    !window.document.body.classList.contains('coach-action-locked'));
+    !!sheet && !!window.document.querySelector('.coach-bubble .coach-progress[role="progressbar"]'),
+    sheet ? window.document.querySelector('.coach-bubble .coach-progress') && 'present' : 'missing');
+  const starterLockTarget = window.Coach.actionLockTarget && window.Coach.actionLockTarget();
+  check('the starter action lock is the grid, not one starter card',
+    window.Coach.actionLocked() === true && starterLockTarget && starterLockTarget.id === 'starterGrid');
 
   // The mon-role card is retired: no starter card carries one anymore.
   check('the guided trio cards carry no mon-role card',
     !window.document.querySelector('#starterGrid .mon-role'));
 
-  if (sheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  if (sheet) {
+    const ok = window.document.querySelector('.coach-bubble [data-coach-ok]');
+    if (ok) ok.click();
+  }
 
   // Pick the SECOND card on purpose: the old lock made only the first card
   // (Treecko) clickable, so this is the regression itself.
@@ -1512,12 +1520,13 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('the taught glow clears once the ball has landed',
     !window.document.querySelector('.coach-spot'));
 
-  // 3. The "caught" lesson greets the new teammate on the Catch screen.
-  const caughtSheet = await until3(() =>
-    window.Modal.isOpen('screenCoach') &&
-      window.document.getElementById('coachTitle').textContent === 'New friend');
-  check('the catch is explained on the Catch screen', !!caughtSheet);
-  if (caughtSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  // 3. The catch result itself explains carry-over HP/status, while the
+  // mandatory nickname prompt gives the first-catch Oak line. There should be
+  // no extra modal sheet blocking the required nickname step.
+  const catchExplained = await until3(() =>
+    /keeps the HP, PP and status/i.test(window.document.getElementById('catchBody').textContent || ''), 8000);
+  check('the catch is explained on the Catch screen', !!catchExplained);
+  check('no extra caught modal blocks the nickname prompt', !window.Modal.isOpen('screenCoach'));
 
   // 4. The mandatory nickname, then Continue puts the run back on the route
   //    with a two-Pokemon party.
@@ -1543,12 +1552,16 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
 
   // 5. The next linear beat: heal the new partner before battle 2. The next
   //    battle button stays locked until the Potion is actually used.
-  const healSheet = await until3(() =>
-    window.Modal.isOpen('screenCoach') &&
-    (window.document.getElementById('coachTitle') || {}).textContent === 'Heal your new friend', 10000);
+  const healSheet = await until3(() => {
+    const t = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return t && t.textContent === 'Heal your new friend' ? t : null;
+  }, 10000);
   check('the route teaches healing the new partner before battle 2', !!healSheet,
-    healSheet ? '' : (window.document.getElementById('coachTitle') || {}).textContent);
-  if (healSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+    healSheet ? '' : ((window.document.querySelector('.coach-bubble:not([hidden]) .cb-title') || {}).textContent || 'NO BUBBLE'));
+  if (healSheet) {
+    const ok = window.document.querySelector('.coach-bubble [data-coach-ok]');
+    if (ok) ok.click();
+  }
   await new Promise((r) => setTimeout(r, 300));
   const caughtSlot = window.document.querySelector('#xTeam .tslot[data-i="1"]');
   check('the heal lesson points at the new partner\u2019s team card', !!caughtSlot);
@@ -1585,14 +1598,18 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // The heal completing must hand the player the NEXT scripted beat
   // ("continue to the next battle") instead of leaving them on the route with
   // nothing glowing and no instruction.
-  const onwardSheet = await until3(() =>
-    window.Modal.isOpen('screenCoach') &&
-    (window.document.getElementById('coachTitle') || {}).textContent === 'Continue onward', 10000);
+  const onwardSheet = await until3(() => {
+    const t = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return t && t.textContent === 'Continue onward' ? t : null;
+  }, 10000);
   check('healing is followed by a "continue to the next battle" beat', !!onwardSheet,
-    onwardSheet ? '' : (window.document.getElementById('coachTitle') || {}).textContent);
+    onwardSheet ? '' : ((window.document.querySelector('.coach-bubble:not([hidden]) .cb-title') || {}).textContent || 'NO BUBBLE'));
   check('the onward beat halos the battle button',
     !!window.document.querySelector('#btnGoBattle.coach-spot'));
-  if (onwardSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  if (onwardSheet) {
+    const ok = window.document.querySelector('.coach-bubble [data-coach-ok]');
+    if (ok) ok.click();
+  }
   await new Promise((r) => setTimeout(r, 120));
   window.document.getElementById('btnGoBattle').click();
   // Stop 2 must actually build its battle, not just flip the screen. An
@@ -1791,17 +1808,23 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('the section-2 Mart is not dimmed during the shop tutorial',
     !window.document.getElementById('screenCrossroads').classList.contains('prologue-dim'));
 
-  const up = await until2(() => !window.document.getElementById('screenCoach').hidden);
-  const evoT = up ? window.document.getElementById('coachTitle').textContent : null;
-  check('section 2 opens with the forced evolution sheet, not shelf-by-shelf',
+  const up = await until2(() => {
+    const t = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return t && t.textContent === 'Evolve your starter' ? t : null;
+  });
+  const evoT = up ? up.textContent : null;
+  check('section 2 opens with the forced evolution beat, not shelf-by-shelf',
     evoT === 'Evolve your starter', evoT);
-  check('the evolution sheet does NOT conclude the tutorial by itself',
+  check('the evolution beat does NOT conclude the tutorial by itself',
     CO2.inPrologue() === true && g.prologue === true);
 
   // Dismiss it, then simulate the two things the tutorial demands: the
   // starter actually evolves, and training is completed. Only then does the
   // prologue end.
-  if (up) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  if (up) {
+    const ok = window.document.querySelector('.coach-bubble [data-coach-ok]');
+    if (ok) ok.click();
+  }
   await waitMs(760);
   g.tutorialEvolved = true;
   g.tutorialTrained = true;
@@ -1811,12 +1834,12 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     CO2.inPrologue() === false && g.prologue === false);
   check('no tutorial beat was left dangling in the queue', CO2.pendingCount === 0);
 
-  // The bookend: Oak says goodbye with the graduation sheet, and the Guide is
-  // named as the place every lesson stays readable.
-  const farewell = window.Modal.isOpen('screenCoach') &&
-    (window.document.getElementById('coachTitle') || {}).textContent === 'Keep going';
-  check('the tutorial ends with Professor Oak\u2019s farewell', !!farewell,
-    (window.document.getElementById('coachTitle') || {}).textContent);
+  // The bookend is now a toast rather than a second acknowledgement card: the
+  // highlighted Done action was the final tutorial interaction, so completion
+  // should not insert another blocking modal.
+  const farewell = /Tutorial complete/i.test(window.document.getElementById('toast').textContent || '');
+  check('the tutorial ends with a non-blocking completion toast', !!farewell,
+    (window.document.getElementById('toast') || {}).textContent);
   if (window.Modal.isOpen('screenCoach')) window.Modal.close('screenCoach');
 
   // Put the run back into a sane state; nothing after this reads it, but

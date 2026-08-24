@@ -79,6 +79,10 @@
 }
 
 * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+/* Hidden must win over later component display rules. Several screen classes
+   (for example .moment-page) set display:flex; without this guard a fresh load
+   can render a dormant finish screen ("Victory!") over the real title. */
+[hidden] { display:none !important; }
 /* iOS Safari: prevent delayed/double-tap gesture handling and keep fixed scenes
    inside the visual viewport rather than behind the browser chrome. */
 html { -webkit-text-size-adjust:100%; text-size-adjust:100%; height:-webkit-fill-available; }
