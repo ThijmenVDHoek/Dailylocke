@@ -223,6 +223,30 @@ check('window.Modal (shared dialog controller)', !!window.Modal);
 // perspective environment.
 await new Promise((r) => setTimeout(r, 25));
 const titleCryUrls = audioLog.filter((src) => /\/cries\//i.test(src));
+
+// ---- theme engine ---------------------------------------------------------
+// applyTheme must derive the COMPLETE palette (not just the page background),
+// or a theme switch recolours almost nothing. Boot runs applyTheme, so the
+// derived variables and the data-theme attribute must already be live here.
+{
+  const rootStyle = window.document.documentElement.style;
+  const hex = (k) => (rootStyle.getPropertyValue(k) || '').trim();
+  const isHex = (v) => /^#[0-9a-f]{6}$/.test(v);
+  const themeAttr = window.document.documentElement.getAttribute('data-theme');
+  check('boot derives the full theme palette (surfaces, inks, steps)',
+    isHex(hex('--bg-0')) && isHex(hex('--bg-3')) && isHex(hex('--surface')) &&
+    isHex(hex('--surface-hi')) && isHex(hex('--ink')) && isHex(hex('--ink-3')) &&
+    isHex(hex('--track')) && !!themeAttr,
+    `data-theme=${themeAttr} bg0=${hex('--bg-0')} surface-hi=${hex('--surface-hi')} ink=${hex('--ink')}`);
+  check('the theme engine derives surfaces from the theme seeds',
+    /--surface':\s*mixHex\(bg1,\s*'#ffffff',\s*0\.05\)/.test(readFileSync(resolve(repo, 'src/app.js'), 'utf8')) &&
+    /--ink':\s*mixHex\(bg0,\s*'#ffffff',\s*0\.95\)/.test(readFileSync(resolve(repo, 'src/app.js'), 'utf8')) &&
+    /lumHex\(gold\)\s*>\s*0\.55/.test(readFileSync(resolve(repo, 'src/app.js'), 'utf8')),
+    'derivation must live in one place and pick readable CTA text');
+  check('one stylesheet drives the whole UI (no override layer)',
+    !html.includes('redesign.css') && !existsSync(resolve(repo, 'assets/css/redesign.css')) &&
+    (html.match(/<link[^>]+href="[^"]+\.css"/g) || []).length === 1);
+}
 check('title-screen Pokemon do not sound their cries',
   titleCryUrls.length === 0, titleCryUrls.join(', '));
 check('the title mounts the 3D environment over its perspective base',
@@ -509,17 +533,19 @@ check('returning to the title rebuilds its 3D environment',
   check('the app waits for its precached font instead of flashing a fallback',
     (appCss.match(/font-display:block/g) || []).length === 2 && !appCss.includes('font-display:swap'));
   // CTAs are themed through CSS variables now (applyTheme sets --cta /
-  // --cta-text from the chosen theme). The DEFAULT theme must stay the classic
-  // plain-white-on-black with no always-on outline ring -- the outline only
-  // exists on :focus-visible, which is the accessible-by-design state.
+  // --cta-text from the chosen theme). The one primary action is always the
+  // theme's gold, with readable text chosen from its luminance, and no
+  // always-on outline ring -- the outline only exists on :focus-visible,
+  // which is the accessible-by-design state.
   const whiteButtonRule = (appCss.match(/\.btn-white\s*\{([^}]*)\}/) || [])[1] || '';
   const dailyButtonRule = (appCss.match(/\.btn-daily\s*\{([^}]*)\}/) || [])[1] || '';
   const appJs = readFileSync(resolve(repo, 'src/app.js'), 'utf8');
   const defaultTheme = (appJs.match(/id:'default',name:'Default',dot:'([^']+)'/) || [])[1];
-  check('start-screen CTAs are plain white and black with no outline ring',
-    /var\(--cta/.test(whiteButtonRule) && /var\(--cta-text\)/.test(whiteButtonRule) &&
+  check('start-screen CTAs use the theme gold with no always-on outline ring',
+    /var\(--cta-text\)/.test(whiteButtonRule) && /var\(--gold\)/.test(whiteButtonRule) &&
     !/outline:|0\s+0\s+0/.test(whiteButtonRule + dailyButtonRule) &&
-    defaultTheme === '#ffffff' && /isLight = choice\.id === 'default'/.test(appJs),
+    defaultTheme === '#ffffff' && /lumHex\(gold\) > 0\.55/.test(appJs) &&
+    appCss.includes(':focus-visible'),
     `default dot ${defaultTheme}`);
   check('title actions use one gap for horizontal and vertical spacing',
     /--title-action-gap:10px/.test(appCss) &&

@@ -31,7 +31,6 @@
 <link rel="preload" as="font" type="font/woff2" href="assets/fonts/vt323-latin-400.woff2" crossorigin/>
 <link rel="preload" as="font" type="font/woff2" href="assets/fonts/vt323-latin-ext-400.woff2" crossorigin/>
 <link rel="stylesheet" href="assets/css/app.css"/>
-<link rel="stylesheet" href="assets/css/redesign.css"/>
 
 <!-- The battle engine is the long pole on first load; start it as early as the
      parser sees this tag. Everything is deferred, so nothing blocks rendering
@@ -314,15 +313,17 @@
 
   <!-- ===================== CROSSROADS ===================== -->
   <section id="screenCrossroads" class="screen-page camp-page" hidden>
+    <!-- Zone 1: STATUS — one window with the route heading, money and menu. -->
     <div class="x-top">
-      <span class="x-cash" id="xCashPill">$<b id="xCash">0</b></span>
-      <button type="button" id="btnMenu" class="menu-pill" aria-label="Menu"><span id="menuButtonAvatar" class="menu-button-avatar"></span></button>
-    </div>
-
-    <div class="x-head">
-      <div class="x-eyebrow" id="xEyebrow">Section 1</div>
-      <h2 class="x-title" id="xSection">Route</h2>
-      <div class="x-sub" id="xProgress"></div>
+      <div class="x-head">
+        <div class="x-eyebrow" id="xEyebrow">Section 1</div>
+        <h2 class="x-title" id="xSection">Route</h2>
+        <div class="x-sub" id="xProgress"></div>
+      </div>
+      <div class="x-side">
+        <span class="x-cash" id="xCashPill">$<b id="xCash">0</b></span>
+        <button type="button" id="btnMenu" class="menu-pill" aria-label="Menu"><span id="menuButtonAvatar" class="menu-button-avatar"></span></button>
+      </div>
     </div>
 
     <!-- Ascension state: tier, battle-start field effect, boss clause and the

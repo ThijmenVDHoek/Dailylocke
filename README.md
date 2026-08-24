@@ -71,6 +71,16 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `three.min.js` | three.js r149 |
 | `battle-ui.js` | hand-written 3D battle renderer — edit directly |
 
+## Themes
+
+19 themes (the 18 Pokémon types plus Default), chosen under **Menu → Profile**.
+Every theme recolours the *whole* UI, not just the page background: the theme
+seeds three background steps plus its accent colours, and `applyTheme()` in
+`src/app.js` derives the complete palette from them (surfaces, inks, tracks,
+danger red, CTA text contrast). The theme is applied at boot from the saved
+profile, so it is live before the first paint of every session, and the
+battlefield's "Match theme" mode maps each theme to its own 3D biome.
+
 ## Installing (PWA)
 
 The game is installable, and `src/pwa.js` owns every part of that.

@@ -1322,7 +1322,7 @@ BattleUI.prototype.setHp=function(si,f){
   var s=this.s[this._rs(si)];if(!s)return;
   s.hp=Math.max(0,Math.min(1,f));
   var d=this._dom;var pct=Math.round(s.hp*100);
-  var col=s.hp>0.5?'#4ade80':(s.hp>0.2?'#facc15':'#ef4444');
+  var col=s.hp>0.2?'var(--ink,#f2eef1)':'var(--red,#f2545b)';
   var key=this._rs(si);
   if(d[key+'-hp']){d[key+'-hp'].style.width=pct+'%';d[key+'-hp'].style.background=col;}
   if(d[key+'-hn']){d[key+'-hn'].textContent=pct+'%';}
@@ -1885,7 +1885,7 @@ BattleUI.prototype.render = function(){
   var pp=Math.round(p.hp*100),ep=Math.round(e.hp*100);
   function tb(t,mn){var c=TC[t]||'#888';return '<span class="tb'+(mn?' mn':'')+'" style="background:'+c+'">'+(t||'')+'</span>';}
   function badges(arr,mn){var out='';for(var i=0;i<arr.length;i++)out+=tb(arr[i],mn);return out;}
-  function hc(f){return f>0.5?'#4ade80':f>0.2?'#facc15':'#ef4444';}
+  function hc(f){return f>0.2?'var(--ink,#f2eef1)':'var(--red,#f2545b)';}
   var et=badges(e.types||[]),pt=badges(p.types||[]);
   var mv='';
   if(this.s.mega.cm||this.s.mega.cx||this.s.mega.cy){

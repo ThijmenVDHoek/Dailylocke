@@ -2062,7 +2062,7 @@
   function teamCardHtml(m, idx) {
     var pct = pctHP(m.hpPct);
     // was: m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444'
-    var col = m.hpPct > 0.2 ? '#f2eef1' : '#f2545b';
+    var col = m.hpPct > 0.2 ? 'var(--ink)' : 'var(--red)';
     var fainted = C.isFainted(m);
     var isG = N.isGauntlet(run);
     var cardUid = String(m.uid);
@@ -2522,7 +2522,7 @@
     var mx = C.maxHP(mon), cur = C.curHP(mon);
     var pct = pctHP(mon.hpPct);
     // was: mon.hpPct > 0.5 ? '#4ade80' : mon.hpPct > 0.2 ? '#facc15' : '#ef4444'
-    var col = mon.hpPct > 0.2 ? '#f2eef1' : '#f2545b';
+    var col = mon.hpPct > 0.2 ? 'var(--ink)' : 'var(--red)';
     var dmg = Math.round(run.damageDealt[mon.uid] || 0);
     var kos = run.knockouts[mon.uid] || 0;
 
@@ -2533,7 +2533,7 @@
       if (gm) {
         var gPct = pctHP(gm.hpPct);
         // was: gm.hpPct > 0.5 ? '#4ade80' : gm.hpPct > 0.2 ? '#facc15' : '#ef4444'
-        var gCol = gm.hpPct > 0.2 ? '#f2eef1' : '#f2545b';
+        var gCol = gm.hpPct > 0.2 ? 'var(--ink)' : 'var(--red)';
         gridHtml += '<button class="tslot' + (gi === partySel ? ' sel' : '') + '" data-gi="' + gi + '">' +
           (gi === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
           '<span class="ts-art">' + animSprite(gm.id, 46, 52, '', 1.4, gm.shiny) + '</span>' +
@@ -2619,7 +2619,7 @@
             var have = mon.pp[m] != null ? mon.pp[m] : mxpp;
             var low = have / mxpp < 0.25;
             var frac = mxpp ? have / mxpp : 0;
-            var ppCol = low ? '#ef4444' : '#fff';
+            var ppCol = low ? 'var(--red)' : 'var(--ink)';
             var pw = mv.category === 'Status' ? 'Status' : (mv.basePower ? 'Pow ' + mv.basePower : '');
             return '<div class="pd-move" data-tip="move:' + mv.id + '" tabindex="0">' +
               '<div class="pd-move-top"><span class="mv-chip type-' + mv.type + '">' + mv.type + '</span>' +
@@ -2928,22 +2928,78 @@
     window.Modal.open('screenAvatarPicker');
   }
   function closeAvatarPicker() { window.Modal.close('screenAvatarPicker'); }
+  // ---- small colour helpers (theme palette derivation) --------------------
+  // Every theme seeds only 3 background steps + accent colours; the full
+  // palette (surfaces, inks, tracks) is DERIVED from those seeds so the whole
+  // UI recolours consistently instead of staying grey while the background
+  // shifts. Plain arithmetic mixing keeps this working everywhere — no
+  // color-mix() support needed.
+  function hexToRgb(h) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(String(h || '').trim());
+    if (!m) return { r: 19, g: 16, b: 19 };
+    var n = parseInt(m[1], 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+  function mixHex(a, b, t) {
+    var ca = hexToRgb(a), cb = hexToRgb(b);
+    var r = Math.round(ca.r + (cb.r - ca.r) * t);
+    var g = Math.round(ca.g + (cb.g - ca.g) * t);
+    var bl = Math.round(ca.b + (cb.b - ca.b) * t);
+    return '#' + ((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1);
+  }
+  // Relative luminance (0..1) of a hex colour, for choosing readable text.
+  function lumHex(h) {
+    var c = hexToRgb(h);
+    var f = function (v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+  }
+
   function applyTheme() {
     if (!profile) return;
     var choice = THEMES.filter(function (t) { return t.id === profile.theme; })[0] || THEMES[0];
     profile.theme = choice.id;
-    Object.keys(choice.p).forEach(function (k) { document.documentElement.style.setProperty(k, choice.p[k]); });
-    // CTA buttons use the theme's accent color (dot) instead of always white.
-    // Default theme stays white for the classic look.
-    var cta = choice.dot || '#ffffff';
-    document.documentElement.style.setProperty('--cta', cta);
-    document.documentElement.style.setProperty('--cta-hi', cta);
-    // Readable text: dark on light accents, white on dark accents.
-    var isLight = choice.id === 'default' || choice.id === 'electric' ||
-                  choice.id === 'ground' || choice.id === 'ice' ||
-                  choice.id === 'normal' || choice.id === 'steel';
-    document.documentElement.style.setProperty('--cta-text', isLight ? '#080a12' : '#ffffff');
-    document.documentElement.style.setProperty('--title-ring', choice.id === 'default' ? '#ffffff' : (choice.p['--blue'] || '#ffffff'));
+    var p = choice.p || {};
+    // Seed colours: the theme's own backgrounds and accents.
+    var bg0 = p['--bg-0'] || '#131013';
+    var bg1 = p['--bg-1'] || '#191518';
+    var bg2 = p['--bg-2'] || '#1e1a1d';
+    var gold = p['--gold'] || '#f5c14d';
+    var red = p['--red'] || '#f2545b';
+    // Derived palette — every theme gets a coherent, complete set.
+    var pal = {
+      '--bg-0': bg0,
+      '--bg-1': bg1,
+      '--bg-2': bg2,
+      '--bg-3': mixHex(bg2, '#ffffff', 0.10),
+      '--bg-4': mixHex(bg2, '#ffffff', 0.18),
+      '--surface': mixHex(bg1, '#ffffff', 0.05),
+      '--surface-hi': mixHex(bg1, '#ffffff', 0.11),
+      '--surface-press': mixHex(bg1, '#ffffff', 0.17),
+      '--ink': mixHex(bg0, '#ffffff', 0.95),
+      '--ink-2': mixHex(bg0, '#ffffff', 0.64),
+      '--ink-3': mixHex(bg0, '#ffffff', 0.45),
+      '--track': mixHex(bg0, '#ffffff', 0.22),
+      '--gold': gold,
+      '--blue': p['--blue'] || gold,
+      '--green': p['--green'] || gold,
+      '--amber': p['--amber'] || gold,
+      '--red': red,
+      '--violet': p['--violet'] || gold
+    };
+    var root = document.documentElement.style;
+    Object.keys(pal).forEach(function (k) { root.setProperty(k, pal[k]); });
+    // The one primary action is always gold; text on it follows its luminance.
+    root.setProperty('--cta', gold);
+    root.setProperty('--cta-hi', gold);
+    root.setProperty('--cta-text', lumHex(gold) > 0.55 ? '#231803' : '#ffffff');
+    root.setProperty('--title-ring', p['--title-ring'] || gold);
+    // Let CSS (and the service worker's theme-color) know which theme is live.
+    document.documentElement.setAttribute('data-theme', choice.id);
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', bg0);
   }
 
   // Map each theme to a battlefield biome for "Match theme" mode.
@@ -2961,7 +3017,6 @@
     var e = $('menuAvatar'); if (e) e.innerHTML = '<img src="' + src + '" alt="">';
     var button = $('menuButtonAvatar'); if (button) button.innerHTML = '<img src="' + src + '" alt="">';
     var titleBtn = $('titleMenuAvatar'); if (titleBtn) titleBtn.innerHTML = '<img src="' + src + '" alt="">';
-    var hero = $('menuProfileAvatar'); if (hero) hero.innerHTML = '<img src="' + src + '" alt="">';
   }
   function showProfile() {
     closeMenu(); loadProfile(); applyTheme(); updateMenuAvatar();
@@ -2969,11 +3024,11 @@
     var cur = run && !run.over ? '<div class="prof-now"><div class="pd-label">Current run</div><div class="prof-grid">' + statCard(run.battlesWon || 0, 'Battles won') + statCard('S' + (run.section || 1), 'Section') + statCard(run.caught || 0, 'Caught') + statCard('$' + (run.money || 0).toLocaleString(), 'Cash') + '</div></div>' : '<p class="hint center">No run in progress.</p>';
     var bf = profile.battlefield || 'dynamic';
     $('profBody').innerHTML = '<div class="profile-hero"><div class="profile-avatar"><img src="' + avatarUrl(av) + '" alt="Avatar"></div><div style="flex:1"><div class="profile-name">' + escapeHtml(profile.name || 'Trainer Profile') + '</div><div class="profile-sub">Customize your look and game theme</div></div><button id="editAvatar" class="btn-mini">Edit sprite</button></div>' +
-      '<div class="profile-section">Theme</div><div class="theme-grid">' + THEMES.map(function (t) { return '<button class="theme-choice' + (t.id === (profile.theme || 'default') ? ' on' : '') + '" data-theme="' + t.id + '" style="--theme-dot:' + t.dot + '"><span class="theme-dot"></span>' + t.name + '</button>'; }).join('') + '</div>' +
+      '<div class="profile-section">Theme</div><div class="theme-grid">' + THEMES.map(function (t) { var on = t.id === (profile.theme || 'default'); return '<button type="button" class="theme-choice' + (on ? ' on' : '') + '" data-theme="' + t.id + '" aria-pressed="' + on + '" style="--theme-dot:' + t.dot + ';--theme-dot-bg:' + (t.p['--bg-2'] || '#1e1a1d') + '"><span class="theme-dot"></span>' + t.name + '</button>'; }).join('') + '</div>' +
       '<div class="profile-section">Battlefield</div>' +
       '<div class="bf-toggle">' +
-        '<button class="bf-btn' + (bf === 'dynamic' ? ' on' : '') + '" data-bf="dynamic"><b>Dynamic</b><span>Biome from enemy types</span></button>' +
-        '<button class="bf-btn' + (bf === 'match' ? ' on' : '') + '" data-bf="match"><b>Match theme</b><span>Battlefield follows your theme</span></button>' +
+        '<button type="button" class="bf-btn' + (bf === 'dynamic' ? ' on' : '') + '" data-bf="dynamic" aria-pressed="' + (bf === 'dynamic') + '"><b>Dynamic</b><span>Biome from enemy types</span></button>' +
+        '<button type="button" class="bf-btn' + (bf === 'match' ? ' on' : '') + '" data-bf="match" aria-pressed="' + (bf === 'match') + '"><b>Match theme</b><span>Battlefield follows your theme</span></button>' +
       '</div>' +
       '<div class="profile-section">Sound</div><div class="vol-group">' + volumeRow('music', 'Music', 'Battle themes') + volumeRow('sfx', 'Sound effects', 'Cries and battle sounds') + '</div>' +
       '<div class="profile-section">Career</div><div class="prof-grid big">' + statCard(profile.totalRuns, 'Runs played') + statCard(profile.bestBattles, 'Best battles') + statCard('S' + profile.bestSection, 'Furthest') + statCard(shinies, 'Shinies') + '</div>' + cur;
@@ -3352,7 +3407,7 @@
     $('pickerBody').innerHTML = run.party.map(function (m, i) {
       var pct = pctHP(m.hpPct);
       // was: m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444'
-      var col = m.hpPct > 0.2 ? '#f2eef1' : '#f2545b';
+      var col = m.hpPct > 0.2 ? 'var(--ink)' : 'var(--red)';
       var eff = itemEffectOn(id, m);
       var note = eff.note, dis = eff.dis;
       return '<button class="pick-row mon' + (eff.art ? ' has-art' : '') + '" data-i="' + i + '"' +
@@ -4680,7 +4735,7 @@
       var liveStatus = isActive && ui && ui.s && ui.s.p ? ui.s.p.st : m.status;
       var pct = pctHP(liveHp);
       // was: liveHp > 0.5 ? '#4ade80' : liveHp > 0.2 ? '#facc15' : '#ef4444'
-      var hpCol = liveHp > 0.2 ? '#f2eef1' : '#f2545b';
+      var hpCol = liveHp > 0.2 ? 'var(--ink)' : 'var(--red)';
       var cur = Math.round(C.maxHP(m) * liveHp), mx = C.maxHP(m);
       var stCol = statusColor(liveStatus);
       var stTxtCol = (liveStatus === 'par') ? '#000' : '#fff';
@@ -5219,7 +5274,7 @@
       roster.map(function (m) {
         var pct = pctHP(m.hpPct);
         // was: m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444'
-        var col = m.hpPct > 0.2 ? '#f2eef1' : '#f2545b';
+        var col = m.hpPct > 0.2 ? 'var(--ink)' : 'var(--red)';
         return '<div class="sum-row">' + iconEl(m.id, 1.1, '', m.shiny) +
           '<div class="sum-who"><b>' + escapeHtml(m.name) + '</b><span>' + speciesOf(m) + '</span></div>' +
           '<div class="sum-hp"><i style="width:' + pct + '%;background:' + col + '"></i></div>' +
