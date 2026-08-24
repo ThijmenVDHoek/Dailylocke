@@ -66,6 +66,16 @@ try {
     environments: globalThis.document.querySelectorAll('#titleStage .bm-env[data-biome]').length,
     sprites: globalThis.document.querySelectorAll('#titleStage .bm-sprites img').length,
   }));
+  const cleanTitle = await page.evaluate(() => {
+    const reward = globalThis.document.getElementById('screenReward');
+    const first = globalThis.document.getElementById('titleFirst');
+    return {
+      rewardHidden: !!(reward && reward.hidden),
+      rewardDisplay: reward ? globalThis.getComputedStyle(reward).display : '',
+      firstVisible: !!(first && !first.hidden && globalThis.getComputedStyle(first).display !== 'none'),
+      firstText: first ? first.textContent : '',
+    };
+  });
 
   // The title's 3D environment must vanish the moment a game starts and come
   // back when the title returns -- no zombie canvas, no double scene. The
@@ -218,6 +228,10 @@ try {
   const checks = [
     ['title renders its 3D environment over the perspective base',
       titleLightweight.canvases === 1 && titleLightweight.environments === 1 && titleLightweight.sprites === 2],
+    ['clean title does not show the dormant Victory screen',
+      cleanTitle.rewardHidden && cleanTitle.rewardDisplay === 'none'],
+    ['clean title shows the first-visit action sheet',
+      cleanTitle.firstVisible && /Start a fresh game/.test(cleanTitle.firstText)],
     ['starting a game removes the title 3D environment entirely',
       titleRoundTrip.afterLeave.canvases === 0 && titleRoundTrip.afterLeave.environments === 0 &&
       titleRoundTrip.afterLeave.sprites === 0],

@@ -899,10 +899,11 @@
         '</div>' +
       '</div>' +
       (opts.extra || '') +
-      // Tutorial dialogue has no acknowledgement control: an action beat is
-      // always presented as a non-modal hint, and the highlighted control is
-      // how the player proceeds. Guide and optional lessons keep dismissal.
-      (opts.bypassSeen ? '' : '<div class="coach-actions">' +
+      // A modal lesson always needs an explicit acknowledgement control.
+      // `bypassSeen` only skips profile de-duplication; it must not make a
+      // dialogue card undismissable. Action-required lessons keep their
+      // highlighted game control armed after this button closes the card.
+      (opts.noAck ? '' : '<div class="coach-actions">' +
         '<button type="button" class="btn-primary wide" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>' +
         ((opts.noSkip || inPrologue()) ? '' : '<button type="button" class="coach-skip" data-coach-skip>Skip tips</button>') +
       '</div>');
@@ -1061,7 +1062,7 @@
           (lesson.say ? esc(lesson.say) + ' ' : '') +
           fillTemplate(lesson.body, opts.template) +
         '</p>' +
-        (opts.bypassSeen ? '' : '<button type="button" class="cb-ok" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>') +
+        (opts.noAck ? '' : '<button type="button" class="cb-ok" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>') +
       '</div>' +
       '<span class="coach-portrait cb-professor">' + advisorImg(104) + '</span>' +
       '<span class="cb-arrow" aria-hidden="true"></span>';
@@ -1092,7 +1093,8 @@
     bubbleOpts = null;
     if (bubbleEl) {
       bubbleEl.classList.remove('on');
-      setTimeout(function () { if (!bubbleOpts && bubbleEl) bubbleEl.hidden = true; }, 170);
+      if (opts.immediate) bubbleEl.hidden = true;
+      else setTimeout(function () { if (!bubbleOpts && bubbleEl) bubbleEl.hidden = true; }, 170);
     }
     if (!o.keepHalo || opts.sweep) sweepHalo();
     if (opts.quiet) return;
@@ -1120,9 +1122,16 @@
   // a sheet vanished without routing through Modal.close (a screen change
   // can hide an overlay directly, and then onClose never runs).
   function clearMark() {
-    dismissBubble({ sweep: true });
+    dismissBubble({ sweep: true, immediate: true });
     releaseActionLock();
     sweepHalo();
+    // A screen transition must also retire any open coach sheet. Leaving the
+    // modal in the stack keeps the next screen inert and leaves stale copy
+    // (for example an old evolution lesson) floating over the tutorial.
+    var sheet = document.getElementById('screenCoach');
+    if (sheet && window.Modal && window.Modal.isOpen(sheet)) {
+      try { window.Modal.close(sheet); } catch (e) { sheet.hidden = true; }
+    }
     // A screen transition can hide the sheet without routing through
     // Modal.close, so the halo z-index class must be released here too.
     document.body.classList.remove('coach-sheet-open');

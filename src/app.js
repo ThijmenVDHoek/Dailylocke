@@ -546,8 +546,12 @@
       setTimeout(function () {
         if ($('screenSetup').hidden) return;
         CO.lesson('welcome', {
-          anchor: $('btnSetupGo'), actionRequired: true, keepHalo: true,
-          bypassSeen: true, vital: true,
+          surface: 'bubble',
+          anchor: $('btnSetupGo'),
+          // This first hello must not lock the setup form: the whole point of
+          // the screen is choosing a sprite, typing a name and deciding how
+          // much help to receive before pressing Begin.
+          vital: true,
           stillValid: function () { return !$('screenSetup').hidden; }
         });
       }, 0);
