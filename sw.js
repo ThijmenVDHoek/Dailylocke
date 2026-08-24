@@ -27,7 +27,7 @@ const CACHE_PREFIX = 'dailylocke-';
 
 // ---- GENERATED: do not edit by hand -------------------------------------
 // `npm run build:sw --prefix tools` recomputes this from the shell contents.
-const SHELL_REV = 'ca5933a6c72f';
+const SHELL_REV = '77cf5329849c';
 // -------------------------------------------------------------------------
 
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${SHELL_REV}`;
@@ -49,6 +49,7 @@ const APP_SHELL = [
   'LICENSE',
   'THIRD_PARTY_NOTICES.md',
   'assets/css/app.css',
+  'assets/css/redesign.css',
   'assets/fonts/vt323-latin-400.woff2',
   'assets/fonts/vt323-latin-ext-400.woff2',
   'assets/img/fallback-sprite.svg',
