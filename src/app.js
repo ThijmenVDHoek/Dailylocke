@@ -1999,34 +1999,501 @@
     var txtCol = (st === 'par' || st === 'slp' || st === 'frz') ? '#000' : '#fff';
     return '<span class="ts-st' + statusBadgeClass(st) + '" style="background:' + col + ';color:' + txtCol + '">' + st.toUpperCase() + '</span>';
   }
-  function drawTeamStrip() {
-    var strip = $('xTeam');
-    if (!strip) return;
-    var html = '';
-    for (var i = 0; i < N.MAX_PARTY; i++) {
-      var m = run.party[i];
-      if (m) {
-        var pct = pctHP(m.hpPct);
-        var col = m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444';
-        html += '<button class="tslot' + (i === partySel ? ' sel' : '') + '" data-i="' + i + '">' +
-          (i === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
-          '<span class="ts-art">' + animSprite(m.id, 46, 52, '', 1.4, m.shiny) + '</span>' +
-          '<span class="ts-name">' + escapeHtml(m.name) + '</span>' +
-          '<span class="ts-bar"><i style="width:' + pct + '%;background:' + col + '"></i></span>' +
-          statusBadgeHtml(m.status) +
-          '</button>';
-      } else {
-        html += '<div class="tslot empty"><span class="dock-ball"></span></div>';
+  // Which Pokemon card has an action panel open, keyed by the mon's stable
+  // uid so dragging to reorder never opens the wrong panel.
+  var expandedCardUid = null;
+  var expandedCardPanel = null;   // 'heal' | 'train' | 'item'
+
+  // Does this mon have any move below its max PP? PP does not refill between
+  // battles, so it is a real thing to prepare on the route screen.
+  function monLowPP(m) {
+    return m.moves.some(function (mv) {
+      var mx = Math.floor(Dex.moves.get(mv).pp * 1.6);
+      var have = m.pp[mv] != null ? m.pp[mv] : mx;
+      return have < mx;
+    });
+  }
+
+  // A held item that genuinely suits this Pokemon. Prefers something already
+  // in the bag; otherwise suggests something the Mart stocks. Powers the
+  // gold "upgrade" nudge on the Item button.
+  function recommendHeldItem(m) {
+    if (!window.Coach) return null;
+    var owned = Object.keys(run.bag).filter(function (id) {
+      return bagGroupOf(id) === 'held' && run.bag[id] > 0 && window.Coach.heldFitsMon(id, m);
+    });
+    if (owned.length) return owned[0];
+    if (martStock) {
+      for (var i = 0; i < martStock.length; i++) {
+        var e = martStock[i];
+        if (e.kind === 'held' && !e.unique && window.Coach.heldFitsMon(e.id, m)) return e.id;
       }
     }
-    strip.innerHTML = html;
-    strip.querySelectorAll('.tslot[data-i]').forEach(function (b) {
+    return null;
+  }
+
+  function trainIconHtml(size) {
+    return window.ItemArt ? window.ItemArt.itemImg('powerbracer', size || 22) : '';
+  }
+  function healIconHtml(size) {
+    return window.ItemArt ? window.ItemArt.itemImg('fullrestore', size || 22) : '';
+  }
+  function itemIconHtml(m, size) {
+    var id = (m && m.item) || 'leftovers';
+    return window.ItemArt ? window.ItemArt.itemImg(id, size || 22) : '';
+  }
+
+  function drawTeamStrip() {
+    var grid = $('xTeam');
+    if (!grid) return;
+    if (!run.party.length) {
+      grid.innerHTML = '<div class="pc-empty">No Pokemon yet.</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < run.party.length; i++) {
+      html += teamCardHtml(run.party[i], i);
+    }
+    grid.innerHTML = html;
+    bindTeamCards(grid);
+    initTeamDrag(grid);
+  }
+
+  function teamCardHtml(m, idx) {
+    var pct = pctHP(m.hpPct);
+    var col = m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444';
+    var fainted = C.isFainted(m);
+    var isG = N.isGauntlet(run);
+    var cardUid = String(m.uid);
+    var isOpen = expandedCardUid === cardUid;
+    var openPanel = isOpen ? expandedCardPanel : null;
+
+    var ppLow = monLowPP(m);
+    var healNeed = !fainted && (m.hpPct < 0.999 || !!m.status || ppLow);
+    var evoReady = false;
+    if (window.Evo) {
+      evoReady = window.Evo.optionsFor(m).some(function (o) { return window.Evo.canEvolve(run, m, o); });
+    }
+    if (!evoReady && window.Forme) {
+      evoReady = Object.keys(run.bag).some(function (id) {
+        return window.Forme.isFormeItem(id) && window.Forme.targetsFor(m, id).length;
+      });
+    }
+    var heldRec = !m.item && !isG ? recommendHeldItem(m) : null;
+    var itemNeed = evoReady || !!heldRec;
+
+    var healSub = fainted ? 'Fainted' : (healNeed ? 'Needs care' : 'Healthy');
+    var trainSub = isG ? 'Free' : (run.trainingPaidThisRound ? 'Open' : '$' + SERVICE_PRICE.toLocaleString());
+    var itemSub = m.item ? itemName(m.item) : (itemNeed ? 'Upgrade' : 'Equip');
+
+    var panelHtml = isOpen ? cardPanelHtml(m, idx, openPanel) : '';
+
+    return '<article class="pc-card' + (fainted ? ' fainted' : '') + (isOpen ? ' open pcp-open-' + openPanel : '') +
+        '" data-uid="' + escapeHtml(m.uid) + '" data-i="' + idx + '">' +
+      '<div class="pc-head">' +
+        '<button type="button" class="pc-drag" data-drag aria-label="Drag to reorder" title="Drag to reorder">&#8975;</button>' +
+        (idx === 0 ? '<span class="pc-lead">LEAD</span>' : '<span class="pc-order">#' + (idx + 1) + '</span>') +
+        '<button type="button" class="pc-more" data-detail title="Full details">&middot;&middot;&middot;</button>' +
+      '</div>' +
+      '<button type="button" class="pc-body" data-detail>' +
+        '<span class="pc-art">' + animSprite(m.id, 64, 72, 'pc-sprite', 1.4, m.shiny) +
+          (fainted ? '<span class="pc-fnt">FAINTED</span>' : '') +
+        '</span>' +
+        '<span class="pc-name">' + escapeHtml(m.name) + '</span>' +
+        '<span class="pc-species">' + escapeHtml(speciesOf(m)) + (m.shiny ? ' \u2728' : '') + '</span>' +
+        '<span class="types pc-types">' + typeChips(m.types) + '</span>' +
+      '</button>' +
+      '<div class="pc-hp">' +
+        '<span class="pc-hp-bar"><i style="width:' + pct + '%;background:' + col + '"></i></span>' +
+        '<span class="pc-hp-txt">' + (fainted ? '0' : C.curHP(m)) + ' / ' + C.maxHP(m) +
+          (m.status ? '  \u00b7  ' + m.status.toUpperCase() : '') + '</span>' +
+      '</div>' +
+      '<div class="pc-actions">' +
+        '<button type="button" class="pc-act pc-act-heal' + (openPanel === 'heal' ? ' on' : '') +
+            (healNeed ? ' need' : '') + (fainted ? ' dis' : '') + '" data-panel="heal"' + (fainted ? ' disabled' : '') + '>' +
+          '<span class="pc-act-ic">' + healIconHtml(22) + '</span>' +
+          '<span class="pc-act-t"><b>Heal</b><small>' + healSub + '</small></span>' +
+          (healNeed && !fainted ? '<span class="pc-dot"></span>' : '') +
+        '</button>' +
+        '<button type="button" class="pc-act pc-act-train' + (openPanel === 'train' ? ' on' : '') + '" data-panel="train">' +
+          '<span class="pc-act-ic">' + trainIconHtml(22) + '</span>' +
+          '<span class="pc-act-t"><b>Train</b><small>' + trainSub + '</small></span>' +
+        '</button>' +
+        '<button type="button" class="pc-act pc-act-item' + (openPanel === 'item' ? ' on' : '') +
+            (itemNeed ? ' need' : '') + '" data-panel="item">' +
+          '<span class="pc-act-ic">' + itemIconHtml(m, 22) + '</span>' +
+          '<span class="pc-act-t"><b>Item</b><small class="pc-act-sub">' + escapeHtml(itemSub) + '</small></span>' +
+          (itemNeed ? '<span class="pc-dot gold"></span>' : '') +
+        '</button>' +
+      '</div>' +
+      '<div class="pc-panel">' + panelHtml + '</div>' +
+    '</article>';
+  }
+
+  function cardPanelHtml(m, idx, panel) {
+    if (panel === 'heal') return cardHealPanel(m);
+    if (panel === 'train') return cardTrainPanel(m);
+    if (panel === 'item') return cardItemPanel(m, idx);
+    return '';
+  }
+
+  // ---- HEAL panel: the medicine you actually own, with a recommendation ----
+  function cardHealPanel(m) {
+    if (C.isFainted(m)) {
+      return '<div class="pcp pcp-heal"><div class="pcp-note dead">Fainted \u2014 gone for good. ' +
+        'There are no revives in a Nuzlocke.</div></div>';
+    }
+    var rows = '';
+    var medIds = Object.keys(run.bag).filter(function (id) { return !!C.HEAL_ITEMS[id] && run.bag[id] > 0; });
+    var recId = null;
+    medIds.forEach(function (id) { if (!recId && !itemEffectOn(id, m).dis) recId = id; });
+    var ppIds = ['maxelixir', 'elixir', 'maxether', 'ether'].filter(function (id) { return run.bag[id] > 0; });
+    var injured = m.hpPct < 0.999 || !!m.status;
+    var ppLow = monLowPP(m);
+
+    medIds.forEach(function (id) {
+      var eff = itemEffectOn(id, m);
+      var rec = id === recId;
+      rows += '<button type="button" class="pcp-row' + (rec ? ' rec' : '') + (eff.dis ? ' dis' : '') +
+        '" data-heal="' + id + '"' + (eff.dis ? ' disabled' : '') + '>' +
+        '<span class="pcp-ic">' + (window.ItemArt ? window.ItemArt.itemImg(id, 28) : '') + '</span>' +
+        '<span class="pcp-t"><b>' + itemName(id) + '</b>' +
+          (rec ? '<em class="pcp-tag">Recommended</em>' : '') +
+          '<small>' + escapeHtml(eff.note || (window.Coach ? window.Coach.itemOneLiner(id) : '')) + '</small></span>' +
+        '<span class="pcp-meta">x' + run.bag[id] + '</span></button>';
+    });
+    ppIds.forEach(function (id) {
+      rows += '<button type="button" class="pcp-row" data-heal="' + id + '">' +
+        '<span class="pcp-ic">' + (window.ItemArt ? window.ItemArt.itemImg(id, 28) : '') + '</span>' +
+        '<span class="pcp-t"><b>' + itemName(id) + '</b><small>Restores move PP</small></span>' +
+        '<span class="pcp-meta">x' + run.bag[id] + '</span></button>';
+    });
+
+    var note = '';
+    if (!injured && !ppLow) {
+      note = '<div class="pcp-note ok">\u2713 In top shape \u2014 HP and PP are full.</div>';
+    } else if (!medIds.length && !ppIds.length) {
+      note = '<div class="pcp-note">No medicine in the bag. ' +
+        '<button type="button" class="pcp-link" data-open-shop>Visit the Shop</button></div>';
+    }
+    return '<div class="pcp pcp-heal">' + note + rows + '</div>';
+  }
+
+  // ---- TRAIN panel: plain-language guidance + the one session entry --------
+  function cardTrainPanel(m) {
+    var isG = N.isGauntlet(run);
+    var style = window.Coach ? window.Coach.attackStyle(m.id) : null;
+    var guide = '';
+    if (style && style.key !== 'mixed') {
+      guide = '<div class="pcp-guide">' + escapeHtml(speciesOf(m)) + ' hits harder with <b>' +
+        escapeHtml(style.label.toLowerCase()) + '</b> moves. Prioritise <b>STAB</b> \u2014 ' +
+        'same-type moves do 50% more damage.</div>';
+    }
+    var cost = isG ? 'Free \u2014 train as much as you like'
+      : (run.trainingPaidThisRound
+          ? 'Already paid this stop \u2014 train more for free'
+          : '$' + SERVICE_PRICE.toLocaleString() + ' once, then change anything');
+
+    var moves = m.moves.map(function (mvId) {
+      var mv = Dex.moves.get(mvId);
+      var mxpp = Math.floor(mv.pp * 1.6);
+      var have = m.pp[mvId] != null ? m.pp[mvId] : mxpp;
+      var low = have / mxpp < 0.25;
+      var frac = mxpp ? have / mxpp : 1;
+      return '<div class="pcp-move" data-tip="move:' + mv.id + '" tabindex="0">' +
+        '<span class="mv-chip type-' + mv.type + '">' + mv.type + '</span>' +
+        '<b>' + mv.name + '</b>' + badgesHtml(mvId, m, { compact: true }) +
+        '<span class="pcp-pp' + (low ? ' low' : '') + '">' +
+          '<span class="pcp-pp-track"><span class="pcp-pp-fill" style="width:' + (frac * 100) + '%"></span></span>' +
+          have + '/' + mxpp + '</span></div>';
+    }).join('');
+
+    return '<div class="pcp pcp-train">' + guide +
+      '<div class="pcp-cost"><span class="pcp-ic">' + trainIconHtml(24) + '</span><span>' + cost + '</span></div>' +
+      '<div class="pcp-label">Current moves</div>' +
+      '<div class="pcp-moves">' + moves + '</div>' +
+      '<button type="button" class="btn-primary wide pcp-open-train">Open training \u2014 moves, ability, nature &amp; stats</button>' +
+    '</div>';
+  }
+
+  // ---- ITEM panel: held item, evolution and forme, all in one place --------
+  function cardItemPanel(m, idx) {
+    var isG = N.isGauntlet(run);
+    var heldHtml;
+
+    if (isG) {
+      heldHtml = m.item
+        ? '<button type="button" class="pcp-held has" data-take-held data-tip="item:' + m.item + '">' +
+            '<span class="pcp-ic">' + (window.ItemArt ? window.ItemArt.itemImg(m.item, 28) : '') + '</span>' +
+            '<span class="pcp-t"><b>' + itemName(m.item) + '</b></span>' +
+            '<em class="pcp-action">Remove</em></button>'
+        : '<div class="pcp-held empty"><span class="pcp-t"><b>Nothing held</b>' +
+            '<small>Pick any held item for free in the Gauntlet.</small></span></div>';
+      return '<div class="pcp pcp-item">' + heldHtml +
+        '<button type="button" class="btn-secondary wide" data-pick-held>Pick held item</button>' +
+        gbFormeRowHtml(m) + '</div>';
+    }
+
+    if (m.item) {
+      var plain = window.Coach && window.Coach.heldPlain(m.item);
+      heldHtml = '<button type="button" class="pcp-held has" data-take-held data-tip="item:' + m.item + '">' +
+        '<span class="pcp-ic">' + (window.ItemArt ? window.ItemArt.itemImg(m.item, 28) : '') + '</span>' +
+        '<span class="pcp-t"><b>' + itemName(m.item) + '</b>' +
+          (plain ? '<small>' + escapeHtml(plain) + '</small>' : '') + '</span>' +
+        '<em class="pcp-action">Remove</em></button>';
+    } else {
+      var rec = recommendHeldItem(m);
+      heldHtml = '<div class="pcp-held empty">' +
+        '<span class="pcp-ic">' + (rec && window.ItemArt ? window.ItemArt.itemImg(rec, 28) : '') + '</span>' +
+        '<span class="pcp-t"><b>Nothing held</b>' +
+          (rec ? '<small>Try <b>' + itemName(rec) + '</b> \u2014 ' +
+            escapeHtml(window.Coach.heldPlain(rec) || 'a good fit for this Pokemon') + '.</small>'
+            : '<small>A held item works in every battle and never runs out.</small>') +
+        '</span></div>';
+    }
+
+    var fit = Object.keys(run.bag).filter(function (id) {
+      return bagGroupOf(id) === 'held' && run.bag[id] > 0 && window.Coach && window.Coach.heldFitsMon(id, m);
+    });
+    var give = '';
+    if (fit.length) {
+      give = '<div class="pcp-label">Give a held item <span class="pcp-hint">from your bag</span></div><div class="pcp-chips">' +
+        fit.slice(0, 10).map(function (id) {
+          return '<button type="button" class="pcp-chip" data-give-held="' + id + '" data-tip="item:' + id + '">' +
+            (window.ItemArt ? window.ItemArt.itemImg(id, 22) : '') +
+            '<span>' + itemName(id) + '</span></button>';
+        }).join('') + '</div>';
+    } else if (!m.item) {
+      give = '<button type="button" class="btn-secondary wide" data-open-shop>Browse held items in the Shop</button>';
+    }
+
+    return '<div class="pcp pcp-item">' + heldHtml + give +
+      '<button type="button" class="pcp-link" data-open-bag>Open the full Bag</button>' +
+      evoRowHtml(m, idx) + formeRowHtml(m) + '</div>';
+  }
+
+  function bindTeamCards(grid) {
+    // Tapping the Pokemon / "more" opens the full detail sheet.
+    grid.querySelectorAll('[data-detail]').forEach(function (b) {
       b.addEventListener('click', function () {
-        var i = +b.dataset.i;
-        partySel = (partySel === i) ? -1 : i;
-        drawTeamStrip();
+        if (grid._suppressClick) return;
+        var card = b.closest('.pc-card');
+        partySel = +card.dataset.i;
         drawPartyDetail();
       });
+    });
+
+    // The three action buttons toggle their inline panels.
+    grid.querySelectorAll('[data-panel]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (grid._suppressClick) return;
+        var card = b.closest('.pc-card');
+        var uid = String(card.dataset.uid);
+        var panel = b.dataset.panel;
+        if (expandedCardUid === uid && expandedCardPanel === panel) {
+          expandedCardUid = null; expandedCardPanel = null;
+        } else {
+          expandedCardUid = uid; expandedCardPanel = panel;
+        }
+        drawTeamStrip();
+      });
+    });
+
+    // Heal: use one medicine/PP item on this Pokemon.
+    grid.querySelectorAll('[data-heal]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var card = b.closest('.pc-card');
+        var mon = run.party[+card.dataset.i];
+        var id = b.dataset.heal;
+        if (C.HEAL_ITEMS[id]) {
+          var res = N.applyItem(run, id, mon);
+          if (!res.ok) { toast(res.msg || 'That cannot help right now.'); return; }
+          toast(res.msg);
+        } else {
+          // ether / elixir: restore the move lowest on PP
+          var hpp = id === 'maxelixir' || id === 'maxether' ? 999 : 10;
+          var all = id === 'maxelixir' || id === 'elixir';
+          var did = false;
+          if (all) {
+            mon.moves.forEach(function (mvId) {
+              var mx = Math.floor(Dex.moves.get(mvId).pp * 1.6);
+              if (mon.pp[mvId] < mx) { mon.pp[mvId] = Math.min(mx, (mon.pp[mvId] || 0) + hpp); did = true; }
+            });
+          } else {
+            var sorted = mon.moves.slice().sort(function (a, b2) {
+              var ma = Math.floor(Dex.moves.get(a).pp * 1.6), mb = Math.floor(Dex.moves.get(b2).pp * 1.6);
+              return (mon.pp[a] != null ? mon.pp[a] : ma) - (mon.pp[b2] != null ? mon.pp[b2] : mb);
+            });
+            for (var i = 0; i < sorted.length; i++) {
+              var mvId = sorted[i], mx = Math.floor(Dex.moves.get(mvId).pp * 1.6);
+              if ((mon.pp[mvId] != null ? mon.pp[mvId] : mx) < mx) {
+                mon.pp[mvId] = Math.min(mx, (mon.pp[mvId] != null ? mon.pp[mvId] : mx) + hpp);
+                did = true; break;
+              }
+            }
+          }
+          if (!did) { toast('All moves have full PP.'); return; }
+          N.useItem(run, id);
+          toast(mon.name + "'s PP was restored.");
+        }
+        saveGame(); renderHud(); renderCrossroads();
+      });
+    });
+
+    // Item: remove held item.
+    grid.querySelectorAll('[data-take-held]').forEach(function (b) {
+      b.addEventListener('click', async function (e) {
+        e.stopPropagation();
+        var card = b.closest('.pc-card');
+        var mon = run.party[+card.dataset.i];
+        if (!mon.item) return;
+        var was = mon.item;
+        // Gauntlet has no bag economy; items are given/removed freely.
+        if (!N.isGauntlet(run)) N.addItem(run, was, 1);
+        if (window.Forme && window.Forme.setHeldItemAndEnforce) await window.Forme.setHeldItemAndEnforce(run, mon, '');
+        else mon.item = '';
+        toast('Took the ' + itemName(was) + ' from ' + mon.name + '.');
+        saveGame(); renderCrossroads();
+      });
+    });
+
+    // Item: equip a held item from the bag.
+    grid.querySelectorAll('[data-give-held]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var card = b.closest('.pc-card');
+        var mon = run.party[+card.dataset.i];
+        var id = b.dataset.giveHeld;
+        var res = N.applyItem(run, id, mon);
+        if (!res.ok) { toast(res.msg || 'Cannot use that.'); return; }
+        toast(res.msg);
+        saveGame(); renderCrossroads();
+      });
+    });
+
+    // Gauntlet: free held-item picker.
+    var pickHeld = grid.querySelector('[data-pick-held]');
+    if (pickHeld) pickHeld.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var card = grid.querySelector('.pc-card');
+      var mon = run.party[+card.dataset.i];
+      openGbRunHeldPicker(mon);
+    });
+
+    // Train: launch the tutor (same paid/free flow as the detail sheet).
+    var openTrain = grid.querySelector('.pcp-open-train');
+    if (openTrain) openTrain.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var card = grid.querySelector('.pc-card');
+      var mon = run.party[+card.dataset.i];
+      var isG = N.isGauntlet(run);
+      if (!isG && !run.trainingPaidThisRound && run.money < SERVICE_PRICE) { toast('Not enough money.'); return; }
+      expandedCardUid = null; expandedCardPanel = null;
+      openTrainer(mon, isG);
+    });
+
+    // Drawer shortcuts.
+    var shopLink = grid.querySelector('[data-open-shop]');
+    if (shopLink) shopLink.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var shop = $('xShopBlock'); if (shop) { shop.open = true; shop.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    });
+    var bagLink = grid.querySelector('[data-open-bag]');
+    if (bagLink) bagLink.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var bag = $('xBagBlock'); if (bag) { bag.open = true; bag.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    });
+
+    // Evolution / forme buttons (same semantics as the detail sheet).
+    grid.querySelectorAll('.evo-btn').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var card = b.closest('.pc-card');
+        var mon = run.party[+card.dataset.i];
+        if (b.dataset.gbRunForme) { gbRunFormeChange(mon, b.dataset.gbRunFormeItem, b.dataset.gbRunForme); return; }
+        if (b.dataset.item) {
+          if (!run.bag[b.dataset.item]) { toast('You need a ' + itemName(b.dataset.item) + '.'); return; }
+          startFormeChange(mon, b.dataset.item, b.dataset.forme);
+          return;
+        }
+        var opt = evoOptionByKey(mon, b.dataset.evo);
+        if (!opt) return;
+        if (!window.Evo.canEvolve(run, mon, opt)) { toast('You need a ' + opt.requirement.label + '.'); return; }
+        startEvolution(mon, opt);
+      });
+    });
+  }
+
+  // Pointer-based drag reordering, works for mouse and touch. The dragged card
+  // stays in layout and reorders live as the pointer crosses each card's
+  // vertical midpoint; on drop we commit the new order to run.party.
+  function initTeamDrag(grid) {
+    var handles = grid.querySelectorAll('.pc-drag');
+    var dragging = null, moved = false, startX = 0, startY = 0;
+
+    function clearGesture() {
+      if (dragging) dragging.classList.remove('pc-dragging');
+      dragging = null; moved = false;
+      document.body.classList.remove('pc-dragging-body');
+    }
+
+    handles.forEach(function (handle) {
+      handle.addEventListener('pointerdown', function (e) {
+        if (e.button != null && e.button !== 0) return;
+        dragging = handle.closest('.pc-card');
+        if (!dragging) return;
+        moved = false;
+        startX = e.clientX; startY = e.clientY;
+        try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+        document.body.classList.add('pc-dragging-body');
+        e.preventDefault();
+      });
+
+      handle.addEventListener('pointermove', function (e) {
+        if (!dragging) return;
+        if (!moved && Math.hypot(e.clientX - startX, e.clientY - startY) < 6) return;
+        moved = true;
+        dragging.classList.add('pc-dragging');
+        var cards = [].slice.call(grid.querySelectorAll('.pc-card'));
+        var y = e.clientY, x = e.clientX;
+        var before = null;
+        for (var i = 0; i < cards.length; i++) {
+          if (cards[i] === dragging) continue;
+          var r = cards[i].getBoundingClientRect();
+          if (y < r.top + r.height / 2 - 2 ||
+              (y >= r.top - r.height / 2 && y < r.top + r.height / 2 && x < r.left + r.width / 2)) {
+            before = cards[i];
+            break;
+          }
+        }
+        if (before && before !== dragging.nextSibling) {
+          grid.insertBefore(dragging, before);
+        } else if (!before && dragging !== grid.lastElementChild) {
+          grid.appendChild(dragging);
+        }
+      });
+
+      function endDrag(e) {
+        if (!dragging) return;
+        try { handle.releasePointerCapture(e.pointerId); } catch (err) {}
+        if (moved) {
+          // Commit the DOM order to run.party.
+          var order = [].slice.call(grid.querySelectorAll('.pc-card')).map(function (c) { return c.dataset.uid; });
+          var byUid = {};
+          run.party.forEach(function (mm) { byUid[mm.uid] = mm; });
+          var next = order.map(function (uid) { return byUid[uid]; }).filter(Boolean);
+          if (next.length === run.party.length) run.party = next;
+          grid._suppressClick = true;
+          setTimeout(function () { grid._suppressClick = false; }, 350);
+          saveGame();
+          renderCrossroads();
+        }
+        clearGesture();
+      }
+      handle.addEventListener('pointerup', endDrag);
+      handle.addEventListener('pointercancel', clearGesture);
     });
   }
 

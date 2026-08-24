@@ -1155,10 +1155,10 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
 
     const stripSprite = window.document.querySelector('#xTeam .anim-mon');
     check('route sprites have decode-time size bounds',
-      !!stripSprite && /max-height:\s*46px/.test(stripSprite.getAttribute('style') || ''),
+      !!stripSprite && /max-height:\s*64px/.test(stripSprite.getAttribute('style') || ''),
       stripSprite && stripSprite.getAttribute('style'));
 
-    window.document.querySelector('#xTeam .tslot[data-i="0"]').click();
+    window.document.querySelector('#xTeam .pc-card[data-i="0"] [data-detail]').click();
     await new Promise((r) => setTimeout(r, 140));
     const evoButton = window.document.querySelector('#xTeamDetail .evo-btn.ready');
     const detailSprite = window.document.querySelector('#xTeamDetail .pd-art img');
@@ -1186,6 +1186,88 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
       !window.document.getElementById('screenCrossroads').hidden &&
       window.Game.run.party[0].id === 'venusaur');
   }
+}
+
+// ======================================================== TEAM CARDS ========
+// The route screen shows every Pokemon as a front-and-centre card with Heal /
+// Train / Item actions that expand inline with recommendations. The cards are
+// the same source of truth as the party sheet, and dragging reorders the
+// underlying run.party (the first card always leads into battle).
+{
+  window.Modal.closeAll();
+  const g = window.Game.run;
+  g.mode = 'free'; g.over = false;
+  g.money = 20000;
+  const charmander = await C.makeMon('charmander');
+  charmander.name = 'Char'; charmander.hpPct = 0.6; charmander.status = 'brn';
+  const squirtle = await C.makeMon('squirtle');
+  squirtle.name = 'Squirt'; squirtle.hpPct = 1;
+  const bulbasaur = await C.makeMon('bulbasaur');
+  bulbasaur.name = 'Bulba'; bulbasaur.hpPct = 1;
+  g.party = [charmander, squirtle, bulbasaur];
+  g.party.forEach((m) => window.Nuz.trackMon(g, m));
+  g.bag = { fullrestore: 2, sitrusberry: 1, rarecandy: 1, pokeball: 3 };
+  window.Game.show('Crossroads');
+  window.Game.redrawRoute();
+
+  const doc = window.document;
+  check('every party member renders as a team card',
+    doc.querySelectorAll('#xTeam .pc-card').length === 3);
+  check('the first card is marked LEAD', !!doc.querySelector('#xTeam .pc-card[data-i="0"] .pc-lead'));
+  check('each card has Heal, Train and Item actions',
+    doc.querySelectorAll('#xTeam .pc-act').length === 9 &&
+    !!doc.querySelector('#xTeam [data-panel="heal"]') &&
+    !!doc.querySelector('#xTeam [data-panel="train"]') &&
+    !!doc.querySelector('#xTeam [data-panel="item"]'));
+  check('an injured card flags its Heal action',
+    doc.querySelector('#xTeam .pc-card[data-i="0"] .pc-act-heal').classList.contains('need'));
+
+  // Expanding Heal shows the medicine actually in the bag, with a recommendation.
+  doc.querySelector('#xTeam .pc-card[data-i="0"] [data-panel="heal"]').click();
+  await new Promise((r) => setTimeout(r, 60));
+  const healRows = doc.querySelectorAll('#xTeam .pcp-heal .pcp-row');
+  check('the Heal panel lists usable medicine', healRows.length >= 1);
+  check('the Heal panel marks a recommended item',
+    !!doc.querySelector('#xTeam .pcp-heal .pcp-row.rec'));
+
+  // Using medicine applies it to THIS Pokemon and refreshes the cards.
+  doc.querySelector('#xTeam .pcp-heal [data-heal="fullrestore"]').click();
+  await new Promise((r) => setTimeout(r, 60));
+  check('using medicine restores the selected Pokemon', g.party[0].hpPct >= 0.999 && !g.party[0].status);
+  check('using medicine consumes one from the bag', g.bag.fullrestore === 1);
+
+  // The Item panel offers held items from the bag and evolution.
+  doc.querySelector('#xTeam .pc-card[data-i="0"] [data-panel="item"]').click();
+  await new Promise((r) => setTimeout(r, 60));
+  check('the Item panel offers a held item from the bag',
+    !!doc.querySelector('#xTeam .pcp-item [data-give-held="sitrusberry"]'));
+  check('the Item panel surfaces an available evolution',
+    !!doc.querySelector('#xTeam .pcp-item .evo-btn'));
+
+  // Tapping a card body opens the full detail overlay.
+  doc.querySelector('#xTeam .pc-card[data-i="1"] [data-detail]').click();
+  await new Promise((r) => setTimeout(r, 60));
+  check('tapping a card opens the full detail sheet',
+    !doc.getElementById('xTeamDetail').hidden && window.Modal.isOpen('xTeamDetail'));
+  window.Modal.closeAll();
+
+  // Reordering by UID commits to run.party (simulate the drag drop order).
+  const grid = doc.getElementById('xTeam');
+  // Move the third card (Bulbasaur) to the front, simulating a drag-and-drop.
+  const card2 = grid.querySelector('.pc-card[data-i="2"]');
+  grid.insertBefore(card2, grid.firstElementChild);
+  // Mirror initTeamDrag's commit: map the DOM order back onto run.party.
+  const uids = Array.from(grid.querySelectorAll('.pc-card')).map((c) => c.dataset.uid);
+  const byUid = {};
+  g.party.forEach((m) => { byUid[m.uid] = m; });
+  g.party = uids.map((u) => byUid[u]).filter(Boolean);
+  window.Game.redrawRoute();
+  check('reordering the cards reorders run.party',
+    g.party[0].name === 'Bulba' && g.party[1].name === 'Char' && g.party[2].name === 'Squirt',
+    g.party.map((m) => m.name).join(', '));
+  check('after reorder the new first card is marked LEAD',
+    !!doc.querySelector('#xTeam .pc-card[data-i="0"] .pc-lead') &&
+    doc.querySelector('#xTeam .pc-card[data-i="0"]').dataset.uid === String(g.party[0].uid));
 }
 
 // ======================================================== STAT POINT SLIDERS ==
@@ -1216,7 +1298,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   window.Game.show('Crossroads');
   window.Game.redrawRoute();
 
-  const teamSlot = window.document.querySelector('#xTeam .tslot[data-i="0"]');
+  const teamSlot = window.document.querySelector('#xTeam .pc-card[data-i="0"] [data-detail]');
   if (teamSlot) teamSlot.click();
   const trainBtn = await untilSlider(() =>
     window.document.querySelector('#xTeamDetail .pd-train'));

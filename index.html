@@ -328,8 +328,16 @@
          trainer's intent. Always previewed, never a hidden difficulty tweak. -->
     <div class="x-ascension" id="xAscension" hidden></div>
 
-    <!-- the team lives on this screen; no separate menu -->
-    <div class="team-strip" id="xTeam"></div>
+    <!-- YOUR TEAM, front and centre. Each Pokemon is a card with Heal / Train /
+         Item actions that expand inline, with per-Pokemon recommendations.
+         Cards can be dragged to reorder (the first card always leads). -->
+    <section class="team-board" aria-label="Your team">
+      <div class="team-board-head">
+        <h3 class="team-board-title">Your team</h3>
+        <span class="team-board-hint" id="xTeamHint">Drag to reorder</span>
+      </div>
+      <div class="pc-grid" id="xTeam"></div>
+    </section>
 
     <!-- Camp is the only preparation surface. The next useful action is always
          visible; inventory and shopping are available without filling the route. -->
@@ -341,7 +349,7 @@
       <div id="xRecommendations" class="camp-actions" aria-live="polite"></div>
 
       <details class="camp-drawer" id="xBagBlock">
-        <summary><span>Heal &amp; items</span><span class="drawer-note" id="xBagNote"></span></summary>
+        <summary><span>Bag</span><span class="drawer-note" id="xBagNote"></span></summary>
         <p class="drawer-help">Use medicine, evolution items, or equip an item to a Pokémon.</p>
         <div id="xOwned" class="owned-grid"></div>
       </details>
