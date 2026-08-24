@@ -2130,11 +2130,8 @@ body.modal-open { overflow:hidden; }
 body.coach-action-locked .coach-spot {
   box-shadow:0 0 0 100vmax rgba(5,6,12,.62);
 }
-/* An orientation halo that CONTAINS the real target (the ball rail around
-   the one throwable ball) neither pulses nor casts a second shade: only the
-   actual control moves. */
-.coach-spot:has(.coach-spot) { animation:none; }
-body.coach-action-locked .coach-spot:has(.coach-spot) { box-shadow:none; }
+/* Every highlighted target pulses. Nested highlights intentionally keep the
+   same signal: anything the tutorial calls out should visibly feel actionable. */
 /* A modal SHEET anchors to an element on the page behind it. The pulse must
    stay BEHIND the sheet's scrim (z-index 900) — popping the anchored element
    up over the dialog (the old 1299) made the lesson card look glitched, with
@@ -2382,3 +2379,134 @@ body.coach-sheet-open .coach-spot { z-index:850; box-shadow:none; }
 }
 .rules-guide-link:hover { background:rgba(192,124,232,.18); }
 .rules-guide-link b { color:#fff; }
+
+/* ===== SIMPLE CAMP FLOW =====
+   The route exposes a single preparation surface instead of an inventory,
+   shop and sell screen competing with the battle CTA. */
+.camp { margin:4px 0 4px; }
+.camp-head { display:flex; gap:12px; justify-content:space-between; align-items:center; padding:14px; border-radius:var(--r-md); background:linear-gradient(135deg,rgba(91,140,255,.16),rgba(74,222,128,.07)); box-shadow:var(--e1); }
+.camp-kicker { color:var(--ink-3); font-size:.67rem; text-transform:uppercase; letter-spacing:1.4px; margin-bottom:3px; }
+.camp-head h3 { color:#fff; font-size:1.2rem; }
+.camp-heal { border:0; border-radius:var(--r-pill); padding:9px 11px; background:rgba(74,222,128,.18); color:var(--green); font:inherit; font-size:.78rem; line-height:1.1; cursor:pointer; }
+.camp-heal:hover { background:rgba(74,222,128,.28); }
+.camp-actions { display:grid; gap:7px; margin:10px 0; }
+.camp-action { width:100%; display:flex; align-items:center; gap:9px; padding:11px 12px; text-align:left; border:0; border-radius:var(--r-sm); color:var(--ink); font:inherit; background:var(--surface); box-shadow:var(--e1); cursor:pointer; }
+.camp-action:hover { background:var(--surface-hi); }
+.camp-action b { color:#fff; font-size:.9rem; }
+.camp-action small { display:block; color:var(--ink-2); font-size:.74rem; margin-top:2px; }
+.camp-action .camp-mark { color:var(--gold); font-size:1.1rem; }
+.camp-action.warn .camp-mark { color:var(--red); }
+.camp-empty { padding:11px 12px; color:var(--green); background:rgba(74,222,128,.08); border-radius:var(--r-sm); font-size:.84rem; }
+.camp-drawer { margin-top:8px; border-radius:var(--r-md); background:var(--surface); box-shadow:var(--e1); overflow:hidden; }
+.camp-drawer > summary, .sell-drawer > summary { list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; padding:13px; color:#fff; font-size:1rem; }
+.camp-drawer > summary::-webkit-details-marker, .sell-drawer > summary::-webkit-details-marker { display:none; }
+.camp-drawer > summary::after, .sell-drawer > summary::after { content:'+'; color:var(--ink-3); margin-left:8px; }
+.camp-drawer[open] > summary::after, .sell-drawer[open] > summary::after { content:'–'; }
+.drawer-note { color:var(--ink-3); font-size:.72rem; margin-left:auto; margin-right:8px; }
+.drawer-help { padding:0 13px 10px; margin:0; color:var(--ink-2); font-size:.78rem; line-height:1.35; }
+.camp-drawer .owned-grid, .camp-drawer .mart-inline { padding:0 13px 13px; }
+.sell-drawer { margin:0 13px 13px; border-top:1px solid rgba(255,255,255,.08); }
+.sell-drawer > summary { padding:12px 0; color:var(--ink-2); font-size:.82rem; }
+
+/* ========================================================================
+   ADVENTURE UI REBUILD (non-battle screens)
+   The visual model is a quiet field journal: one task per page, a clear
+   primary action, and optional detail in drawers. This deliberately avoids
+   dashboard density while retaining the depth of the underlying roguelike.
+   ======================================================================== */
+.screen-page {
+  position:relative; min-height:100dvh; padding-top:22px; padding-bottom:128px;
+  isolation:isolate;
+}
+.screen-page::before {
+  content:''; position:absolute; z-index:-1; inset:0;
+  background:linear-gradient(160deg,rgba(255,255,255,.025),transparent 32%),
+             radial-gradient(520px 260px at 50% 0,rgba(255,215,110,.055),transparent 72%);
+  pointer-events:none;
+}
+/* A page header is navigation and orientation, never a toolbar. */
+.screen-page .sub-head {
+  min-height:46px; padding:0 0 14px; margin:0 0 18px;
+  border-bottom:1px solid rgba(255,255,255,.09);
+}
+.screen-page .scr-title { font-size:1.65rem; letter-spacing:.45px; color:#fff; }
+.back-pill {
+  min-width:58px; padding:8px 11px; border-radius:var(--r-pill);
+  background:rgba(255,255,255,.07); color:var(--ink-2); font-size:.88rem;
+}
+.back-pill:hover { background:rgba(255,255,255,.13); color:#fff; }
+/* Large actions read as a commitment; secondary actions remain visibly quiet. */
+.screen-page .btn-primary { min-height:52px; border-radius:var(--r-md); box-shadow:0 5px 0 rgba(0,0,0,.23),var(--e2); }
+.screen-page .btn-secondary { min-height:46px; border-radius:var(--r-md); }
+.screen-page .hint { max-width:38ch; margin-left:auto; margin-right:auto; }
+
+/* Choice pages: setup, partner selection, and the team builder share the same
+   generous, deliberate rhythm rather than three unrelated utilities. */
+.choice-page > .scr-title, .ritual-page > .scr-title { margin:12px auto 6px; text-align:center; font-size:1.75rem; color:#fff; }
+.choice-page > .hint, .ritual-page > .hint { margin-bottom:24px; }
+.choice-page .starter-grid, .choice-page .tb-list { margin-top:18px; }
+.starter-grid { gap:14px; }
+.starter-card { border-radius:var(--r-lg); }
+.setup-wrap { padding-top:18px; }
+.setup-avatar { box-shadow:0 0 0 5px rgba(255,215,110,.10),var(--e3); }
+.setup-experience { margin-top:28px; padding:18px 14px; background:rgba(255,255,255,.045); border-radius:var(--r-lg); }
+.setup-choice { gap:10px; }
+.setup-opt { min-height:72px; border-radius:var(--r-md); }
+
+/* Camp is a travel stop, not a management dashboard. */
+.camp-page .x-top { margin-bottom:20px; }
+.camp-page .x-head { padding:12px 0 4px; margin-bottom:20px; }
+.camp-page .x-title { font-size:2rem; color:#fff; letter-spacing:.4px; }
+.camp-page .team-strip { margin-bottom:22px; }
+.camp-page .tslot { min-height:108px; border-radius:var(--r-md); }
+.camp-page .camp { margin-top:10px; }
+.camp-page .x-battle-dock { box-shadow:0 -14px 24px rgba(8,10,18,.44); }
+
+/* The codex is intentionally slower: readable cards, no competing decoration. */
+.codex-page .rules-body, .codex-page #guideBody { display:grid; gap:10px; }
+.codex-page .rules-guide-link, .codex-page .guide-hero {
+  padding:15px; border-radius:var(--r-lg); background:linear-gradient(135deg,rgba(91,140,255,.13),rgba(255,255,255,.045)); box-shadow:var(--e1);
+}
+.codex-page .rule { margin:0; padding:14px; border-radius:var(--r-md); background:rgba(255,255,255,.045); box-shadow:var(--e1); }
+.codex-page .rule p { margin-top:5px; max-width:58ch; color:var(--ink-2); line-height:1.42; }
+.codex-page .rl-n { width:28px; height:28px; flex:0 0 28px; border-radius:50%; display:grid; place-items:center; background:rgba(255,215,110,.13); color:var(--gold); }
+.codex-page .credit { padding:14px 2px 0; color:var(--ink-3); line-height:1.5; }
+
+/* Archives put the personal record ahead of raw lists. */
+.archive-page #profBody, .archive-page #histBody, .archive-page .shiny-grid { margin-top:20px; }
+.archive-page .shiny-grid { gap:12px; }
+.archive-page .shiny-card, .archive-page .history-card, .archive-page .profile-card { border-radius:var(--r-lg); }
+
+/* Rewards, catches and results are moments: centered content, one exit. */
+.moment-page { display:flex; flex-direction:column; justify-content:center; }
+.moment-page .panel, .moment-page .end-box, .moment-page .sum-wrap { width:100%; max-width:460px; margin:0 auto; }
+.moment-page .scr-title { font-size:2rem; margin-bottom:8px; }
+.moment-page .panel { padding:22px 16px; border-radius:var(--r-lg); background:linear-gradient(145deg,rgba(255,215,110,.11),rgba(255,255,255,.04)); }
+.moment-page .footer-btns { max-width:460px; width:100%; margin:22px auto 0; }
+.moment-page .end-box { padding:28px 14px; border-radius:var(--r-lg); background:rgba(255,255,255,.035); box-shadow:var(--e2); }
+.moment-page .sum-wrap { padding:28px 4px; }
+
+/* Utilities and overlays are pages in miniature: strong title, short copy,
+   large decisions. This prevents modal stacks from feeling like a spreadsheet. */
+.overlay-card { border-radius:var(--r-lg); border:1px solid rgba(255,255,255,.10); background:linear-gradient(155deg,rgba(31,37,58,.98),rgba(13,17,30,.98)); box-shadow:var(--e4); }
+.menu-card { padding:10px; }
+.menu-item { min-height:62px; border-radius:var(--r-md); }
+.menu-item:hover { background:rgba(255,255,255,.08); }
+.picker-title { color:#fff; font-size:1.55rem; }
+
+@media (min-width:561px) {
+  main { box-shadow:0 0 0 1px rgba(255,255,255,.06), 0 0 90px rgba(0,0,0,.38); }
+  .screen-page { padding-left:22px; padding-right:22px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  *, *::before, *::after { scroll-behavior:auto !important; transition-duration:.01ms !important; animation-duration:.01ms !important; }
+}
+
+/* Section-five milestone gift: a short, unmistakable reward moment. */
+.gift-card { max-width:360px; text-align:center; padding:28px 22px 22px; }
+.gift-star { color:var(--gold); font-size:2.25rem; text-shadow:0 0 28px rgba(255,215,110,.7); }
+.gift-kicker { margin:2px 0 7px; color:var(--ink-3); font-size:.75rem; text-transform:uppercase; letter-spacing:1.4px; }
+.gift-item { display:flex; gap:12px; align-items:center; margin:20px 0; padding:13px; text-align:left; border-radius:var(--r-md); background:rgba(192,124,232,.12); }
+.gift-item b { display:block; color:#fff; font-size:1.15rem; }
+.gift-item em { display:block; margin-top:3px; color:var(--ink-2); font-size:.78rem; font-style:normal; line-height:1.25; }
+#giftBallArt { flex:0 0 48px; display:grid; place-items:center; }

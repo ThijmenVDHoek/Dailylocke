@@ -346,19 +346,7 @@
   // restores ZERO HP, and it sits in the shop directly beside "Full Restore",
   // which does both. Everyone reads it as "heals everything".
   var ITEM_PLAIN = {
-    fullheal:    { one: 'Status only \u2014 no HP', long: 'Cures poison, burn, paralysis, sleep or freeze. It restores <b>no HP at all</b>. For HP you want a Potion.' },
-    fullrestore: { one: 'Full HP + cures status', long: 'The one that really does everything: back to full HP <b>and</b> clears any status.' },
-    maxpotion:   { one: 'Full HP, status stays', long: 'Restores every point of HP, but a burn or paralysis will still be there afterwards.' },
-    potion:      { one: 'Small heal (20%)', long: 'Restores a fifth of max HP. Cheap, and enough to survive one more hit.' },
-    superpotion: { one: 'Medium heal (35%)', long: 'A third of max HP.' },
-    hyperpotion: { one: 'Big heal (50%)', long: 'Half of max HP.' },
-    revive:      { one: 'Does NOT work here', long: 'This is a nuzlocke: a fainted Pokemon is gone forever. Revives cannot bring it back.' },
-    maxrevive:   { one: 'Does NOT work here', long: 'This is a nuzlocke: a fainted Pokemon is gone forever. Revives cannot bring it back.' },
-    antidote:    { one: 'Poison only', long: 'Cures poison and nothing else. Full Heal covers everything.' },
-    awakening:   { one: 'Sleep only', long: 'Wakes a sleeping Pokemon. Nothing else.' },
-    ether:       { one: 'Refills one move', long: 'Move uses (PP) do not refill between battles. This tops one move back up by 10.' },
-    maxether:    { one: 'Fully refills one move', long: 'Restores one move\u2019s uses completely.' },
-    elixir:      { one: 'Refills every move', long: 'Adds 10 uses back to all four moves at once.' },
+    fullrestore: { one: 'Fully restores one Pokémon', long: 'The only field medicine: restores all HP and PP, and cures any status. It cannot revive a fainted Pokémon.' },
     pokeball:    { one: 'The basic ball', long: 'Works best on a weakened target. Cheap enough to throw several.' },
     greatball:   { one: '1.5\u00d7 better than a Poke Ball', long: 'A straight upgrade. Worth it on anything you actually want.' },
     ultraball:   { one: '2\u00d7 better than a Poke Ball', long: 'The reliable one. Use it when the catch really matters.' },
@@ -500,9 +488,9 @@
     { id: 'healOpen', where: '_tutorial', title: 'Heal your new friend',
       say: 'I want you to practice healing your new teammate between battles.',
       body: 'Tap <b>{NAME}\u2019s card</b> on your team.' },
-    { id: 'healUse', where: '_tutorial', title: 'Use a Potion',
+    { id: 'healUse', where: '_tutorial', title: 'Use a Full Restore',
       say: 'Good. Now I will show you where healing happens.',
-      body: 'Tap the pulsing <b>Use Potion</b> button.' },
+      body: 'Tap the pulsing <b>Use Full Restore</b> button.' },
     { id: 'onward', where: '_tutorial', title: 'Continue onward',
       say: 'I can see your friend is healed and ready. I will lead you to the next stop.',
       body: 'Tap the pulsing <b>Wild Battle 1</b> button.' },
@@ -525,7 +513,7 @@
       say: 'Your save lives only in this browser; nothing is stored online.',
       body: 'Tap <b>Save progress</b> to download a backup.' },
     { id: 'mart', where: 'items', title: 'Open the Mart',
-      say: 'I keep Balls and Potions in stock, while held items and stones rotate each section.',
+      say: 'Each section has one Ball tier and Full Restores, while held items and stones rotate.',
       body: 'Tap the <b>Mart</b> to see what is in stock.' },
     { id: 'train', where: 'training', title: 'Train your Pokemon',
       say: 'I use the Train service to improve moves, ability, nature, and Stat Points.',
@@ -715,8 +703,10 @@
       // not silently unlock every other control.
       if (actionLock.opts.holdUntilValid &&
           (e.type === 'pointerdown' || e.type === 'input' || e.type === 'change')) return;
-      // Release before the app's bubbling handler runs. The target's handler
-      // can then clear the coach mark and perform the action normally.
+      // An action-guided tutorial advances by using the highlighted game
+      // control, never by acknowledging dialogue. Remove its non-modal hint
+      // before the app handler runs, then let that handler perform the action.
+      if (bubbleOpts && bubbleOpts.actionRequired) dismissBubble();
       releaseActionLock();
       return;
     }
@@ -909,10 +899,13 @@
         '</div>' +
       '</div>' +
       (opts.extra || '') +
-      '<div class="coach-actions">' +
+      // Tutorial dialogue has no acknowledgement control: an action beat is
+      // always presented as a non-modal hint, and the highlighted control is
+      // how the player proceeds. Guide and optional lessons keep dismissal.
+      (opts.bypassSeen ? '' : '<div class="coach-actions">' +
         '<button type="button" class="btn-primary wide" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>' +
         ((opts.noSkip || inPrologue()) ? '' : '<button type="button" class="coach-skip" data-coach-skip>Skip tips</button>') +
-      '</div>';
+      '</div>');
 
     if (window.Modal.isOpen(el)) window.Modal.close(el);
 
@@ -960,9 +953,8 @@
     var skip = typeText(bodyDiv, filled, 34);
     bodyDiv.onclick = function () { skip(); bodyDiv.onclick = null; };
 
-    card.querySelector('[data-coach-ok]').addEventListener('click', function () {
-      window.Modal.close(el);
-    });
+    var ok = card.querySelector('[data-coach-ok]');
+    if (ok) ok.addEventListener('click', function () { window.Modal.close(el); });
     var sk = card.querySelector('[data-coach-skip]');
     if (sk) sk.addEventListener('click', function () {
       setOff(true);
@@ -1069,7 +1061,7 @@
           (lesson.say ? esc(lesson.say) + ' ' : '') +
           fillTemplate(lesson.body, opts.template) +
         '</p>' +
-        '<button type="button" class="cb-ok" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>' +
+        (opts.bypassSeen ? '' : '<button type="button" class="cb-ok" data-coach-ok>' + esc(opts.okLabel || 'Got it') + '</button>') +
       '</div>' +
       '<span class="coach-portrait cb-professor">' + advisorImg(104) + '</span>' +
       '<span class="cb-arrow" aria-hidden="true"></span>';
@@ -1166,7 +1158,7 @@
     if (!l) return false;
     // Scripted tutorial beats carry a progress value, not a card number:
     // several cards can teach one milestone and a full-HP catch skips the
-    // Potion interaction. The sheet renders this as a bar, so it never claims
+    // Full Restore interaction. The sheet renders this as a bar, so it never claims
     // that two different cards are the same numbered step.
     if (!opts.force && opts.bypassSeen &&
         window.Game && typeof window.Game.tutorialProgress === 'function') {
@@ -1189,7 +1181,12 @@
       // is a small window in which a player could skip ahead by tapping another
       // control.
       if (opts.actionRequired) armActionLock(opts);
-      if (busy || Date.now() < cooldownUntil) {
+      // A scripted action can follow another scripted action across a screen
+      // transition (Route -> first battle). Do not leave a silent cooldown
+      // between them: the newly highlighted control needs its Oak prompt the
+      // instant it exists. Ordinary tips still observe the anti-stack delay.
+      var immediateGuidedAction = !!(opts.bypassSeen && opts.actionRequired);
+      if (busy || (!immediateGuidedAction && Date.now() < cooldownUntil)) {
         if (opts.vital) queueVital(id, opts);
         return false;
       }
@@ -1198,7 +1195,7 @@
     // caller's run-scoped responsibility, and marking it seen here would
     // suppress it again on the next guided run.
     if (!opts.force && !opts.bypassSeen) markSeen(id);
-    if (opts.surface === 'bubble') showBubble(l, opts);
+    if (opts.surface === 'bubble' || (opts.bypassSeen && opts.actionRequired)) showBubble(l, opts);
     else showSheet(l, opts);
     return true;
   }

@@ -546,8 +546,8 @@
       setTimeout(function () {
         if ($('screenSetup').hidden) return;
         CO.lesson('welcome', {
-          anchor: $('setupAvatar'),
-          vital: true,
+          anchor: $('btnSetupGo'), actionRequired: true, keepHalo: true,
+          bypassSeen: true, vital: true,
           stillValid: function () { return !$('screenSetup').hidden; }
         });
       }, 0);
@@ -594,6 +594,8 @@
     if (sBack) sBack.addEventListener('click', function () {
       window.Modal.close('screenSkipTutorialChoice');
     });
+    var gift = $('btnGiftTake');
+    if (gift) gift.addEventListener('click', function () { window.Modal.close('screenSectionGift'); });
   }
 
   // Commit the trainer, then start the guided first run.
@@ -932,7 +934,7 @@
       setTimeout(function () {
         if ($('screenStarter').hidden) return;
         CO.lesson('starter', {
-          anchor: g,
+          anchor: g, actionRequired: true,
           keepHalo: true,
           bypassSeen: true,
           vital: true,
@@ -991,10 +993,10 @@
           N.trackMon(run, mon);
           run.seenSpecies[mon.id] = 1;
           N.addItem(run, 'pokeball', 5);
-          N.addItem(run, 'potion', 3);
+          N.addItem(run, 'fullrestore', 3);
           // The guided run starts with a little more slack so a first-timer
           // can afford to miss a ball throw and still learn the lesson.
-          if (run.prologue) { N.addItem(run, 'greatball', 3); N.addItem(run, 'superpotion', 2); }
+          if (run.prologue) { N.addItem(run, 'fullrestore', 2); }
           N.logMsg(run, 'You set out with ' + nick + ' the ' + mon.species + '.');
           if (mon.shiny) recordShiny(mon, 'starter');
           // The Daily result records which starter you took, so the share card
@@ -1542,11 +1544,89 @@
     if (bagBlock) bagBlock.hidden = isG;
     if (shopBlock) shopBlock.hidden = isG;
     if (!isG) {
+      drawCamp(trainerNext);
       drawOwned();
-      // the shop lives on this screen now
       openMart();
     }
+    maybeOfferSectionFiveGift(isG);
     routeCoach(trainerNext, isG);
+  }
+
+  // A single milestone reward introduces the Master Ball without asking the
+  // player to compare it with shop stock. Mark it before opening the dialog so
+  // a refresh or a stacked modal can never duplicate the gift.
+  function maybeOfferSectionFiveGift(isGauntlet) {
+    if (!run || isGauntlet || run.section !== 5 || run.section5GiftClaimed) return;
+    run.section5GiftClaimed = true;
+    N.addItem(run, 'masterball', 1);
+    N.logMsg(run, 'Received a Master Ball at the start of Section 5.');
+    saveGame();
+    setTimeout(function () {
+      if (!run || $('screenCrossroads').hidden) return;
+      var art = $('giftBallArt');
+      if (art) art.innerHTML = window.ItemArt ? window.ItemArt.itemImg('masterball', 48) : '';
+      window.Modal.open('screenSectionGift');
+    }, 0);
+  }
+
+  // Camp keeps preparation understandable: show only the immediate decisions,
+  // while Bag and Shop stay available in their named drawers below.
+  function drawCamp(trainerNext) {
+    var host = $('xRecommendations'), heal = $('btnCampHeal');
+    if (!host || !run) return;
+    var injured = run.party.filter(function (m) { return !C.isFainted(m) && (m.hpPct < .999 || !!m.status); });
+    var medicine = Object.keys(run.bag).filter(function (id) { return !!C.HEAL_ITEMS[id]; });
+    var actions = [];
+    if (injured.length) {
+      var names = injured.slice(0, 2).map(function (m) { return m.name; }).join(' and ');
+      actions.push({ key: medicine.length ? 'heal' : 'shop', warn: true, mark: '♥',
+        title: medicine.length ? 'Heal ' + names : 'Your team needs medicine',
+        text: medicine.length ? injured.length + ' Pokémon need attention before the next battle.' : 'Open the shop to stock up before you continue.' });
+    }
+    var evoMon = run.party.filter(function (m) {
+      return Object.keys(run.bag).some(function (id) { return bagGroupOf(id) === 'evo' && evoTargetsFor(id, m).length; });
+    })[0];
+    if (evoMon) actions.push({ key: 'team', mark: '↑', title: evoMon.name + ' is ready to evolve', text: 'Open its team card to see what it can become.' });
+    var lowBalls = Object.keys(run.bag).reduce(function (n, id) { return n + (C.BALLS[id] ? run.bag[id] : 0); }, 0) === 0;
+    if (!trainerNext && lowBalls) actions.push({ key: 'shop', mark: '○', title: 'Bring a Poké Ball', text: 'The next encounter may be your one catch for this section.' });
+    if (!actions.length) actions.push({ key: 'team', mark: '✓', title: 'Your team is ready', text: 'Check your lead or start the next battle.' });
+    host.innerHTML = actions.slice(0, 2).map(function (a) {
+      return '<button type="button" class="camp-action' + (a.warn ? ' warn' : '') + '" data-camp-action="' + a.key + '"><span class="camp-mark">' + a.mark + '</span><span><b>' + escapeHtml(a.title) + '</b><small>' + escapeHtml(a.text) + '</small></span></button>';
+    }).join('');
+    host.querySelectorAll('[data-camp-action]').forEach(function (b) { b.onclick = function () { openCampAction(b.dataset.campAction); }; });
+    if (heal) {
+      heal.hidden = !injured.length || !medicine.length;
+      heal.onclick = useRecommendedMedicine;
+    }
+  }
+
+  function openCampAction(action) {
+    if (action === 'shop') { var shop = $('xShopBlock'); if (shop) { shop.open = true; shop.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
+    if (action === 'heal') { var bag = $('xBagBlock'); if (bag) { bag.open = true; bag.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
+    partySel = 0; drawTeamStrip(); drawPartyDetail();
+  }
+
+  // A safe convenience action: consume only medicine that produces a real
+  // benefit, prioritising small heals so a Full Restore is not wasted.
+  function useRecommendedMedicine() {
+    var ids = Object.keys(run.bag).filter(function (id) { return !!C.HEAL_ITEMS[id]; }).sort(function (a, b) {
+      return (C.HEAL_ITEMS[a].healPct || 0) - (C.HEAL_ITEMS[b].healPct || 0);
+    });
+    var messages = [];
+    run.party.forEach(function (mon) {
+      if (C.isFainted(mon)) return;
+      while ((mon.hpPct < .999 || mon.status) && ids.length) {
+        var id = ids.filter(function (item) { return run.bag[item] && itemEffectOn(item, mon).dis !== true; })[0];
+        if (!id) break;
+        var result = N.applyItem(run, id, mon);
+        if (!result.ok) break;
+        messages.push(result.msg);
+      }
+    });
+    if (!messages.length) { toast('No medicine can help your team right now.'); return; }
+    N.logMsg(run, 'Prepared the team with medicine.');
+    toast('Team prepared.');
+    renderCrossroads(); saveGame();
   }
 
   // ---- route-screen teaching ----------------------------------------------
@@ -1600,8 +1680,8 @@
 
       // 1b. After the capture (before battle 2 of section 1): heal the new
       //     partner. It joins the team at catch HP, and learning to open a
-      //     team card and use a Potion is the most-used skill in the game.
-      //     The next battle button stays locked until the Potion is used, so
+      //     team card and use a Full Restore is the most-used skill in the game.
+      //     The next battle button stays locked until the Full Restore is used, so
       //     the path stays linear: catch -> heal -> battle 2.
       if (pro && run.section === 1 && run.battleInSection === 1 && !tutorialHealed()) {
         var caughtMonH = caughtMonInParty();
@@ -1620,14 +1700,14 @@
           return;
         }
         // The new partner arrived at full HP (or there is nothing to heal):
-        // there is no Potion to press. Fall through to the onward beat below
+        // there is no Full Restore to use. Fall through to the onward beat below
         // instead of stranding the player on the route with no next action.
       }
 
       // 1b2. Healed. The route now has exactly one next action: press the
       //      battle button for stop 2. This is its own beat, not part of the
       //      heal card, so the player is never left looking at a route with
-      //      nothing glowing after the Potion (or after a full-HP catch).
+      //      nothing glowing after the Full Restore (or after a full-HP catch).
       if (pro && run.section === 1 && run.battleInSection === 1 && tutorialHealed()) {
         CO.lesson('onward', {
           anchor: $('btnGoBattle'), actionRequired: true, keepHalo: true,
@@ -1724,7 +1804,7 @@
 
   // The tutorial sheet uses a progress bar, not a step number. Several ideas
   // intentionally take two or more cards (open a card, then press its control),
-  // while a full-HP catch can satisfy healing without a Potion. A card counter
+  // while a full-HP catch can satisfy healing without a Full Restore. A card counter
   // therefore lies; these are the stable conceptual milestones instead.
   function tutorialHealed() {
     if (run && run.tutorialHealDone) return true;
@@ -2030,14 +2110,9 @@
     // sheet, not a toast, so the tutorial ends the way it began — with the
     // professor talking to the player.
     if (!opts.silent) {
-      if (CO && CO.tipsOn()) {
-        CO.lesson('graduate', {
-          vital: true,
-          stillValid: function () { return !!(run && !run.prologue); }
-        });
-      } else {
-        toast('Tutorial complete \u2014 the rest of the run is all yours.');
-      }
+      // Training's highlighted Done action is the last tutorial interaction.
+      // End cleanly instead of inserting a second acknowledgement button.
+      toast('Tutorial complete — the rest of the run is all yours.');
     }
   }
 
@@ -2919,18 +2994,18 @@
     }
     gridHtml += '</div>';
 
-    // Potion suggestion
+    // Full Restore suggestion
     var potionHtml = '';
     if (mon.hpPct < 1 && !C.isFainted(mon)) {
-      var bestPotion = null;
-      var potionOrder = ['maxpotion', 'fullrestore', 'hyperpotion', 'superpotion', 'potion'];
+      var bestRestore = null;
+      var potionOrder = ['fullrestore'];
       for (var pi = 0; pi < potionOrder.length; pi++) {
-        if (run.bag[potionOrder[pi]] && run.bag[potionOrder[pi]] > 0) { bestPotion = potionOrder[pi]; break; }
+        if (run.bag[potionOrder[pi]] && run.bag[potionOrder[pi]] > 0) { bestRestore = potionOrder[pi]; break; }
       }
-      if (bestPotion) {
-        potionHtml = '<button class="btn-secondary wide pd-potion-btn" data-potion="' + bestPotion + '">' +
-          (window.ItemArt ? window.ItemArt.itemImg(bestPotion, 18) : '') +
-          'Use ' + itemName(bestPotion) + '</button>';
+      if (bestRestore) {
+        potionHtml = '<button class="btn-secondary wide pd-potion-btn" data-potion="' + bestRestore + '">' +
+          (window.ItemArt ? window.ItemArt.itemImg(bestRestore, 18) : '') +
+          'Use ' + itemName(bestRestore) + '</button>';
       }
     }
 
@@ -3046,18 +3121,15 @@
     if (close) close.addEventListener('click', function () {
       window.Modal.close('xTeamDetail');
     });
-    // Potion button
+    // Full Restore button
     var potionBtn = host.querySelector('.pd-potion-btn');
     if (potionBtn) potionBtn.addEventListener('click', function () {
       var itemId = potionBtn.dataset.potion;
       var h = C.HEAL_ITEMS[itemId];
-      if (!h || !h.healPct) return;
-      var amount = Math.max(1, Math.round(mx * h.healPct));
-      var got = Math.min(mx - cur, amount);
-      if (got <= 0) { toast('Already at full HP.'); return; }
-      N.useItem(run, itemId);
-      mon.hpPct = Math.min(1, mon.hpPct + got / mx);
-      toast(mon.name + ' recovered ' + got + ' HP!');
+      if (!h) return;
+      var applied = N.applyItem(run, itemId, mon);
+      if (!applied.ok) { toast(applied.msg || 'That cannot help right now.'); return; }
+      toast(applied.msg);
       // The guided run's heal step is complete the moment the new partner is
       // healed out of battle — this is the taught action, not just a card
       // read.
@@ -3211,7 +3283,7 @@
     if (!CO || !CO.tipsOn() || !run || !run.prologue) return;
 
     // Section 1, before battle 2: the "heal your new friend" bubble on the
-    // actual Potion button inside the new partner's card.
+    // actual Full Restore button inside the new partner's card.
     if (run.section === 1 && run.battleInSection === 1 && !run.tutorialHealDone &&
         !!caughtMonInParty() && mon === caughtMonInParty() && mon.hpPct < 1 &&
         partySel > 0) {
@@ -5465,7 +5537,7 @@
 
   var BEAT_TARGETS = {
     // The whole-bar lesson is gone: the bag beat points ONLY at the Bag
-    // button, and the player heals with a Super Potion from inside.
+    // button, and the player heals with a Full Restore from inside.
     battleBag:  { resolve: function () { return document.querySelector('.battle-hud [data-a="bag"]'); } },
     catch:      { side: 'right',
                   resolve: function () {
@@ -6215,16 +6287,11 @@
       '<p class="hint">It keeps the HP, PP and status it had when caught.</p>' +
       '<p class="reward-money">+$' + money + '</p>';
 
+    // The nickname sheet already contains Oak's short explanation and its
+    // required Confirm name action. Do not place a second "Got it" dialogue
+    // in front of it: the player learns by completing the next real step.
     var COc = window.Coach;
-    if (COc && COc.tipsOn() && !COc.seen('caught')) {
-      setTimeout(function () {
-        if ($('screenCatch').hidden) return;
-        COc.lesson('caught', {
-          vital: !!(run && run.prologue),
-          stillValid: function () { return !$('screenCatch').hidden; }
-        });
-      }, 700);
-    }
+    if (COc && COc.tipsOn() && !COc.seen('caught')) COc.markSeen('caught');
 
     var swap = $('catchSwap');
     // The guided run's "make it your lead" step points at the Pokemon that
@@ -7054,6 +7121,13 @@
     if (s.tutorialSafeThrough == null && r.mode === 'free' && r.tutorialStarterUid) {
       r.tutorialSafeThrough = 2;
     }
+    // The field-medicine redesign has one understandable item. Convert old
+    // healing stock rather than silently deleting a player's purchases.
+    var oldHealIds = ['potion', 'superpotion', 'hyperpotion', 'maxpotion', 'revive',
+      'maxrevive', 'fullheal', 'antidote', 'awakening', 'ether', 'maxether', 'elixir'];
+    var converted = 0;
+    oldHealIds.forEach(function (id) { converted += Number((r.bag || {})[id] || 0); if (r.bag) delete r.bag[id]; });
+    if (converted) r.bag.fullrestore = (r.bag.fullrestore || 0) + converted;
     // Restore exact RNG state if available, so catch shakes and any remaining
     // randomness stay stable across refreshes. Old saves fallback to the
     // previous best-effort formula.

@@ -197,7 +197,7 @@
   </section>
 
   <!-- ===================== RULES ===================== -->
-  <section id="screenRules" hidden>
+  <section id="screenRules" class="screen-page codex-page" hidden>
     <div class="sub-head">
       <button type="button" id="btnRulesBack" class="back-pill">Back</button>
       <h2 class="scr-title">How it works</h2>
@@ -267,7 +267,7 @@
   <!-- Identity BEFORE instruction: picking a sprite and typing a name costs
        nothing, takes ten seconds, and buys the investment that makes someone
        willing to read the first lesson at all. -->
-  <section id="screenSetup" hidden>
+  <section id="screenSetup" class="screen-page ritual-page" hidden>
     <div class="sub-head">
       <button type="button" id="btnSetupBack" class="back-pill">Back</button>
       <h2 class="scr-title">Who are you?</h2>
@@ -303,7 +303,7 @@
   </section>
 
   <!-- ===================== STARTER ===================== -->
-  <section id="screenStarter" hidden>
+  <section id="screenStarter" class="screen-page choice-page" hidden>
     <h2 class="scr-title">Choose your first partner</h2>
     <p class="hint center" id="starterSub">Choose carefully. If it faints, it's gone.</p>
     <div id="starterGrid" class="starter-grid"></div>
@@ -311,7 +311,7 @@
   </section>
 
   <!-- ===================== TEAM BUILDER (Team Gauntlet) ===================== -->
-  <section id="screenTeamBuilder" hidden>
+  <section id="screenTeamBuilder" class="screen-page choice-page" hidden>
     <div class="sub-head">
       <button type="button" id="btnTbBack" class="back-pill">Back</button>
       <h2 class="scr-title">Build your team</h2>
@@ -346,7 +346,7 @@
   </section>
 
   <!-- ===================== CROSSROADS ===================== -->
-  <section id="screenCrossroads" hidden>
+  <section id="screenCrossroads" class="screen-page camp-page" hidden>
     <div class="x-top">
       <span class="x-cash" id="xCashPill">$<b id="xCash">0</b></span>
       <button type="button" id="btnMenu" class="menu-pill" aria-label="Menu"><span id="menuButtonAvatar" class="menu-button-avatar"></span></button>
@@ -365,24 +365,28 @@
     <!-- the team lives on this screen; no separate menu -->
     <div class="team-strip" id="xTeam"></div>
 
-    <div class="x-bag" id="xBagBlock">
-      <div class="x-bag-head">
-        <h3 class="x-bag-title">Bag</h3>
-        <span class="x-bag-note" id="xBagNote"></span>
+    <!-- Camp is the only preparation surface. The next useful action is always
+         visible; inventory and shopping are available without filling the route. -->
+    <section class="camp" id="xCamp" aria-label="Prepare for battle">
+      <div class="camp-head">
+        <div><div class="camp-kicker">Before you go</div><h3>Prepare your team</h3></div>
+        <button type="button" class="camp-heal" id="btnCampHeal" hidden>Use recommended medicine</button>
       </div>
-      <div id="xOwned" class="owned-grid"></div>
-    </div>
+      <div id="xRecommendations" class="camp-actions" aria-live="polite"></div>
 
-    <div class="x-shop" id="xShopBlock">
-      <div class="x-shop-head">
-        <h3 class="x-shop-title">Poke Mart</h3>
-        <span class="x-shop-note">Tap a Pokemon to train or use items</span>
-      </div>
+      <details class="camp-drawer" id="xBagBlock">
+        <summary><span>Heal &amp; items</span><span class="drawer-note" id="xBagNote"></span></summary>
+        <p class="drawer-help">Use medicine, evolution items, or equip an item to a Pokémon.</p>
+        <div id="xOwned" class="owned-grid"></div>
+      </details>
 
-      <div id="martGrid" class="mart-inline"></div>
-      <h4 class="sub-title">Sell</h4>
-      <div id="martSell" class="sell-grid"></div>
-    </div>
+      <details class="camp-drawer" id="xShopBlock">
+        <summary><span>Shop</span><span class="drawer-note">Buy supplies and upgrades</span></summary>
+        <p class="drawer-help">Start with what helps your next battle. Advanced transformations appear as you discover them.</p>
+        <div id="martGrid" class="mart-inline"></div>
+        <details class="sell-drawer"><summary>Sell spare items</summary><div id="martSell" class="sell-grid"></div></details>
+      </details>
+    </section>
 
     <div class="x-battle-dock">
       <button type="button" id="btnGoBattle" class="btn-primary x-battle-btn">
@@ -394,7 +398,7 @@
   </section>
 
   <!-- ===================== PROFILE ===================== -->
-  <section id="screenProfile" hidden>
+  <section id="screenProfile" class="screen-page archive-page" hidden>
     <div class="sub-head">
       <button type="button" id="btnProfBack" class="back-pill">Back</button>
       <h2 class="scr-title">Profile</h2>
@@ -403,7 +407,7 @@
   </section>
 
   <!-- ===================== SHINY COLLECTION ===================== -->
-  <section id="screenShinies" hidden>
+  <section id="screenShinies" class="screen-page archive-page" hidden>
     <div class="sub-head">
       <button type="button" id="btnShinyBack" class="back-pill">Back</button>
       <h2 class="scr-title">Shiny Collection</h2>
@@ -413,7 +417,7 @@
   </section>
 
   <!-- ===================== HISTORY ===================== -->
-  <section id="screenHistory" hidden>
+  <section id="screenHistory" class="screen-page archive-page" hidden>
     <div class="sub-head">
       <button type="button" id="btnHistBack" class="back-pill">Back</button>
       <h2 class="scr-title">History</h2>
@@ -481,7 +485,7 @@
   </section>
 
   <!-- ===================== TUTOR / ABILITY ===================== -->
-  <section id="screenTutor" hidden>
+  <section id="screenTutor" class="screen-page ritual-page" hidden>
     <h2 class="scr-title" id="tutorTitle">Move Tutor</h2>
     <p class="hint center" id="tutorSub"></p>
     <div id="tutorBody"></div>
@@ -489,7 +493,7 @@
   </section>
 
   <!-- ===================== REWARD ===================== -->
-  <section id="screenReward" hidden>
+  <section id="screenReward" class="screen-page moment-page" hidden>
     <h2 class="scr-title" id="rewardTitle">Victory!</h2>
     <div id="rewardBody" class="panel center"></div>
     <div class="footer-btns">
@@ -498,7 +502,7 @@
   </section>
 
   <!-- ===================== CATCH ===================== -->
-  <section id="screenCatch" hidden>
+  <section id="screenCatch" class="screen-page moment-page" hidden>
     <h2 class="scr-title" id="catchTitle">Gotcha!</h2>
     <div id="catchBody" class="panel center"></div>
     <div id="catchSwap"></div>
@@ -508,7 +512,7 @@
   </section>
 
   <!-- ===================== SECTION SUMMARY ===================== -->
-  <section id="screenSummary" hidden>
+  <section id="screenSummary" class="screen-page moment-page" hidden>
     <div class="sum-wrap">
       <div class="sum-crest"></div>
       <h2 class="scr-title" id="sumTitle">Section complete</h2>
@@ -522,6 +526,17 @@
       </div>
     </div>
   </section>
+
+  <!-- ===================== SECTION FIVE GIFT ===================== -->
+  <div id="screenSectionGift" class="overlay" hidden>
+    <div class="overlay-card gift-card" role="dialog" aria-modal="true" aria-labelledby="giftTitle">
+      <div class="gift-star" aria-hidden="true">✦</div>
+      <p class="gift-kicker">Section 5 reached</p>
+      <h3 id="giftTitle" class="picker-title">A gift for your journey</h3>
+      <div class="gift-item"><span id="giftBallArt"></span><span><b>Master Ball</b><em>One guaranteed catch. Save it for the moment that matters.</em></span></div>
+      <button type="button" id="btnGiftTake" class="btn-primary wide">Take Master Ball</button>
+    </div>
+  </div>
 
   <!-- ===================== NICKNAME (overlay) ===================== -->
   <div id="screenNickname" class="overlay" hidden>
@@ -608,7 +623,7 @@
   <!-- Every lesson, permanently re-readable. This is what licenses the game
        to stop nagging: if someone gets stuck later, the answer is here rather
        than on a wiki. -->
-  <section id="screenGuide" hidden>
+  <section id="screenGuide" class="screen-page codex-page" hidden>
     <div class="sub-head">
       <button type="button" id="btnGuideBack" class="back-pill">Back</button>
       <h2 class="scr-title">Guide</h2>
@@ -655,7 +670,7 @@
   </div>
 
   <!-- ===================== EVOLUTION ===================== -->
-  <section id="screenEvolve" hidden>
+  <section id="screenEvolve" class="screen-page ritual-page" hidden>
     <div class="evo-wrap">
       <div id="evoStage" class="evo-stage"></div>
       <p id="evoText" class="evo-text"></p>
@@ -666,7 +681,7 @@
   <!-- ===================== DAILY RESULT ===================== -->
   <!-- The Daily is finite, so it has a real ending: a scored, dated, shareable
        result rather than just "your last Pokemon fainted". -->
-  <section id="screenDailyResult" hidden>
+  <section id="screenDailyResult" class="screen-page moment-page" hidden>
     <div class="end-box dr-box">
       <h2 class="scr-title" id="drTitle">Daily complete!</h2>
       <p class="hint center" id="drSub"></p>
@@ -691,7 +706,7 @@
   </section>
 
   <!-- ===================== GAME OVER ===================== -->
-  <section id="screenGameOver" hidden>
+  <section id="screenGameOver" class="screen-page moment-page" hidden>
     <div class="end-box">
       <h2 class="scr-title dead">Run over</h2>
       <div id="goScore" class="score-box"></div>
