@@ -2061,7 +2061,8 @@
 
   function teamCardHtml(m, idx) {
     var pct = pctHP(m.hpPct);
-    var col = m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444';
+    // was: m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444'
+    var col = m.hpPct > 0.2 ? '#f2eef1' : '#f2545b';
     var fainted = C.isFainted(m);
     var isG = N.isGauntlet(run);
     var cardUid = String(m.uid);
@@ -2520,7 +2521,8 @@
 
     var mx = C.maxHP(mon), cur = C.curHP(mon);
     var pct = pctHP(mon.hpPct);
-    var col = mon.hpPct > 0.5 ? '#4ade80' : mon.hpPct > 0.2 ? '#facc15' : '#ef4444';
+    // was: mon.hpPct > 0.5 ? '#4ade80' : mon.hpPct > 0.2 ? '#facc15' : '#ef4444'
+    var col = mon.hpPct > 0.2 ? '#f2eef1' : '#f2545b';
     var dmg = Math.round(run.damageDealt[mon.uid] || 0);
     var kos = run.knockouts[mon.uid] || 0;
 
@@ -2530,7 +2532,8 @@
       var gm = run.party[gi];
       if (gm) {
         var gPct = pctHP(gm.hpPct);
-        var gCol = gm.hpPct > 0.5 ? '#4ade80' : gm.hpPct > 0.2 ? '#facc15' : '#ef4444';
+        // was: gm.hpPct > 0.5 ? '#4ade80' : gm.hpPct > 0.2 ? '#facc15' : '#ef4444'
+        var gCol = gm.hpPct > 0.2 ? '#f2eef1' : '#f2545b';
         gridHtml += '<button class="tslot' + (gi === partySel ? ' sel' : '') + '" data-gi="' + gi + '">' +
           (gi === 0 ? '<span class="ts-lead">LEAD</span>' : '') +
           '<span class="ts-art">' + animSprite(gm.id, 46, 52, '', 1.4, gm.shiny) + '</span>' +
@@ -2887,7 +2890,7 @@
   // Type palettes change colour only. Layout, font, sprite source, animation and
   // shader treatment remain identical, so a theme never compromises readability.
   var THEMES = [
-    {id:'default',name:'Default',dot:'#ffffff',p:{'--bg-0':'#080a12','--bg-1':'#0e1220','--bg-2':'#151a2c','--surface':'rgba(255,255,255,.055)','--surface-hi':'rgba(255,255,255,.10)','--surface-press':'rgba(255,255,255,.16)','--ink':'#eef0f8','--ink-2':'#a2aac4','--ink-3':'#6d7590','--gold':'#ffd76e','--blue':'#5b8cff','--green':'#4ade80','--amber':'#facc15','--red':'#ff5f6d','--violet':'#c07ce8'}},
+    {id:'default',name:'Default',dot:'#ffffff',p:{'--bg-0':'#131013','--bg-1':'#191518','--bg-2':'#1e1a1d','--surface':'#1e1a1d','--surface-hi':'#262023','--surface-press':'#2a2427','--ink':'#f2eef1','--ink-2':'#a49da5','--ink-3':'#78717a','--gold':'#f5c14d','--blue':'#a49da5','--green':'#f2eef1','--amber':'#f5c14d','--red':'#f2545b','--violet':'#a49da5'}},
     {id:'normal',name:'Normal',dot:'#a8a77a',p:{'--bg-0':'#171713','--bg-1':'#25251d','--bg-2':'#353528','--gold':'#d9d2a7','--blue':'#aaa984','--green':'#b7ba8c','--amber':'#d7c36e','--red':'#bd7e71','--violet':'#b7a2ae'}},
     {id:'fire',name:'Fire',dot:'#ee8130',p:{'--bg-0':'#1b0907','--bg-1':'#34110a','--bg-2':'#552014','--gold':'#ffd16e','--blue':'#ff754b','--green':'#ffad52','--amber':'#ffcb43','--red':'#ff5d45','--violet':'#eb846f'}},
     {id:'water',name:'Water',dot:'#6390f0',p:{'--bg-0':'#061225','--bg-1':'#0a2342','--bg-2':'#123a69','--gold':'#a9ddff','--blue':'#6390f0','--green':'#62d8cf','--amber':'#8acbff','--red':'#e77c92','--violet':'#a29bff'}},
@@ -3348,7 +3351,8 @@
     $('pickerSub').textContent = verb;
     $('pickerBody').innerHTML = run.party.map(function (m, i) {
       var pct = pctHP(m.hpPct);
-      var col = m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444';
+      // was: m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444'
+      var col = m.hpPct > 0.2 ? '#f2eef1' : '#f2545b';
       var eff = itemEffectOn(id, m);
       var note = eff.note, dis = eff.dis;
       return '<button class="pick-row mon' + (eff.art ? ' has-art' : '') + '" data-i="' + i + '"' +
@@ -4675,7 +4679,8 @@
       var liveHp = isActive && ui && ui.s && ui.s.p ? ui.s.p.hp : m.hpPct;
       var liveStatus = isActive && ui && ui.s && ui.s.p ? ui.s.p.st : m.status;
       var pct = pctHP(liveHp);
-      var hpCol = liveHp > 0.5 ? '#4ade80' : liveHp > 0.2 ? '#facc15' : '#ef4444';
+      // was: liveHp > 0.5 ? '#4ade80' : liveHp > 0.2 ? '#facc15' : '#ef4444'
+      var hpCol = liveHp > 0.2 ? '#f2eef1' : '#f2545b';
       var cur = Math.round(C.maxHP(m) * liveHp), mx = C.maxHP(m);
       var stCol = statusColor(liveStatus);
       var stTxtCol = (liveStatus === 'par') ? '#000' : '#fff';
@@ -5213,7 +5218,8 @@
     $('sumTeam').innerHTML = '<div class="sum-label">Your team</div>' +
       roster.map(function (m) {
         var pct = pctHP(m.hpPct);
-        var col = m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444';
+        // was: m.hpPct > 0.5 ? '#4ade80' : m.hpPct > 0.2 ? '#facc15' : '#ef4444'
+        var col = m.hpPct > 0.2 ? '#f2eef1' : '#f2545b';
         return '<div class="sum-row">' + iconEl(m.id, 1.1, '', m.shiny) +
           '<div class="sum-who"><b>' + escapeHtml(m.name) + '</b><span>' + speciesOf(m) + '</span></div>' +
           '<div class="sum-hp"><i style="width:' + pct + '%;background:' + col + '"></i></div>' +

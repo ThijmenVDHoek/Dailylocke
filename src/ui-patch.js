@@ -311,7 +311,8 @@
           var it = p.items[i];
           var st = it.status || '';
           var pct = it.pct != null ? it.pct : Math.round((it.hp||0)*100);
-          var col = it.hpCol || (it.hp > 0.5 ? '#4ade80' : it.hp > 0.2 ? '#facc15' : '#ef4444');
+          // was: it.hpCol || (it.hp > 0.5 ? '#4ade80' : it.hp > 0.2 ? '#facc15' : '#ef4444')
+          var col = it.hpCol || (it.hp > 0.2 ? '#f2eef1' : '#f2545b');
           var classes = 'tslot';
           if (it.active) classes += ' active';
           if (it.fainted) classes += ' empty';
@@ -341,7 +342,8 @@
               (item.right ? '<span class="pi-r">' + esc(item.right) + '</span>' : '') +
               '</button>';
           } else {
-            var hpColor = item.hp > 0.5 ? '#4ade80' : item.hp > 0.2 ? '#facc15' : '#ef4444';
+            // was: item.hp > 0.5 ? '#4ade80' : item.hp > 0.2 ? '#facc15' : '#ef4444'
+            var hpColor = item.hp > 0.2 ? '#f2eef1' : '#f2545b';
             // status color mapping for legacy party panel
             var stm = { brn: '#ff5f6d', psn: '#a855f7', tox: '#9333ea', par: '#facc15', slp: '#a2aac4', frz: '#7dd3fc' };
             var statusColor = item.status ? (stm[item.status] || '#ff5f6d') : '';

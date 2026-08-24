@@ -1,0 +1,345 @@
+/* ============================================================================
+   Dailylocke — redesign layer
+   Loaded AFTER assets/css/app.css. Overrides the visual layer only:
+     * no outlines or hard borders — depth from background steps + soft shadow
+     * every surface rounded
+     * saturated colour reserved for Pokemon TYPES (.type-* keep app.css values)
+       exceptions: gold = the one primary action + spendable money
+                   red  = real danger (fainted, critical PP, cannot afford)
+     * route screen becomes three non-competing zones:
+       status (header) / information (next-up + party) / action (docked CTA)
+   ========================================================================== */
+
+:root {
+  --bg-0:#131013;
+  --bg-1:#191518;
+  --bg-2:#1e1a1d;
+  --bg-3:#262023;
+  --bg-4:#2a2427;
+
+  --surface:#1e1a1d;
+  --surface-hi:#262023;
+  --surface-press:#2a2427;
+
+  --ink:#f2eef1;
+  --ink-2:#a49da5;
+  --ink-3:#78717a;
+
+  --gold:#f5c14d;
+  --red:#f2545b;
+  --track:#3a343a;
+
+  --cta:#f5c14d;
+  --cta-hi:#f5c14d;
+  --cta-text:#231803;
+  --title-ring:#f5c14d;
+
+  /* neutralised: these are still referenced by app.css, but must no longer
+     carry meaning (rarity, threat, tier). Kept as neutral inks. */
+  --blue:#a49da5;
+  --green:#f2eef1;
+  --amber:#f5c14d;
+  --violet:#a49da5;
+
+  --r-sm:12px;
+  --r-md:16px;
+  --r-lg:18px;
+  --r-pill:999px;
+
+  --e1:0 2px 8px rgba(0,0,0,.30);
+  --e2:0 6px 18px rgba(0,0,0,.38);
+  --e3:0 12px 30px rgba(0,0,0,.45);
+  --e4:0 24px 60px rgba(0,0,0,.55);
+}
+
+body {
+  /* the aurora gradients read as coloured meaning; drop them */
+  background:var(--bg-0);
+  background-attachment:scroll;
+}
+.screen-page::before { content:none; }
+
+/* ---------------------------------------------------------------- surfaces */
+/* Kill every outline/inset-ring the old design used as a border. */
+.panel, .card, .rule, .codex-page .rule,
+.shop-item, .tb-row, .pc-card, .camp-drawer, .camp-action, .camp-head,
+.sum-stats, .sum-row, .end-box, .moment-page .end-box, .moment-page .panel,
+.overlay-card, .menu-item, .tslot, .pd-move, .move-card, .move-card-inline,
+.pcp-row, .pcp-move, .pcp-held, .pcp-cost, .pcp-note, .pcp-guide,
+.stats-table, .pd-fact, .x-ascension, .streak-chip, .tip-badge, .mv-badge,
+.si-tag, .pcp-chip, .pcp-tag, .oi-row, .search, .tb-search, .tb-sort select {
+  border:0 !important;
+}
+.panel, .card { background:var(--surface); border-radius:var(--r-lg); box-shadow:var(--e1); }
+.overlay-card {
+  background:var(--bg-1);
+  border-radius:22px 22px 0 0;
+  box-shadow:0 -18px 50px rgba(0,0,0,.55);
+}
+.overlay { background:rgba(8,7,9,.66); }
+.overlay-card:focus-visible { outline:2px solid var(--gold); outline-offset:3px; }
+
+/* ----------------------------------------------------------------- buttons */
+.btn-primary, .btn-glass.is-primary, .btn-white {
+  background:var(--gold);
+  color:var(--cta-text);
+  border-radius:var(--r-md);
+  box-shadow:0 12px 26px rgba(245,193,77,.20);
+}
+.btn-primary:hover:not(:disabled), .btn-white:hover {
+  box-shadow:0 16px 32px rgba(245,193,77,.26);
+  transform:translateY(-1px);
+}
+.screen-page .btn-primary { box-shadow:0 12px 26px rgba(245,193,77,.20); }
+.btn-secondary, .btn-glass, .btn-mini, .back-pill, .camp-heal {
+  background:var(--surface-hi);
+  color:var(--ink);
+  border-radius:var(--r-md);
+  backdrop-filter:none; -webkit-backdrop-filter:none;
+  box-shadow:none;
+}
+.btn-secondary:hover:not(:disabled), .btn-glass:hover:not(:disabled),
+.btn-mini:hover, .back-pill:hover, .camp-heal:hover { background:var(--surface-press); color:var(--ink); }
+.btn-mini, .back-pill { border-radius:var(--r-pill); }
+.btn-mini.danger { background:var(--surface-hi); color:var(--red); }
+.camp-heal { color:var(--ink); font-size:.8rem; }
+
+/* ------------------------------------------------------------------- title */
+.title-veil {
+  background:
+    linear-gradient(180deg, rgba(11,10,12,.5) 0%, transparent 24%, transparent 36%, rgba(11,10,12,.95) 70%);
+}
+.game-title { text-shadow:0 6px 30px rgba(0,0,0,.8); }
+.game-title span { color:var(--gold); text-shadow:none; }
+.menu-pill, .title-menu-pill {
+  border:0; background:rgba(255,255,255,.10); border-radius:var(--r-pill);
+}
+.menu-pill:hover { background:rgba(255,255,255,.16); }
+.install-pill { background:rgba(255,255,255,.10); box-shadow:none; }
+.install-ic { filter:none; }
+.streak-chip {
+  background:var(--surface);
+  color:var(--ink-2);
+  border-radius:var(--r-pill);
+}
+.streak-chip b { color:var(--gold); }
+.title-sep { color:var(--ink-3); }
+.title-sep::before, .title-sep::after { background:rgba(255,255,255,.10); }
+
+/* --------------------------------------------------------------- headings */
+.scr-title, .screen-page .scr-title { text-shadow:none; color:#fff; }
+.scr-title.mart, .scr-title.win { color:var(--gold); text-shadow:none; }
+.scr-title.dead { color:var(--red); text-shadow:none; }
+b { color:#fff; }
+
+/* -------------------------------------------------------------- HP + bars */
+/* HP is neutral; only a critical bar turns red. app.css sets these inline in
+   JS (see hpColor in src/app.js) — the rules below cover the CSS classes. */
+.hm-b, .pc-hp-bar, .sum-hp, .pd-mp-track, .pcp-pp-track {
+  background:var(--track);
+  border-radius:var(--r-pill);
+  box-shadow:none;
+}
+.hm-b i.hp-high, .hm-b i.hp-mid { background:var(--ink); }
+.hm-b i.hp-low { background:var(--red); }
+.pd-mp-fill, .pcp-pp-fill { background:var(--ink-2); box-shadow:none; }
+.pd-mp.low, .pcp-pp.low { color:var(--red); }
+
+/* ============================ ROUTE SCREEN =================================
+   Zone 1 STATUS — one window with section, money and the battle pips.
+   ========================================================================= */
+#screenCrossroads { padding-bottom:150px; }
+.x-top {
+  margin:0 0 12px; padding:14px 16px;
+  background:var(--surface); border-radius:var(--r-lg);
+  display:grid; grid-template-columns:1fr auto auto; align-items:start; gap:12px;
+}
+.x-cash {
+  order:2; padding:0; background:none; border-radius:0;
+  font-size:2rem; color:var(--gold); line-height:1;
+}
+.x-cash::before {
+  content:'MONEY'; display:block;
+  font-size:.7rem; letter-spacing:2.4px; color:var(--ink-3);
+}
+.x-top .menu-pill { order:3; width:40px; height:40px; }
+/* The head moves INTO the status window. app.js leaves .x-head where it is,
+   so pull it up visually instead of restructuring the DOM. */
+.x-head { text-align:left; margin:-58px 0 14px 16px; }
+.x-eyebrow { color:var(--ink-3); letter-spacing:2.4px; }
+.x-title { font-size:2.6rem; color:#fff; }
+.x-sub { color:var(--ink-3); }
+
+/* Ascension: information, not a coloured warning. */
+.x-ascension {
+  margin:0 0 12px; padding:12px 14px;
+  background:var(--surface); border-radius:var(--r-lg);
+}
+.asc-tier b { color:#fff; }
+.asc-tier span, .asc-n { color:var(--ink-2); }
+.asc-k, .asc-clause .asc-k, .asc-field .asc-k, .asc-strategy .asc-k {
+  background:var(--bg-4); color:var(--ink-3); border-radius:var(--r-pill);
+}
+.asc-v { color:#fff; }
+
+/* Zone 2 INFORMATION — the party. Six visible slots, name + level + HP. */
+.team-board { margin-bottom:14px; }
+.team-board-title { color:#fff; }
+.team-board-hint { color:var(--ink-3); }
+.pc-grid { grid-template-columns:1fr 1fr; gap:9px; }
+.pc-card {
+  padding:10px; border-radius:var(--r-md);
+  background:var(--surface-hi); box-shadow:none;
+}
+.pc-card.open { box-shadow:none; background:var(--surface-press); }
+.pc-card.fainted { opacity:.6; filter:grayscale(1); background:var(--bg-1); }
+.pc-card.pc-dragging { box-shadow:var(--e3); }
+.pc-card.drop-before { box-shadow:inset 3px 0 0 var(--gold); }
+.pc-lead { background:var(--gold); color:var(--cta-text); border-radius:var(--r-pill); }
+.pc-order, .pc-species, .pc-hp-txt { color:var(--ink-3); }
+.pc-drag { background:transparent; color:var(--ink-3); }
+.pc-fnt { background:var(--red); border-radius:var(--r-pill); }
+.pc-act { background:var(--bg-4); border-radius:var(--r-sm); }
+.pc-act:hover { background:#332c30; }
+.pc-act.on { background:#3a3237; box-shadow:none; }
+.pc-act.need .pc-act-ic { color:var(--gold); }
+.pc-dot { background:var(--gold); box-shadow:none; }
+.pc-dot.gold { background:var(--gold); }
+.pc-panel { border-top:0; box-shadow:inset 0 1px 0 rgba(255,255,255,.06); }
+.pcp-row { background:var(--bg-4); border-radius:var(--r-sm); }
+.pcp-row.rec { background:#332c30; box-shadow:none; }
+.pcp-row.rec .pcp-tag { background:var(--gold); color:var(--cta-text); }
+.pcp-tag { border-radius:var(--r-pill); }
+.pcp-held, .pcp-held.has, .pcp-held.empty { background:var(--bg-4); color:var(--ink); }
+.pcp-held small b { color:var(--gold); }
+.pcp-note, .pcp-note.ok, .pcp-guide, .pcp-cost { background:var(--bg-4); color:var(--ink-2); }
+.pcp-note.dead { background:var(--bg-4); color:var(--red); }
+.pcp-link { color:var(--gold); }
+
+/* Zone 2b — camp becomes a flat list of real actions, no nested drawers. */
+.camp-head {
+  background:var(--surface); border-radius:var(--r-lg);
+  box-shadow:none;
+}
+.camp-kicker { color:var(--ink-3); }
+.camp-action { background:var(--surface-hi); border-radius:var(--r-md); }
+.camp-action:hover { background:var(--surface-press); }
+.camp-action .camp-mark, .camp-action.warn .camp-mark { color:var(--gold); }
+.camp-action.warn .camp-mark { color:var(--red); }
+.camp-empty { background:var(--surface-hi); color:var(--ink-2); border-radius:var(--r-md); }
+.camp-drawer { background:var(--surface); border-radius:var(--r-lg); box-shadow:none; }
+.camp-drawer > summary, .sell-drawer > summary { color:#fff; }
+.drawer-note, .drawer-help { color:var(--ink-3); }
+
+/* Shop + bag: rarity colouring removed, price is the only accent. */
+.shop-item { background:var(--surface-hi); border-radius:var(--r-md); box-shadow:none; }
+.shop-item:hover:not(.sold):not(.broke) { background:var(--surface-press); box-shadow:none; }
+.shop-item.mega-item, .shop-item.forme-item, .shop-item.service {
+  background:var(--surface-hi); box-shadow:none;
+}
+.shop-item.broke { opacity:.55; filter:none; }
+.shop-item.broke .si-price { color:var(--red); }
+.si-price { color:var(--gold); }
+.si-price.sale { color:var(--gold); }
+.si-own, .si-hot, .si-plain, .oi-plain, .oi-who { color:var(--ink-2); }
+.si-tag, .si-tag.ball, .si-tag.heal, .si-tag.held, .si-tag.evo,
+.si-tag.mega, .si-tag.forme {
+  background:var(--bg-4); color:var(--ink-2);
+  border-radius:var(--r-pill); background-image:none;
+}
+.tip-badge, .shop-item .tip-badge {
+  background:var(--gold); color:var(--cta-text);
+  border-radius:var(--r-pill); box-shadow:none;
+}
+.mv-badge.stab { background:var(--gold); color:var(--cta-text); box-shadow:none; }
+.mv-badge.warn { background:var(--bg-4); color:var(--red); box-shadow:none; }
+.mv-badge.good, .mv-badge.off { background:var(--bg-4); color:var(--ink-2); box-shadow:none; }
+
+/* Zone 3 ACTION — the docked CTA is the biggest thing on screen. */
+.x-battle-dock {
+  background:linear-gradient(0deg, var(--bg-0) 72%, rgba(19,16,19,0));
+  padding-bottom:calc(14px + env(safe-area-inset-bottom));
+}
+.x-battle-btn {
+  justify-content:flex-start; gap:14px; text-align:left;
+  padding:17px 18px; border-radius:var(--r-lg);
+}
+.x-battle-btn.catchable { background:var(--gold); }
+.x-battle-note { color:var(--ink-2); }
+.x-battle-note.ok { color:var(--ink-2); }
+.x-battle-note.bad { color:var(--red); }
+
+/* -------------------------------------------------- member detail / train */
+.pd-move, .move-card, .move-card-inline, .tc-slot {
+  background:var(--surface-hi); border-radius:var(--r-sm); box-shadow:none;
+}
+.move-card:hover, .tc-slot:hover { background:var(--surface-press); box-shadow:none; filter:none; }
+.tc-slot.sel { box-shadow:inset 0 0 0 2px var(--gold); }
+.pd-fact, .stats-table { background:var(--surface-hi); border-radius:var(--r-md); }
+.pd-held { background:var(--bg-4); color:var(--gold); border-radius:var(--r-md); }
+.pd-potion-btn, .pd-ether-btn { background:var(--surface-hi); color:var(--ink); }
+.st-ev, .st-fin, .st-plus .st-name, .st-plus .st-fin { color:var(--ink); }
+.st-minus .st-name, .st-minus .st-fin { color:var(--ink-3); }
+.tc-guide { background:var(--surface-hi); border-left:0; border-radius:var(--r-md); }
+.evo-branch-note { background:var(--surface-hi); border-radius:var(--r-md); }
+.evo-branch-note b { color:var(--gold); }
+
+/* ------------------------------------------------- summary / daily result */
+.sum-crest {
+  background:radial-gradient(circle at 50% 40%, rgba(245,193,77,.55), transparent 70%);
+  box-shadow:none;
+}
+.sum-stats { background:var(--surface); border-radius:var(--r-lg); }
+.sum-stat .v { color:#fff; }
+.sum-stat .v.gold { color:var(--gold); }
+.sum-stat .v.bad { color:var(--red); }
+.sum-stat .k, .sum-label, .sum-who span, .sum-pct { color:var(--ink-3); }
+.sum-label.bad { color:var(--red); }
+.sum-row { background:var(--surface-hi); border-radius:var(--r-md); }
+.mvp {
+  background:var(--surface); border-radius:var(--r-lg);
+  box-shadow:none;
+}
+.mvp-tag { background:var(--gold); color:var(--cta-text); border-radius:var(--r-pill); }
+.score-box, .dr-streak b { color:#fff; }
+.dr-streak { color:var(--gold); }
+.dr-share, .search, textarea.search.save-code {
+  background:var(--bg-1); color:var(--ink);
+  border-radius:var(--r-md); box-shadow:none;
+}
+.search:focus, .tb-search:focus { box-shadow:inset 0 0 0 2px var(--gold); }
+.grave img, .grave .anim-mon { filter:grayscale(1) brightness(.6); }
+
+/* ----------------------------------------------------------- team builder */
+.tb-count { color:var(--ink-2); }
+.team-strip { gap:7px; }
+.tslot {
+  background:var(--surface-hi); border-radius:var(--r-sm);
+}
+.tslot:hover:not(.empty) { background:var(--surface-press); }
+.tslot.sel { background:var(--surface-press); box-shadow:inset 0 0 0 2px var(--gold); }
+.tslot.empty { background:var(--bg-1); opacity:1; color:var(--ink-3); }
+.tb-search { background:var(--surface); box-shadow:none; }
+.tb-sort select { background:var(--surface-hi); box-shadow:none; border-radius:var(--r-pill); }
+.tb-row { background:var(--surface-hi); border-radius:var(--r-md); box-shadow:none; }
+.tb-row:hover:not(:disabled) { background:var(--surface-press); box-shadow:none; }
+.tb-add { background:var(--bg-4); color:var(--ink); box-shadow:none; }
+.tb-row.recommended .tb-add { background:var(--gold); color:var(--cta-text); }
+.tb-bst, .tb-empty { color:var(--ink-3); }
+
+/* ---------------------------------------------------------------- menu etc */
+.menu-item { background:var(--surface-hi); border-radius:var(--r-md); box-shadow:none; }
+.menu-item:hover { background:var(--surface-press); transform:none; }
+.menu-item.danger { background:var(--surface-hi); }
+.menu-item.danger b { color:var(--red); }
+.mi-t em { color:var(--ink-2); }
+.picker-title { color:#fff; }
+.codex-page .rl-n { background:var(--bg-4); color:var(--ink); }
+.rule, .codex-page .rule { background:var(--surface); border-radius:var(--r-lg); box-shadow:none; }
+.rule.danger .rl-n { background:var(--bg-4); color:var(--red); }
+.rule.gold .rl-n { background:var(--gold); color:var(--cta-text); }
+.rule.gold b { color:var(--gold); }
+.setup-avatar { background:var(--surface-hi); box-shadow:none; border-radius:24px; }
+.setup-avatar-edit { background:var(--bg-4); color:var(--ink-2); border-radius:var(--r-pill); }
+::selection { background:rgba(245,193,77,.32); color:#fff; }
+::-webkit-scrollbar-thumb { background:var(--track); border-radius:var(--r-pill); }
