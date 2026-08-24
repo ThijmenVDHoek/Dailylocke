@@ -2130,11 +2130,8 @@ body.modal-open { overflow:hidden; }
 body.coach-action-locked .coach-spot {
   box-shadow:0 0 0 100vmax rgba(5,6,12,.62);
 }
-/* An orientation halo that CONTAINS the real target (the ball rail around
-   the one throwable ball) neither pulses nor casts a second shade: only the
-   actual control moves. */
-.coach-spot:has(.coach-spot) { animation:none; }
-body.coach-action-locked .coach-spot:has(.coach-spot) { box-shadow:none; }
+/* Every highlighted target pulses. Nested highlights intentionally keep the
+   same signal: anything the tutorial calls out should visibly feel actionable. */
 /* A modal SHEET anchors to an element on the page behind it. The pulse must
    stay BEHIND the sheet's scrim (z-index 900) — popping the anchored element
    up over the dialog (the old 1299) made the lesson card look glitched, with

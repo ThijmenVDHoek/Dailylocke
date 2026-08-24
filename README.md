@@ -188,7 +188,7 @@ alternate switches are not available until the script reaches them.
    opens (no waiting a turn): weaken it, then throw a ball. The catch
    success is explained too.
 5. **Heal your new friend** — the caught partner joins at catch HP, so the
-   very next step opens its team card and uses a Potion. The next battle
+   very next step opens its team card and uses a Full Restore. The next battle
    button stays locked until the heal has actually happened: catch → heal →
    battle 2, one line with no branches.
 6. **Onward** — once the partner is healed (or arrived at full HP, so there

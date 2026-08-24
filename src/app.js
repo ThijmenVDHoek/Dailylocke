@@ -546,8 +546,8 @@
       setTimeout(function () {
         if ($('screenSetup').hidden) return;
         CO.lesson('welcome', {
-          anchor: $('setupAvatar'),
-          vital: true,
+          anchor: $('btnSetupGo'), actionRequired: true, keepHalo: true,
+          bypassSeen: true, vital: true,
           stillValid: function () { return !$('screenSetup').hidden; }
         });
       }, 0);
@@ -934,7 +934,7 @@
       setTimeout(function () {
         if ($('screenStarter').hidden) return;
         CO.lesson('starter', {
-          anchor: g,
+          anchor: g, actionRequired: true,
           keepHalo: true,
           bypassSeen: true,
           vital: true,
@@ -1680,8 +1680,8 @@
 
       // 1b. After the capture (before battle 2 of section 1): heal the new
       //     partner. It joins the team at catch HP, and learning to open a
-      //     team card and use a Potion is the most-used skill in the game.
-      //     The next battle button stays locked until the Potion is used, so
+      //     team card and use a Full Restore is the most-used skill in the game.
+      //     The next battle button stays locked until the Full Restore is used, so
       //     the path stays linear: catch -> heal -> battle 2.
       if (pro && run.section === 1 && run.battleInSection === 1 && !tutorialHealed()) {
         var caughtMonH = caughtMonInParty();
@@ -1700,14 +1700,14 @@
           return;
         }
         // The new partner arrived at full HP (or there is nothing to heal):
-        // there is no Potion to press. Fall through to the onward beat below
+        // there is no Full Restore to use. Fall through to the onward beat below
         // instead of stranding the player on the route with no next action.
       }
 
       // 1b2. Healed. The route now has exactly one next action: press the
       //      battle button for stop 2. This is its own beat, not part of the
       //      heal card, so the player is never left looking at a route with
-      //      nothing glowing after the Potion (or after a full-HP catch).
+      //      nothing glowing after the Full Restore (or after a full-HP catch).
       if (pro && run.section === 1 && run.battleInSection === 1 && tutorialHealed()) {
         CO.lesson('onward', {
           anchor: $('btnGoBattle'), actionRequired: true, keepHalo: true,
@@ -1804,7 +1804,7 @@
 
   // The tutorial sheet uses a progress bar, not a step number. Several ideas
   // intentionally take two or more cards (open a card, then press its control),
-  // while a full-HP catch can satisfy healing without a Potion. A card counter
+  // while a full-HP catch can satisfy healing without a Full Restore. A card counter
   // therefore lies; these are the stable conceptual milestones instead.
   function tutorialHealed() {
     if (run && run.tutorialHealDone) return true;
@@ -2110,14 +2110,9 @@
     // sheet, not a toast, so the tutorial ends the way it began — with the
     // professor talking to the player.
     if (!opts.silent) {
-      if (CO && CO.tipsOn()) {
-        CO.lesson('graduate', {
-          vital: true,
-          stillValid: function () { return !!(run && !run.prologue); }
-        });
-      } else {
-        toast('Tutorial complete \u2014 the rest of the run is all yours.');
-      }
+      // Training's highlighted Done action is the last tutorial interaction.
+      // End cleanly instead of inserting a second acknowledgement button.
+      toast('Tutorial complete — the rest of the run is all yours.');
     }
   }
 
@@ -2999,18 +2994,18 @@
     }
     gridHtml += '</div>';
 
-    // Potion suggestion
+    // Full Restore suggestion
     var potionHtml = '';
     if (mon.hpPct < 1 && !C.isFainted(mon)) {
-      var bestPotion = null;
+      var bestRestore = null;
       var potionOrder = ['fullrestore'];
       for (var pi = 0; pi < potionOrder.length; pi++) {
-        if (run.bag[potionOrder[pi]] && run.bag[potionOrder[pi]] > 0) { bestPotion = potionOrder[pi]; break; }
+        if (run.bag[potionOrder[pi]] && run.bag[potionOrder[pi]] > 0) { bestRestore = potionOrder[pi]; break; }
       }
-      if (bestPotion) {
-        potionHtml = '<button class="btn-secondary wide pd-potion-btn" data-potion="' + bestPotion + '">' +
-          (window.ItemArt ? window.ItemArt.itemImg(bestPotion, 18) : '') +
-          'Use ' + itemName(bestPotion) + '</button>';
+      if (bestRestore) {
+        potionHtml = '<button class="btn-secondary wide pd-potion-btn" data-potion="' + bestRestore + '">' +
+          (window.ItemArt ? window.ItemArt.itemImg(bestRestore, 18) : '') +
+          'Use ' + itemName(bestRestore) + '</button>';
       }
     }
 
@@ -3126,7 +3121,7 @@
     if (close) close.addEventListener('click', function () {
       window.Modal.close('xTeamDetail');
     });
-    // Potion button
+    // Full Restore button
     var potionBtn = host.querySelector('.pd-potion-btn');
     if (potionBtn) potionBtn.addEventListener('click', function () {
       var itemId = potionBtn.dataset.potion;
@@ -3288,7 +3283,7 @@
     if (!CO || !CO.tipsOn() || !run || !run.prologue) return;
 
     // Section 1, before battle 2: the "heal your new friend" bubble on the
-    // actual Potion button inside the new partner's card.
+    // actual Full Restore button inside the new partner's card.
     if (run.section === 1 && run.battleInSection === 1 && !run.tutorialHealDone &&
         !!caughtMonInParty() && mon === caughtMonInParty() && mon.hpPct < 1 &&
         partySel > 0) {
@@ -5542,7 +5537,7 @@
 
   var BEAT_TARGETS = {
     // The whole-bar lesson is gone: the bag beat points ONLY at the Bag
-    // button, and the player heals with a Super Potion from inside.
+    // button, and the player heals with a Full Restore from inside.
     battleBag:  { resolve: function () { return document.querySelector('.battle-hud [data-a="bag"]'); } },
     catch:      { side: 'right',
                   resolve: function () {
@@ -6292,16 +6287,11 @@
       '<p class="hint">It keeps the HP, PP and status it had when caught.</p>' +
       '<p class="reward-money">+$' + money + '</p>';
 
+    // The nickname sheet already contains Oak's short explanation and its
+    // required Confirm name action. Do not place a second "Got it" dialogue
+    // in front of it: the player learns by completing the next real step.
     var COc = window.Coach;
-    if (COc && COc.tipsOn() && !COc.seen('caught')) {
-      setTimeout(function () {
-        if ($('screenCatch').hidden) return;
-        COc.lesson('caught', {
-          vital: !!(run && run.prologue),
-          stillValid: function () { return !$('screenCatch').hidden; }
-        });
-      }, 700);
-    }
+    if (COc && COc.tipsOn() && !COc.seen('caught')) COc.markSeen('caught');
 
     var swap = $('catchSwap');
     // The guided run's "make it your lead" step points at the Pokemon that
