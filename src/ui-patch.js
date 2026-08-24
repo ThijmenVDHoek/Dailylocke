@@ -316,7 +316,6 @@
           if (it.active) classes += ' active';
           if (it.fainted) classes += ' empty';
           html += '<button class="' + classes + '" data-i="' + i + '"' +
-            (it.tutorial ? ' data-tutorial="switch"' : '') +
             (it.disabled ? ' disabled' : '') + '>';
           if (i === 0 && !it.fainted) html += '<span class="ts-lead">LEAD</span>';
           if (st && !it.fainted) html += '<span class="ts-st st-' + st + '">' + st.toUpperCase() + '</span>';
