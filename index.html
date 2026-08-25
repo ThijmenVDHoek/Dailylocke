@@ -376,12 +376,11 @@
     <div class="x-shop" id="xShopBlock">
       <div class="x-shop-head">
         <h3 class="x-shop-title">Poke Mart</h3>
-        <span class="x-shop-note">Tap a Pokemon to train or use items</span>
+        <span class="x-shop-note">Tap an item for details</span>
       </div>
+      <div id="martBallBonus" class="mart-ball-bonus" role="status"></div>
 
       <div id="martGrid" class="mart-inline"></div>
-      <h4 class="sub-title">Sell</h4>
-      <div id="martSell" class="sell-grid"></div>
     </div>
 
     <div class="x-battle-dock">
@@ -601,6 +600,28 @@
       <button type="button" id="btnSkipChooseFree" class="btn-primary wide" style="margin-top: 8px;">Random Battle</button>
       <button type="button" id="btnSkipChooseGauntlet" class="btn-primary wide" style="margin-top: 8px;">Gauntlet</button>
       <button type="button" id="btnSkipChooseBack" class="btn-secondary wide" style="margin-top: 16px;">Back</button>
+    </div>
+  </div>
+
+  <!-- ===================== SHOP ITEM DETAILS (overlay) ===================== -->
+  <!-- Every Mart tile opens this sheet instead of buying immediately. Bag items
+       use the same sheet so selling lives beside the item it belongs to rather
+       than in a separate shop section. -->
+  <div id="screenShopItem" class="overlay" hidden>
+    <div class="overlay-card shop-item-card">
+      <div class="shop-item-art" id="shopItemArt"></div>
+      <div class="shop-item-heading">
+        <h3 id="shopItemTitle" class="picker-title"></h3>
+        <span id="shopItemKind" class="shop-item-kind"></span>
+      </div>
+      <p id="shopItemDesc" class="shop-item-full-desc"></p>
+      <p id="shopItemMeta" class="shop-item-meta"></p>
+      <div class="shop-item-actions">
+        <button type="button" id="btnShopItemBuy" class="btn-primary wide">Buy</button>
+        <button type="button" id="btnShopItemUse" class="btn-secondary wide" hidden>Use / Give</button>
+        <button type="button" id="btnShopItemSell" class="btn-secondary wide" hidden>Sell</button>
+        <button type="button" id="btnShopItemClose" class="btn-secondary wide">Close</button>
+      </div>
     </div>
   </div>
 

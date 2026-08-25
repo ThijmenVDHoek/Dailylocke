@@ -38,7 +38,7 @@
   // carries missing/renamed fields -- which looks exactly like features having
   // "reverted" (blank species captions, a fainted Pokemon still in the party,
   // no section stats). Old saves are migrated where possible, dropped if not.
-  var SAVE_VERSION = 3;
+  var SAVE_VERSION = 4;
 
   // ------------------------------------------------------- SAFE STORAGE ----
   function read(key) {
@@ -234,6 +234,14 @@
       if (!Array.isArray(d.sectionMarks)) d.sectionMarks = [];
       if (d.maxSections === undefined) d.maxSections = 0;
       d.__v = 3;
+    }
+
+    // v3 -> v4: each Mart stop tracks its ten-ball Premier Ball bonus. Missing
+    // fields are the normal shape for an older run and must start at zero.
+    if (v < 4) {
+      if (d.shopBallPurchases === undefined) d.shopBallPurchases = 0;
+      if (d.shopPremierAwarded === undefined) d.shopPremierAwarded = false;
+      d.__v = 4;
     }
 
     // A save with nothing left alive is not resumable.

@@ -57,7 +57,11 @@
       seenSpecies: {},
       log: [],
       over: false,
-      _shopSeq: 0
+      _shopSeq: 0,
+      // Ball purchases are counted per Mart stop. The counter survives a
+      // refresh while that stop is open, but is reset when the route advances.
+      shopBallPurchases: 0,
+      shopPremierAwarded: false
     };
   }
 
@@ -77,6 +81,30 @@
     run.bag[id]--; if (run.bag[id] <= 0) delete run.bag[id];
     return true;
   }
+
+  // The Mart bonus is deliberately run state rather than UI state. That keeps
+  // the reward correct if the player refreshes, opens the menu, or returns to
+  // the same shop stop later. A new stop calls resetShopBonus().
+  function resetShopBonus(run) {
+    if (!run) return;
+    run.shopBallPurchases = 0;
+    run.shopPremierAwarded = false;
+  }
+  function noteShopBallPurchase(run, itemId) {
+    if (!run || !C.BALLS[itemId]) return false;
+    run.shopBallPurchases = Math.max(0, Number(run.shopBallPurchases) || 0) + 1;
+    if (run.shopBallPurchases >= 10 && !run.shopPremierAwarded) {
+      run.shopPremierAwarded = true;
+      addItem(run, 'premierball', 1);
+      return true;
+    }
+    return false;
+  }
+  function shopBonusStatus(run) {
+    var bought = Math.max(0, Number(run && run.shopBallPurchases) || 0);
+    return { bought: bought, target: 10, awarded: !!(run && run.shopPremierAwarded) };
+  }
+
   function alive(run) { return run.party.filter(function (m) { return !C.isFainted(m); }); }
   function logMsg(run, t) { run.log.push(t); if (run.log.length > 300) run.log.shift(); }
 
@@ -119,6 +147,10 @@
   }
   function advanceBattle(run) {
     run.battleInSection++;
+    // Every post-battle route stop is a fresh shop screen, including the three
+    // stops inside one section. Reset before the next screen is rendered; the
+    // current stop's counter remains intact until this function is called.
+    resetShopBonus(run);
     // Gauntlet: one trainer per section means every battle IS the section
     // finale, so the section counter (and with it the difficulty) moves up
     // after every single fight.
@@ -1136,6 +1168,8 @@
     newRun: newRun, addItem: addItem, useItem: useItem,
     alive: alive, logMsg: logMsg, trackMon: trackMon, buryFainted: buryFainted,
     ownsItem: ownsItem,
+    resetShopBonus: resetShopBonus, noteShopBallPurchase: noteShopBallPurchase,
+    shopBonusStatus: shopBonusStatus,
     isGauntlet: isGauntlet,
     nextIsTrainer: nextIsTrainer, advanceBattle: advanceBattle,
     resetSectionStats: resetSectionStats,

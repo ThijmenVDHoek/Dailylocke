@@ -2259,32 +2259,37 @@
           (e.hot && e.kind !== 'evo'
               ? '<div class="si-hot">\u2726 your party can use this</div>' : '') +
           (run.bag[e.id] ? '<div class="si-own">owned: ' + run.bag[e.id] + '</div>' : '');
-        if (!sold) d.addEventListener('click', function () { buyEntry(e); });
+        // A Mart tile is an inspector first and a purchase target second. This
+        // keeps a thumb tap from spending money before the player has read the
+        // item's complete effect. Sold-out and unaffordable tiles still open
+        // the sheet so the reason is visible there too.
+        d.setAttribute('role', 'button');
+        d.setAttribute('tabindex', '0');
+        d.setAttribute('aria-label', e.name + (sold ? ', sold out' : ', open details'));
+        d.addEventListener('click', function () { openShopItemPopup(e); });
+        d.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault(); openShopItemPopup(e);
+          }
+        });
         wrap.appendChild(d);
       });
       grid.appendChild(wrap);
     });
 
-    // Full Restore is self-explanatory: it is the only healing item on a
-    // fresh shelf, and its label states that it restores HP and status.
-
-    // sell
-    var sell = $('martSell');
-    var owned = Object.keys(run.bag);
-    sell.innerHTML = owned.length ? '' : '<p class="hint">Your bag is empty.</p>';
-    owned.forEach(function (id) {
-      var nm = itemName(id);
-      var val = Math.floor(basePrice(id) / 2);
-      var b = document.createElement('button');
-      b.className = 'sell-btn';
-      b.innerHTML = (window.ItemArt ? window.ItemArt.itemImg(id, 22) : '') +
-                    nm + ' x' + run.bag[id] + ' <b>+$' + val + '</b>';
-      b.addEventListener('click', function () {
-        N.useItem(run, id); run.money += val;
-        drawMart(); drawOwned(); renderHud(); saveGame();
-      });
-      sell.appendChild(b);
-    });
+    var bonus = N.shopBonusStatus ? N.shopBonusStatus(run) : {
+      bought: Number(run.shopBallPurchases) || 0,
+      target: 10, awarded: !!run.shopPremierAwarded
+    };
+    var bonusEl = $('martBallBonus');
+    if (bonusEl) {
+      var remaining = Math.max(0, bonus.target - bonus.bought);
+      bonusEl.textContent = bonus.awarded
+        ? 'Premier Ball earned at this shop.'
+        : 'Buy ' + remaining + ' more ball' + (remaining === 1 ? '' : 's') +
+          ' here to earn a Premier Ball.';
+      bonusEl.classList.toggle('earned', bonus.awarded);
+    }
   }
   function itemName(id) {
     if (window.Evo && window.Evo.CUSTOM_ITEMS[id]) return window.Evo.CUSTOM_ITEMS[id].name;
@@ -2302,24 +2307,237 @@
     return C.heldPrice(id);
   }
 
+  // The compact tile uses a short coach line, but the item sheet must never
+  // truncate the actual effect. Prefer the stock's description (it is also
+  // where party-specific Mega/Forme wording lives), then fall back through
+  // each catalog's full description and finally Showdown's item Dex.
+  function fullItemDescription(id, fallback) {
+    if (fallback) return String(fallback);
+    if (C.BALLS[id]) return C.BALLS[id].desc || '';
+    if (C.HEAL_ITEMS[id]) return C.HEAL_ITEMS[id].desc || '';
+    if (window.Evo && window.Evo.CUSTOM_ITEMS[id]) return window.Evo.CUSTOM_ITEMS[id].desc || '';
+    if (window.Forme && window.Forme.isFormeItem(id)) return window.Forme.itemDesc(id) || '';
+    if (window.Mega && window.Mega.isMegaStone(id)) return window.Mega.desc(id) || '';
+    var item = Dex.items.get(id);
+    return item.exists ? (item.desc || item.shortDesc || '') : '';
+  }
+
+  function sellValue(id) {
+    var price = Number(basePrice(id));
+    return Math.max(1, isFinite(price) ? Math.floor(price / 2) : 1);
+  }
+
+  function itemKindLabel(kind) {
+    return {
+      ball: 'Ball', heal: 'Medicine', held: 'Held item', evo: 'Evolution item',
+      forme: 'Forme change', mega: 'Mega Stone', service: 'Service'
+    }[kind] || 'Item';
+  }
+
+  // One sheet serves both sides of the Mart interaction. `source` is either
+  // `shop` (show the big Buy button) or `owned` (show Sell, plus the existing
+  // use/give affordance for loose bag items). Keeping the source in one small
+  // object avoids two nearly-identical dialogs drifting apart.
+  var shopItemPopup = null;
+
+  function openShopItemPopup(entry) {
+    if (!entry || !run) return;
+    shopItemPopup = { source: 'shop', entry: entry };
+    drawShopItemPopup();
+    var buy = $('btnShopItemBuy');
+    window.Modal.open('screenShopItem', {
+      initialFocus: buy && !buy.disabled ? buy : $('btnShopItemClose'),
+      onClose: function () { shopItemPopup = null; }
+    });
+  }
+
+  function openOwnedItemPopup(id, holder) {
+    if (!run || !id) return;
+    shopItemPopup = { source: 'owned', id: id, holder: holder || null };
+    drawShopItemPopup();
+    var sell = $('btnShopItemSell'), use = $('btnShopItemUse');
+    window.Modal.open('screenShopItem', {
+      initialFocus: sell && !sell.hidden && !sell.disabled ? sell
+        : (use && !use.hidden ? use : $('btnShopItemClose')),
+      onClose: function () { shopItemPopup = null; }
+    });
+  }
+
+  function drawShopItemPopup() {
+    var ctx = shopItemPopup;
+    if (!ctx || !run) return;
+    var sourceShop = ctx.source === 'shop';
+    var entry = sourceShop ? ctx.entry : null;
+    var id = sourceShop ? entry.id : ctx.id;
+    var kind = sourceShop ? entry.kind : bagGroupOf(id);
+    var qty = Math.max(0, Number(run.bag[id]) || 0);
+    var art = $('shopItemArt');
+    if (art) art.innerHTML = window.ItemArt ? window.ItemArt.itemImg(id, 72, 'shop-popup-art') : '';
+    $('shopItemTitle').textContent = sourceShop ? entry.name : itemName(id);
+    $('shopItemKind').textContent = itemKindLabel(kind);
+    $('shopItemDesc').textContent = fullItemDescription(id, sourceShop && entry.desc);
+
+    var meta = $('shopItemMeta');
+    var buy = $('btnShopItemBuy');
+    var use = $('btnShopItemUse');
+    var sell = $('btnShopItemSell');
+    if (sourceShop) {
+      var sold = Number(entry.stock) <= 0;
+      var broke = !sold && run.money < entry.price;
+      meta.textContent = sold ? 'Sold out' : '$' + entry.price +
+        (entry.sale ? ' sale' : '') + (run.bag[id] ? ' \u00b7 You own ' + run.bag[id] : '');
+      buy.hidden = false;
+      buy.disabled = sold || broke;
+      buy.textContent = sold ? 'Sold out' : broke ? 'Not enough money' : 'Buy for $' + entry.price;
+      use.hidden = true;
+      // If the player already owns loose copies, the same item sheet can sell
+      // one too. This also makes the `owned: x` label on a shop tile an honest
+      // shortcut to the sell action; the Bag card remains the primary path.
+      sell.hidden = qty < 1;
+      sell.disabled = qty < 1;
+      sell.textContent = qty < 1 ? 'No copy to sell' : 'Sell 1 for $' + sellValue(id);
+    } else {
+      var holder = ctx.holder;
+      var holderName = holder ? holder.name : '';
+      meta.textContent = holderName
+        ? 'Held by ' + holderName + (qty ? ' \u00b7 ' + qty + ' loose in Bag' : '')
+        : qty + (qty === 1 ? ' in your Bag' : ' in your Bag');
+      buy.hidden = true;
+      sell.hidden = false;
+      var canSell = qty > 0 || !!(holder && holder.item === id);
+      sell.disabled = !canSell;
+      sell.textContent = !canSell ? 'No copy to sell'
+        : (holder && qty < 1 ? 'Sell held item for $' : 'Sell 1 for $') + sellValue(id);
+      // Balls are battle controls rather than a usable field item. Every other
+      // owned item keeps the old Bag -> target picker flow, now reached from
+      // this sheet instead of spending/sending it on the first tap.
+      var canUse = !holder && !C.BALLS[id] && qty > 0;
+      use.hidden = !canUse && !holder;
+      if (holder) {
+        use.hidden = false;
+        use.textContent = 'Take item from ' + holderName;
+      } else if (canUse) {
+        use.textContent = 'Use / Give';
+      }
+    }
+  }
+
+  function closeShopItemPopup() {
+    window.Modal.close('screenShopItem');
+  }
+
+  function buyFromShopPopup() {
+    var ctx = shopItemPopup;
+    if (!ctx || ctx.source !== 'shop') return;
+    var entry = ctx.entry;
+    if (Number(entry.stock) <= 0) { toast('Sold out.'); return; }
+    if (run.money < entry.price) { toast('Not enough money.'); return; }
+    closeShopItemPopup();
+    buyEntry(entry);
+  }
+
+  function sellFromShopPopup() {
+    var ctx = shopItemPopup;
+    if (!ctx) return;
+    var id = ctx.source === 'shop' && ctx.entry ? ctx.entry.id : ctx.id;
+    var shopOwned = ctx.source === 'shop' && id && (Number(run.bag[id]) || 0) > 0;
+    if (ctx.source !== 'owned' && !shopOwned) return;
+    var value = sellValue(id);
+    var label = itemName(id);
+    if (N.useItem(run, id)) {
+      finishSell(label, value);
+      return;
+    }
+    // A held copy is still owned. If there is no loose copy, take it off the
+    // Pokemon as part of the sale, enforcing any forme reversion on the way.
+    var holder = ctx.holder;
+    if (!holder || holder.item !== id) {
+      toast('There is no ' + label + ' to sell.');
+      return;
+    }
+    closeShopItemPopup();
+    function finishHeldSell() {
+      run.money += value;
+      N.logMsg(run, 'Sold ' + label + ' for $' + value + '.');
+      toast('Sold ' + label + ' for $' + value + '.');
+      drawMart(); drawOwned(); renderHud(); saveGame();
+    }
+    if (window.Forme && window.Forme.setHeldItemAndEnforce) {
+      window.Forme.setHeldItemAndEnforce(run, holder, '').then(finishHeldSell, function () {
+        holder.item = '';
+        finishHeldSell();
+      });
+    } else {
+      holder.item = '';
+      finishHeldSell();
+    }
+
+    function finishSell(name, amount) {
+      run.money += amount;
+      N.logMsg(run, 'Sold ' + name + ' for $' + amount + '.');
+      closeShopItemPopup();
+      toast('Sold ' + name + ' for $' + amount + '.');
+      drawMart(); drawOwned(); renderHud(); saveGame();
+    }
+  }
+
+  function useOwnedFromShopPopup() {
+    var ctx = shopItemPopup;
+    if (!ctx || ctx.source !== 'owned') return;
+    var id = ctx.id;
+    var holder = ctx.holder;
+    closeShopItemPopup();
+    if (holder) {
+      takeHeldItem(holder.uid);
+    } else {
+      useFromBag(id);
+    }
+  }
+
+  function takeHeldItem(uid) {
+    if (!run) return;
+    var mon = run.party.filter(function (m) { return String(m.uid) === String(uid); })[0];
+    if (!mon || !mon.item) return;
+    var oldItem = mon.item;
+    N.addItem(run, oldItem, 1);
+    if (window.Forme && window.Forme.setHeldItemAndEnforce) {
+      window.Forme.setHeldItemAndEnforce(run, mon, '').then(function () {
+        toast('Took the ' + itemName(oldItem) + ' from ' + mon.name + '.');
+        renderCrossroads(); saveGame();
+      }, function () {
+        mon.item = '';
+        toast('Took the ' + itemName(oldItem) + ' from ' + mon.name + '.');
+        renderCrossroads(); saveGame();
+      });
+    } else {
+      mon.item = '';
+      toast('Took the ' + itemName(oldItem) + ' from ' + mon.name + '.');
+      renderCrossroads(); saveGame();
+    }
+  }
+
   function buyEntry(e) {
     if (run.money < e.price) { toast('Not enough money.'); return; }
     run.money -= e.price;
     if (!e.unique) e.stock--;      // unique items are gated by ownership
     N.addItem(run, e.id, 1);
+    var earnedPremier = e.kind === 'ball' && N.noteShopBallPurchase &&
+      N.noteShopBallPurchase(run, e.id);
+    if (earnedPremier) {
+      N.logMsg(run, 'You bought 10 balls at this stop and received a Premier Ball.');
+    }
     N.logMsg(run, 'Bought ' + e.name + '.');
-    toast('Bought ' + e.name + '!');
+    toast(earnedPremier ? 'Bought ' + e.name + ' — Premier Ball earned!' : 'Bought ' + e.name + '!');
     drawMart(); drawOwned(); renderHud(); saveGame();
     // The purchase is the completed target of the current lesson. Immediately
     // arm the next, single team-card target instead of making the player guess
     // where the candy is supposed to be used.
     if (run && run.prologue && run.section === 2) shopCoach();
     // Mega Stones and Forme Change items are party-specific: the shop entry
-    // already knows exactly which Pokemon the item is for, so a confirmation
-    // popup is the natural next step. Without it a player buys a stone, walks
-    // back to the team, and may not even remember which member it was meant
-    // for by the time they get there. Items that aren't player-specific
-    // (balls, Full Restore, ordinary held items) keep their silent flow.
+    // already knows exactly which Pokemon the item is for, so their existing
+    // follow-up sheet is the natural next step. Without it a player buys a
+    // stone, walks back to the team, and may not even remember which member it
+    // was meant for by the time they get there.
     if (e.kind === 'mega' || e.kind === 'forme') {
       offerUseTransform(e);
     }
@@ -3602,7 +3820,8 @@
     }
   }
 
-  // Items you own, shown above the shop. Tapping one uses/gives it.
+  // Items you own, shown above the shop. Tapping one opens its detail sheet;
+  // that sheet keeps the existing use/give action and also offers Sell.
   // The Bag: EVERYTHING you own, in one place above the shop -- balls,
   // Full Restores, evolution/forme/mega stones and held items, including the ones
   // currently equipped on a Pokemon (those are owned too, they were just
@@ -3661,7 +3880,7 @@
       var group = BAG_GROUP_LABEL[bagGroupOf(id)] || '';
       // one row per equipped copy, so you can see who is holding what
       e.holders.forEach(function (m) {
-        cards.push('<button class="owned-item held" data-take="' + m.uid + '" data-tip="item:' + id + '">' +
+        cards.push('<button class="owned-item held" data-held-item="' + id + '" data-take="' + m.uid + '" data-tip="item:' + id + '">' +
           (group ? '<span class="oi-cat">' + group + '</span>' : '') +
           '<span class="oi-art">' + (window.ItemArt ? window.ItemArt.itemImg(id, 28) : '') + '</span>' +
           '<span class="oi-n">' + itemName(id) +
@@ -3682,30 +3901,17 @@
 
     host.querySelectorAll('[data-item]').forEach(function (b) {
       b.addEventListener('click', function () {
-        var id = b.dataset.item;
-        if (C.BALLS[id]) { toast('Poke Balls are thrown during a battle.'); return; }
-        useFromBag(id);
+        openOwnedItemPopup(b.dataset.item, null);
       });
     });
-    // tapping an equipped item takes it back off that Pokemon
-    host.querySelectorAll('[data-take]').forEach(function (b) {
-      b.addEventListener('click', async function () {
+    // Equipped copies also belong to the player. Their sheet offers "Take
+    // item" (and Sell if there is another loose copy) instead of silently
+    // changing the held item on the first tap.
+    host.querySelectorAll('[data-held-item]').forEach(function (b) {
+      b.addEventListener('click', function () {
         var uid = b.dataset.take;
         var m = run.party.filter(function (x) { return String(x.uid) === String(uid); })[0];
-        if (!m || !m.item) return;
-        var was = m.item;
-        N.addItem(run, was, 1);
-        // Route through Forme enforcement like the party-detail handler does:
-        // removing a forme-forcing item (Griseous Core, Adamant Crystal, a
-        // plate, ...) must snap the Pokemon back to its base forme, or the
-        // Bag path and the party-detail path would disagree.
-        if (window.Forme && window.Forme.setHeldItemAndEnforce) {
-          await window.Forme.setHeldItemAndEnforce(run, m, '');
-        } else {
-          m.item = '';
-        }
-        toast('Took the ' + itemName(was) + ' from ' + m.name + '.');
-        renderCrossroads(); saveGame();
+        if (m && m.item) openOwnedItemPopup(b.dataset.heldItem, m);
       });
     });
   }
@@ -6774,6 +6980,7 @@
     var newSection = N.advanceBattle(run);
     martStock = null;             // fresh stock each stop
     run._shopSeq = (run._shopSeq || 0) + 1;
+    // Nuzlocke resets the ten-ball bonus with the new route stop.
     // The Gauntlet keeps its momentum: win -> heal -> next trainer. No share
     // marks, no section summary, no shop -- the route screen IS the breather.
     if (N.isGauntlet(run)) {
@@ -7956,6 +8163,10 @@
       closeAvatarPicker(); showProfile();
     });
     $('btnPickerCancel').addEventListener('click', closePicker);
+    $('btnShopItemBuy').addEventListener('click', buyFromShopPopup);
+    $('btnShopItemUse').addEventListener('click', useOwnedFromShopPopup);
+    $('btnShopItemSell').addEventListener('click', sellFromShopPopup);
+    $('btnShopItemClose').addEventListener('click', closeShopItemPopup);
     $('btnGoTitle').addEventListener('click', function () { show('Title'); setContinueState(); });
     // ---- Daily result screen ----
     $('btnDrTitle').addEventListener('click', function () { show('Title'); setContinueState(); });
