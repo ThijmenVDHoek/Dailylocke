@@ -592,6 +592,7 @@
   //   b = 65536 / (255/a)^0.1875  -> 4 shake checks
   var BALLS = {
     pokeball:   { name: 'Poke Ball',   bonus: 1,   price: 200,  desc: 'A standard ball. 1x catch rate.' },
+    premierball: { name: 'Premier Ball', bonus: 1, price: 200, desc: 'A commemorative ball. 1x catch rate.' },
     greatball:  { name: 'Great Ball',  bonus: 1.5, price: 600,  desc: '1.5x catch rate.' },
     ultraball:  { name: 'Ultra Ball',  bonus: 2,   price: 1200, desc: '2x catch rate.' },
     duskball:   { name: 'Dusk Ball',   bonus: 3,   price: 1800, desc: '3x catch rate on this dark route.' },

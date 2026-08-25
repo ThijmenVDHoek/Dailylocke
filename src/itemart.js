@@ -20,7 +20,7 @@
 
   // ids whose PokeAPI filename differs from a naive de-camel of the id
   var NAME_OVERRIDE = {
-    pokeball: 'poke-ball', greatball: 'great-ball', ultraball: 'ultra-ball',
+    pokeball: 'poke-ball', premierball: 'premier-ball', greatball: 'great-ball', ultraball: 'ultra-ball',
     masterball: 'master-ball', duskball: 'dusk-ball', timerball: 'timer-ball',
     netball: 'net-ball', quickball: 'quick-ball',
     superpotion: 'super-potion', hyperpotion: 'hyper-potion', maxpotion: 'max-potion',
