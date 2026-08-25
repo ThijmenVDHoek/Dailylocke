@@ -650,11 +650,20 @@
   // Healing is a PERCENTAGE of the target's max HP. At level 100 a flat 20 HP
   // potion is meaningless (a Blissey has 651 HP), so every potion scales.
   //   healPct: 0..1 of max HP
-  // One field medicine, one promise: it completely restores one survivor.
-  // Fainted Pokémon are permanent losses, so this never acts as a revive.
   var HEAL_ITEMS = {
-    fullrestore: { name: 'Full Restore', healPct: 1.00, cure: 'all', ppAll: 999,
-                   price: 1800, desc: 'Completely restores one Pokémon: HP, status and PP.' }
+    potion:      { name: 'Potion',       healPct: 0.20, price: 400,  desc: 'Restores 20% of max HP.' },
+    superpotion: { name: 'Super Potion', healPct: 0.35, price: 900,  desc: 'Restores 35% of max HP.' },
+    hyperpotion: { name: 'Hyper Potion', healPct: 0.50, price: 1600, desc: 'Restores 50% of max HP.' },
+    maxpotion:   { name: 'Max Potion',   healPct: 1.00, price: 3000, desc: 'Fully restores HP.' },
+    fullrestore: { name: 'Full Restore', healPct: 1.00, price: 3800, cure: 'all', desc: 'Fully restores HP and cures status.' },
+    revive:      { name: 'Revive',       revive: 0.5, price: 2000, desc: 'Revives a fainted Pokemon to half HP.' },
+    maxrevive:   { name: 'Max Revive',   revive: 1,   price: 4000, desc: 'Revives a fainted Pokemon to full HP.' },
+    fullheal:    { name: 'Full Heal',    cure: 'all', price: 600,  desc: 'Cures any status condition.' },
+    antidote:    { name: 'Antidote',     cure: 'psn', price: 200,  desc: 'Cures poison.' },
+    awakening:   { name: 'Awakening',    cure: 'slp', price: 200,  desc: 'Wakes a sleeping Pokemon.' },
+    ether:       { name: 'Ether',        pp: 10,     price: 1200, desc: 'Restores 10 PP to one move.' },
+    maxether:    { name: 'Max Ether',    pp: 999,    price: 2000, desc: 'Fully restores one move\'s PP.' },
+    elixir:      { name: 'Elixir',       ppAll: 10,  price: 3000, desc: 'Restores 10 PP to all moves.' }
   };
   // How much a heal item restores on a given mon, in absolute HP.
   function healAmountFor(itemId, mon) {

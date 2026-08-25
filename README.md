@@ -49,7 +49,7 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `mega.js` | `Mega` | mega evolution |
 | `forme.js` | `Forme` | forme changes |
 | `itemart.js` | `ItemArt` | item sprites |
-| `coach.js` | `Coach` | plain-language move/item facts (STAB, drawbacks, good-fit) |
+| `coach.js` | `Coach` | onboarding: the advisor, the lesson sheets, plain-language facts |
 | `audio.js` | `GameAudio` | music/SFX volume, battle-only randomised BGM |
 | `champions-loader.js` | `ChampionsLearnsetsReady` | lazy optional Champions move-pool loader |
 | `renderer-loader.js` | `RendererReady` | post-paint Three/BattleUI upgrade |
@@ -70,16 +70,6 @@ them with `defer`, which keeps document order while staying non-blocking.
 | `pkmn-learnsets.js` | **generated** — gen 9 learnsets, loaded on demand |
 | `three.min.js` | three.js r149 |
 | `battle-ui.js` | hand-written 3D battle renderer — edit directly |
-
-## Themes
-
-19 themes (the 18 Pokémon types plus Default), chosen under **Menu → Profile**.
-Every theme recolours the *whole* UI, not just the page background: the theme
-seeds three background steps plus its accent colours, and `applyTheme()` in
-`src/app.js` derives the complete palette from them (surfaces, inks, tracks,
-danger red, CTA text contrast). The theme is applied at boot from the saved
-profile, so it is live before the first paint of every session, and the
-battlefield's "Match theme" mode maps each theme to its own 3D biome.
 
 ## Installing (PWA)
 
@@ -117,28 +107,177 @@ The worker also precaches with `cache.add()` per file rather than `addAll()`,
 because `addAll()` is atomic — one 404 would reject `install()` and leave the
 app permanently offline-less.
 
-## Plain-language clarity
+## Onboarding
 
-Dailylocke runs a competitive engine under the hood: real Showdown movesets,
-held items, natures, EVs, eight ball types and thirteen medicines. To keep
-that depth legible without a manual, the UI always surfaces a few plain facts
-on the cards the player is already reading. They are never popups and never
-need dismissing — they are part of the layout.
+Dailylocke is a Pokémon game with a competitive engine underneath it: real
+Showdown movesets, held items, natures, EVs, eight ball types, thirteen
+medicines, branching evolutions. A seasoned player reads all of that at a
+glance. A casual one bounces off it, and the observed failure was always the
+same shape — mash the first attack, skip the Mart, never train, hold nothing,
+lose to the section boss having never discovered the game had answers.
 
-* Every move list — starter cards, party sheet, training — carries a **STAB**
-  badge, a *weak stat* marker when the move uses the Pokémon's lesser attacking
-  stat, and a red chip for the traps (`Must rest after`, `Charges first`,
-  `Locks you in`, `Hurts you`, `Often misses`, `Always moves last`).
+The fix is deliberately split into **four layers**, because they have different
+lifetimes and different audiences.
+
+**1. Always-on clarity.** Information the game always had but never said out
+loud. It is never hidden by the tips toggle, because a veteran benefits from it
+too:
+
+* Every move list — starter cards, party sheet, training, battle — carries a
+  **STAB** badge, a *weak stat* marker when the move uses the Pokémon's lesser
+  attacking stat, and a red chip for the traps (`Must rest after`,
+  `Charges first`, `Locks you in`, `Hurts you`, `Often misses`,
+  `Always moves last`).
+* Every Pokémon card names **what it is** — `Glass cannon`, `Wall`, `Tank` —
+  derived from base stats *relative to its own average*, not absolute cutoffs.
+  Absolute thresholds are calibrated for fully-evolved Pokémon and made every
+  base-stage starter read "All-rounder", which is useless on the one screen
+  where the label has to do real work. Something that still evolves is shown as
+  *Room to grow*, not as weak.
 * Confusing items get an honest one-liner under their canon name. **Full Heal**
-  is the worst offender: it cures status and restores *zero HP*, and it sits in
-  the shop directly beside Full Restore, which does both.
-* In the Mart, a held item that genuinely suits someone in the party is tagged
-  *✦ Good fit*, so a recommendation appears only when it actually applies.
+  is the worst offender in the game: it cures status and restores *zero HP*,
+  and it sits in the shop directly beside Full Restore, which does both. The
+  names are untouched; the gold line underneath tells the truth.
 
-These live in [`src/coach.js`](src/coach.js) (`window.Coach`): the
-plain-language move/item facts. A new player opens the game straight to the
-mode menu (Daily / Random Run / Gauntlet); a first-time visitor is first asked
-to pick a trainer sprite and name, then lands on that menu.
+**2. A guided first run.** `Start a fresh game` → pick a sprite and a name →
+pick one of a fixed Treecko / Charmander / Froakie trio (any of the three —
+the choice is free, and every later step adapts to the starter actually
+chosen) → play a real Free Play run with the lessons switched on. Nothing
+about it is faked: same engine, same permadeath, same slot. Sections 1 and 2
+get a safety net (low-power moves, the gentlest trainer, section-1 difficulty,
+and protection from an unlucky early knockout), while section 1 also keeps its
+scripted encounters and extra balls. Normal difficulty begins in section 3.
+
+The guided run is a **scripted tutorial**, and every step is a vital beat
+(queue-backed, so a busy surface or an unlucky race can never swallow it). A
+scripted beat is an instruction, not a suggestion: it highlights exactly one
+control, disables every other route for that step, and stays armed after the
+professor's card is dismissed until that control is actually used. Reloading
+mid-run uses the run's own tutorial state rather than the account's lesson
+history, so an old profile can never skip a required action.
+
+The whole onboarding is **one conversation with Professor Oak**. It uses a
+sequence of focused dialogue cards; some ideas deliberately take two cards
+(open a card, then press the control inside it). Every card speaks with two
+voices: a short, warm line of dialogue (*say*) and the single thing to do next
+(*body*), so nothing reads like a manual and nothing asks for two actions at
+once. Guided cards show a **progress bar** for the stable conceptual milestones
+instead of a misleading card number. The copy is written for any age and any
+experience level: no jargon before it has been explained, no gendered language,
+short sentences.
+
+Section 1 is deterministic: the first encounter is Pikachu, the second wild is
+chosen from a fixed starter-specific weakness, the third is Bidoof, and the
+trainer is the friendly scripted Youngster. The first wild battle exposes one
+damaging move, then one ball; it cannot be bypassed, and Pikachu cannot faint.
+The second battle exposes one ×2 move. The third exposes Party, one specific
+switch target, and then Bag for in-battle healing. Running, extra moves, and
+alternate switches are not available until the script reaches them.
+
+1. **Welcome** (setup) — Professor Oak introduces himself and walks through
+   sprite, name and the experience choice. The first beat of the path.
+2. **Choose your starter** — the professor's immersive dialog sheet (big
+   portrait, typewriter reveal), setting the register for the whole tutorial.
+   The sheet explains the choice and points at the grid, but never forces a
+   card: Treecko, Charmander and Froakie are all pickable. Naming the partner
+   is part of the same conversation — Oak speaks inside the naming dialog too.
+3. **The path** — how a section is shaped, on the route screen. During
+   section 1 the Mart is hidden entirely; the route is just your team, your
+   Bag and the battle button.
+4. **Capture encounter** (stop 1) — the lesson pops the moment the battle
+   opens (no waiting a turn): weaken it, then throw a ball. The catch
+   success is explained too.
+5. **Heal your new friend** — the caught partner joins at catch HP, so the
+   very next step opens its team card and uses a Potion. The next battle
+   button stays locked until the heal has actually happened: catch → heal →
+   battle 2, one line with no branches.
+6. **Onward** — once the partner is healed (or arrived at full HP, so there
+   is nothing to heal), the route pulses the battle button and asks the player
+   to start Wild Battle 1. Healing and continuing are two separate beats, so
+   the path never leaves the player staring at a route with no next action.
+7. **Super effective** (stop 2) — the wild is curated to be weak to a STAB
+   move the party *lead* carries (the starter, at this point of the script),
+   so the ×2 tag the lesson points at is always there to press — whichever
+   starter was chosen, and even if the player reordered the party early.
+8. **Your new lead** — a step teaches making the caught Pokémon the lead,
+   right before the switching lesson that pairs with it.
+9. **Switching** (stop 3) — open Party and choose the one highlighted switch.
+10. **Heal mid-battle** — immediately after that switch resolves, moves remain
+    locked and Bag becomes the next required action. The Trainer battle itself
+    has no Bag step — the route's *heal first!* warning covers it.
+11. **Saving** (the section summary) — the only place the Save button appears,
+    and the lesson is honest: the run lives in this browser session, the
+    backup file is what survives a cleared browser.
+12. **Evolution** (section 2) — *forced*: buy the Rare Candy from the Mart and
+    actually use it to evolve your starter before the tutorial lets go.
+13. **Training** (section 2) — a hand-held walkthrough through the Train
+    service: replace a move, pick an ability, pick a nature, move a Stat
+    Point, press Done.
+14. **Graduation** — Oak's farewell card closes the tutorial the way it
+    opened: with the professor talking to the player. The prologue flags
+    clear in section 2 and the run continues as an ordinary one with normal
+    randomness, without any section-3 lesson repetition.
+
+(*"Skip tips"* from any card, or turning tips off in Profile mid-run, also
+ends the tutorial and hands over the ordinary game.)
+
+**3. Just-in-time lessons.** Every remaining lesson fires on an
+*interaction*, never a timer, and all of them render on the same surfaces as
+the tutorial: the professor's **dialog sheet** out of battle (modal, big
+portrait, typewriter reveal, dialogue first, one action after) and the
+**anchored bubble** in battle. When a lesson is *about* an element (the ball
+rail, the Party button, the Save progress button) that element pulses for as
+long as the card is up — and while the tutorial waits for it to actually be
+pressed, everything around it dims so the one valid next step is unmistakable.
+The rules, taken from Nielsen Norman Group's coach-mark research, are enforced
+by the module rather than by each call site:
+
+* one idea per card, never two;
+* **never chained** — a second card cannot open while one is up; the single
+  deliberate exception is the tutorial's `vital` beats, which *queue* (never
+  stack) so the scripted sequence always plays in order;
+* a hint never looks like a button (advisor portrait, frosted speech box,
+  its own visual register);
+* always skippable, and the choice is permanent and reversible.
+
+**4. A Guide.** Every lesson is permanently re-readable from the menu. This is
+what licenses the game to stop nagging: if someone gets stuck later, the answer
+is in the app rather than on a wiki.
+
+Veterans opt out in one tap at setup (*"I know what I'm doing"*), or any time
+from Profile, which also has an independent toggle for the ✦Tip badges and a
+*Reset all tips* button. Lesson state lives on the profile, so it rides along in
+a backup — restoring on a new device does not re-teach someone who already
+finished. A profile written before any of this existed is migrated, and a player
+with runs behind them is never demoted to the beginner title screen.
+
+The research behind these choices, and the mapping onto this codebase, is in
+[`docs/ONBOARDING-RESEARCH.md`](docs/ONBOARDING-RESEARCH.md).
+
+### Two rules a lesson must never break
+
+Both of these shipped broken once and stranded players mid-onboarding, so they
+are pinned by tests in `tools/smoke-test.mjs`.
+
+**A lesson must never be able to appear on top of a dialog and be
+unclickable.** `Modal` makes the page behind a dialog `inert`, and the game's
+overlays are *siblings* of each other — so a dialog opened above another one
+had already been inerted before it was ever shown. The worst case was the
+catch flow: naming a Pokémon is mandatory (no Escape, no backdrop dismiss) and
+the coach fires a lesson over that prompt on a timer, so taking more than a
+moment to type a name left both layers dead with nothing on screen to tap.
+Inertness is therefore recomputed from the **top** of the modal stack on every
+open and close, and the one layer that intentionally floats *above* dialogs —
+the toast — opts out with `data-modal-overlay`.
+
+**A lesson must never be able to silence the coach.** One `busy` flag gates
+every lesson, so any path that sets it without clearing it ends the teaching
+for the rest of the session — invisibly, with nothing the player can do. All
+the edges route through `setBusy()`, and a sheet hidden without going through
+`Modal.close` self-heals on the next screen change. A scripted beat that is
+raced by another card is **queued**, and one whose context went stale mid-wait
+drops *unseen* — so the natural call site can re-request it at the next right
+moment instead of the game simply stopping teaching.
 
 ## Full-game backups
 
@@ -358,7 +497,7 @@ module wiring, the trimmed bundle's data, on-demand learnsets, the install
 button on every platform path, subpath-safe PWA paths, backup export/import
 round-tripping (including rejection of malformed files), the Daily's
 date/streak/share logic, the ascension curve, role-based movesets, the AI's
-situational scoring, the modal controller and the plain-language badges.
+situational scoring, the modal controller and the whole guided tutorial flow.
 
 A real-browser Playwright check now covers the gap JSDOM cannot: Chromium with
 SwiftShader loads the deployed app, verifies the singleton renderer, exercises

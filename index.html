@@ -137,18 +137,14 @@
 
     <div class="title-sheet">
       <!-- FIRST VISIT: no save, no history. A brand-new player is offered
-           exactly two doors: set up a trainer, or restore a backup. Everyone
-           else gets the full mode menu.
+           exactly two doors instead of three game modes they cannot yet tell
+           apart. "Start a fresh game" runs the guided prologue; "Load save"
+           is for someone arriving from another device.
            src/app.js decides which of #titleFirst / the mode grid is shown. -->
-      <div class="title-steps" id="titleSteps" hidden aria-label="How to start">
-        <div class="title-step"><b>1</b><span>Meet your trainer &amp; partner</span><em>~30 seconds</em></div>
-        <div class="title-step"><b>2</b><span>Pick a mode to explore</span><em>Daily &middot; Free &middot; Gauntlet</em></div>
-        <div class="title-step"><b>3</b><span>Win battles, catch, survive</span><em>Fainted is forever</em></div>
-      </div>
       <div class="title-btns title-first" id="titleFirst" hidden>
         <button type="button" id="btnFreshGame" class="btn-white btn-daily">
           <span class="bd-main">Start a fresh game</span>
-          <span class="bd-sub">Pick a trainer and a partner, then choose how to play</span>
+          <span class="bd-sub">Pick a trainer, pick a partner, learn as you go</span>
         </button>
         <button type="button" id="btnTitleLoad" class="btn-glass title-action-btn">
           <span class="bd-main">Load save</span>
@@ -156,7 +152,18 @@
         </button>
       </div>
 
-      <!-- THE FULL MENU: shown once the player has set up a trainer.
+      <!-- CONTINUE: a prologue run is in progress. One obvious door back in. -->
+      <div class="title-btns title-first" id="titleResume" hidden>
+        <button type="button" id="btnResumeRun" class="btn-white btn-daily">
+          <span class="bd-main">Continue</span>
+          <span class="bd-sub" id="resumeSub"></span>
+        </button>
+        <button type="button" id="btnTitleLoad2" class="btn-glass title-action-btn">
+          <span class="bd-main">Load save</span>
+        </button>
+      </div>
+
+      <!-- THE FULL MENU: shown once the player has finished their first run.
            Daily and Free Play are SEPARATE slots, so both can be offered at
            once: finishing a Daily never costs you a Free Play run, and a good
            Free Play run never locks you out of tomorrow's Daily. -->
@@ -190,12 +197,20 @@
   </section>
 
   <!-- ===================== RULES ===================== -->
-  <section id="screenRules" class="screen-page codex-page" hidden>
+  <section id="screenRules" hidden>
     <div class="sub-head">
       <button type="button" id="btnRulesBack" class="back-pill">Back</button>
       <h2 class="scr-title">How it works</h2>
     </div>
     <div class="rules-body">
+      <!-- Two help surfaces, so each points at the other: this page is the
+           complete rule set, the Guide is the same material broken into one
+           idea at a time. -->
+      <button type="button" id="btnRulesGuide" class="rules-guide-link">
+        <span class="coach-portrait" id="rulesFace"></span>
+        <span><b>New here?</b> The Guide explains the same things one at a time,
+          in the order they come up. &rsaquo;</span>
+      </button>
       <div class="rule">
         <span class="rl-n">1</span>
         <div><b>Three ways to play</b><p><b>Daily</b> is the same fixed 5-section challenge for everyone, scored and recorded once a day. <b>Free Play</b> is endless and randomized. <b>Team Gauntlet</b> is a trainer rush: build any team of 6 for free, then fight trainer after trainer. Each mode has its own save slot, so one never blocks another.</p></div>
@@ -252,12 +267,11 @@
   <!-- Identity BEFORE instruction: picking a sprite and typing a name costs
        nothing, takes ten seconds, and buys the investment that makes someone
        willing to read the first lesson at all. -->
-  <section id="screenSetup" class="screen-page ritual-page" hidden>
+  <section id="screenSetup" hidden>
     <div class="sub-head">
       <button type="button" id="btnSetupBack" class="back-pill">Back</button>
       <h2 class="scr-title">Who are you?</h2>
     </div>
-    <div class="screen-kicker">Step 1 of 2 &middot; make it yours</div>
     <div class="setup-wrap">
       <button type="button" id="setupAvatar" class="setup-avatar" aria-label="Change sprite">
         <img id="setupAvatarImg" src="" alt="">
@@ -266,6 +280,20 @@
       <label class="setup-label" for="setupName">Your name</label>
       <input id="setupName" class="search setup-name" type="text" maxlength="12"
              autocomplete="off" spellcheck="false" placeholder="Trainer"/>
+
+      <div class="setup-experience">
+        <div class="setup-label">Played a Pokemon roguelike before?</div>
+        <div class="setup-choice">
+          <button type="button" class="setup-opt on" data-exp="new">
+            <b>I'm new to this</b><span>Show me the ropes as I play</span>
+          </button>
+          <button type="button" class="setup-opt" data-exp="pro">
+            <b>I know what I'm doing</b><span>No tips &mdash; just let me play</span>
+          </button>
+        </div>
+        <p class="hint center setup-note">You can change this any time in Profile,
+          and every tip stays readable in the Guide.</p>
+      </div>
     </div>
     <div class="x-battle-dock">
       <button type="button" id="btnSetupGo" class="btn-primary x-battle-btn">
@@ -275,8 +303,7 @@
   </section>
 
   <!-- ===================== STARTER ===================== -->
-  <section id="screenStarter" class="screen-page choice-page" hidden>
-    <div class="screen-kicker">The first big choice</div>
+  <section id="screenStarter" hidden>
     <h2 class="scr-title">Choose your first partner</h2>
     <p class="hint center" id="starterSub">Choose carefully. If it faints, it's gone.</p>
     <div id="starterGrid" class="starter-grid"></div>
@@ -284,12 +311,11 @@
   </section>
 
   <!-- ===================== TEAM BUILDER (Team Gauntlet) ===================== -->
-  <section id="screenTeamBuilder" class="screen-page choice-page" hidden>
+  <section id="screenTeamBuilder" hidden>
     <div class="sub-head">
       <button type="button" id="btnTbBack" class="back-pill">Back</button>
       <h2 class="scr-title">Build your team</h2>
     </div>
-    <div class="screen-kicker">Team Gauntlet</div>
     <p class="hint center">Pick any 6 Pokemon &mdash; no cost, fully trained.
        Then fight trainer after trainer: no wilds, no cash, no items, no running.
        Survivors heal after every win.</p>
@@ -320,78 +346,43 @@
   </section>
 
   <!-- ===================== CROSSROADS ===================== -->
-  <section id="screenCrossroads" class="screen-page camp-page" hidden>
-    <!-- Zone 1: STATUS — one window with the route heading, money and menu. -->
+  <section id="screenCrossroads" hidden>
     <div class="x-top">
-      <div class="x-head">
-        <div class="x-eyebrow" id="xEyebrow">Section 1</div>
-        <h2 class="x-title" id="xSection">Route</h2>
-        <div class="x-sub" id="xProgress"></div>
-      </div>
-      <div class="x-side">
-        <span class="x-cash" id="xCashPill">$<b id="xCash">0</b></span>
-        <button type="button" id="btnMenu" class="menu-pill" aria-label="Menu"><span id="menuButtonAvatar" class="menu-button-avatar"></span></button>
-      </div>
+      <span class="x-cash" id="xCashPill">$<b id="xCash">0</b></span>
+      <button type="button" id="btnMenu" class="menu-pill" aria-label="Menu"><span id="menuButtonAvatar" class="menu-button-avatar"></span></button>
     </div>
 
-    <!-- Where am I? Four battle stops made visible, with the current one lit. -->
-    <div class="x-stepper" id="xStepper" role="list" aria-label="Section progress"></div>
-
-    <!-- The one thing worth doing next — changes as the run state changes. -->
-    <div class="next-move" id="nextMove" hidden>
-      <span class="nm-ic" id="nextMoveIcon"></span>
-      <span class="nm-txt" id="nextMoveText"></span>
-      <span class="nm-arrow" aria-hidden="true">→</span>
+    <div class="x-head">
+      <div class="x-eyebrow" id="xEyebrow">Section 1</div>
+      <h2 class="x-title" id="xSection">Route</h2>
+      <div class="x-sub" id="xProgress"></div>
     </div>
-
-    <!-- First section, explained in one minute. Dismissed forever afterwards. -->
-    <aside class="coach-line intro-note" id="xIntro" hidden aria-label="How a section works">
-      <span class="cl-ic">&#127919;</span>
-      <span><b>Here is how a section works:</b> stop 1 is your only catch of the section,
-        stops 2&ndash;3 are more wild battles, and stop 4 is a trainer. Beat the trainer to
-        complete the section &mdash; your survivors are fully healed. Fainted is forever,
-        so keep HP and PP topped up between stops.</span>
-      <button type="button" class="btn-mini intro-dismiss" id="xIntroDismiss">Got it</button>
-    </aside>
 
     <!-- Ascension state: tier, battle-start field effect, boss clause and the
          trainer's intent. Always previewed, never a hidden difficulty tweak. -->
     <div class="x-ascension" id="xAscension" hidden></div>
 
-    <!-- YOUR TEAM, front and centre. Each Pokemon is a card with Heal / Train /
-         Item actions that expand inline, with per-Pokemon recommendations.
-         Cards can be dragged to reorder (the first card always leads). -->
-    <section class="team-board" aria-label="Your team">
-      <div class="team-board-head">
-        <h3 class="team-board-title">Your team</h3>
-        <span class="team-board-hint" id="xTeamHint">Drag to reorder</span>
+    <!-- the team lives on this screen; no separate menu -->
+    <div class="team-strip" id="xTeam"></div>
+
+    <div class="x-bag" id="xBagBlock">
+      <div class="x-bag-head">
+        <h3 class="x-bag-title">Bag</h3>
+        <span class="x-bag-note" id="xBagNote"></span>
       </div>
-      <div class="pc-grid" id="xTeam"></div>
-    </section>
+      <div id="xOwned" class="owned-grid"></div>
+    </div>
 
-    <!-- Camp is the only preparation surface. The next useful action is always
-         visible; inventory and shopping are available without filling the route. -->
-    <section class="camp" id="xCamp" aria-label="Prepare for battle">
-      <div class="camp-head">
-        <div><div class="camp-kicker">Before you go</div><h3>Prepare your team</h3></div>
-        <button type="button" class="camp-heal" id="btnCampHeal" hidden>Use recommended medicine</button>
+    <div class="x-shop" id="xShopBlock">
+      <div class="x-shop-head">
+        <h3 class="x-shop-title">Poke Mart</h3>
+        <span class="x-shop-note">Tap a Pokemon to train or use items</span>
       </div>
-      <div id="xRecommendations" class="camp-actions" aria-live="polite"></div>
 
-      <details class="camp-drawer" id="xBagBlock">
-        <summary><span>Bag</span><span class="drawer-note" id="xBagNote"></span></summary>
-        <p class="drawer-help">Use medicine, evolution items, or equip an item to a Pokémon.</p>
-        <div id="xOwned" class="owned-grid"></div>
-      </details>
-
-      <details class="camp-drawer" id="xShopBlock">
-        <summary><span>Shop</span><span class="drawer-note">Buy supplies and upgrades</span></summary>
-        <p class="drawer-help">Start with what helps your next battle. Advanced transformations appear as you discover them.</p>
-        <div class="mart-filters" id="martFilters" role="tablist" aria-label="Shop categories"></div>
-        <div id="martGrid" class="mart-inline"></div>
-        <details class="sell-drawer"><summary>Sell spare items</summary><div id="martSell" class="sell-grid"></div></details>
-      </details>
-    </section>
+      <div id="martGrid" class="mart-inline"></div>
+      <h4 class="sub-title">Sell</h4>
+      <div id="martSell" class="sell-grid"></div>
+    </div>
 
     <div class="x-battle-dock">
       <button type="button" id="btnGoBattle" class="btn-primary x-battle-btn">
@@ -403,7 +394,7 @@
   </section>
 
   <!-- ===================== PROFILE ===================== -->
-  <section id="screenProfile" class="screen-page archive-page" hidden>
+  <section id="screenProfile" hidden>
     <div class="sub-head">
       <button type="button" id="btnProfBack" class="back-pill">Back</button>
       <h2 class="scr-title">Profile</h2>
@@ -412,7 +403,7 @@
   </section>
 
   <!-- ===================== SHINY COLLECTION ===================== -->
-  <section id="screenShinies" class="screen-page archive-page" hidden>
+  <section id="screenShinies" hidden>
     <div class="sub-head">
       <button type="button" id="btnShinyBack" class="back-pill">Back</button>
       <h2 class="scr-title">Shiny Collection</h2>
@@ -422,7 +413,7 @@
   </section>
 
   <!-- ===================== HISTORY ===================== -->
-  <section id="screenHistory" class="screen-page archive-page" hidden>
+  <section id="screenHistory" hidden>
     <div class="sub-head">
       <button type="button" id="btnHistBack" class="back-pill">Back</button>
       <h2 class="scr-title">History</h2>
@@ -439,83 +430,48 @@
     <div class="overlay-card"></div>
   </div>
 
-  <!-- ===================== MENU (overlay) =====================
-       A grouped sheet: the trainer header tells you who you are and where
-       the run stands; the options are grouped by intent. Destructive actions
-       live at the very bottom, outside the thumb's natural path. -->
+  <!-- ===================== MENU (overlay) ===================== -->
   <div id="screenMenu" class="overlay" hidden>
     <div class="overlay-card menu-card" role="dialog" aria-modal="true" aria-label="Menu">
-      <div class="menu-sheet">
-        <header class="menu-profile">
-          <span class="mp-avatar" id="menuAvatarBig"></span>
-          <div class="mp-id">
-            <div class="mp-name" id="menuTrainerName">Trainer</div>
-            <div class="mp-sub" id="menuTrainerSub">Your adventure</div>
-          </div>
-          <div class="mp-run" id="menuRunState"><small>Status</small>—</div>
-        </header>
-
-        <div class="menu-groups">
-          <div class="menu-label">Your journey</div>
-          <div class="menu-list">
-            <button type="button" id="btnMenuProfile" class="menu-item">
-              <span class="mi-ic avatar-ic" id="menuAvatar"></span>
-              <span class="mi-t"><b>Profile</b><em>Your all-time record</em></span>
-              <span class="mi-chev" aria-hidden="true">›</span>
-            </button>
-            <button type="button" id="btnMenuShinies" class="menu-item">
-              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.6 6.2 6.7.5-5.1 4.4 1.6 6.6L12 16.4 6.2 19.7l1.6-6.6L2.7 8.7l6.7-.5z"/></svg></span>
-              <span class="mi-t"><b>Shiny Collection</b><em id="miShinyCount">No shinies yet</em></span>
-              <span class="mi-chev" aria-hidden="true">›</span>
-            </button>
-            <button type="button" id="btnMenuHistory" class="menu-item">
-              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
-              <span class="mi-t"><b>History</b><em id="miHistCount">No runs finished</em></span>
-              <span class="mi-chev" aria-hidden="true">›</span>
-            </button>
-          </div>
-
-          <div class="menu-label">Save</div>
-          <div class="menu-list">
-            <button type="button" id="btnMenuTransfer" class="menu-item">
-              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg></span>
-              <span class="mi-t"><b>Transfer save</b><em id="miTransferSub">Download a full backup</em></span>
-              <span class="mi-chev" aria-hidden="true">›</span>
-            </button>
-            <button type="button" id="btnMenuImport" class="menu-item">
-              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9m0 0l-4 4m4-4l4 4"/><path d="M4 5V3a1 1 0 011-1h14a1 1 0 011 1v2"/></svg></span>
-              <span class="mi-t"><b>Import save</b><em>Restore a backup file</em></span>
-              <span class="mi-chev" aria-hidden="true">›</span>
-            </button>
-          </div>
-
-          <div class="menu-label">Help</div>
-          <div class="menu-list">
-            <button type="button" id="btnMenuRules" class="menu-item">
-              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5C10.5 5 8.5 4.5 6 4.5c-.7 0-1.4 0-2 .2V19c.6-.2 1.3-.2 2-.2 2.5 0 4.5.5 6 2 1.5-1.5 3.5-2 6-2 .7 0 1.4 0 2 .2V4.7c-.6-.2-1.3-.2-2-.2-2.5 0-4.5.5-6 2z"/><path d="M12 6.5V21"/></svg></span>
-              <span class="mi-t"><b>How it works</b><em>The full rule set</em></span>
-              <span class="mi-chev" aria-hidden="true">›</span>
-            </button>
-          </div>
-
-          <div class="menu-label" id="menuDangerLabel" hidden>Careful</div>
-          <div class="menu-list" id="menuDangerGroup" hidden>
-            <button type="button" id="btnMenuAbandon" class="menu-item danger" hidden>
-              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3L3 6l3 3"/><path d="M18 3l3 3-3 3"/><path d="M3 6h18"/><path d="M12 9v9a3 3 0 11-6 0"/></svg></span>
-              <span class="mi-t"><b>Abandon this run</b><em>Your team is lost — start over</em></span>
-              <span class="mi-chev" aria-hidden="true">›</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="menu-foot">
-          <button type="button" id="btnMenuQuit" class="btn-secondary">
-            <span class="mi-ic" style="width:16px;height:16px;border-radius:0;background:none;display:inline-flex;vertical-align:-3px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-7 9 7v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg></span>
-            Back to title
-          </button>
-          <button type="button" id="btnMenuClose" class="btn-primary">Resume</button>
-        </div>
+      <div class="menu-list">
+        <button type="button" id="btnMenuProfile" class="menu-item">
+          <span id="menuAvatar" class="mi-ic avatar-ic"></span>
+          <span class="mi-t"><b>Profile</b><em>Your all-time record</em></span>
+        </button>
+        <button type="button" id="btnMenuShinies" class="menu-item">
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/shiny-charm.png" alt="">
+          <span class="mi-t"><b>Shiny Collection</b><em id="miShinyCount">No shinies yet</em></span>
+        </button>
+        <button type="button" id="btnMenuHistory" class="menu-item">
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/vs-recorder.png" alt="">
+          <span class="mi-t"><b>History</b><em id="miHistCount">No runs finished</em></span>
+        </button>
+        <button type="button" id="btnMenuTransfer" class="menu-item">
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/pal-pad.png" alt="">
+          <span class="mi-t"><b>Transfer save</b><em id="miTransferSub">Download a full backup</em></span>
+        </button>
+        <button type="button" id="btnMenuImport" class="menu-item">
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/town-map.png" alt="">
+          <span class="mi-t"><b>Import save</b><em>Restore a backup file</em></span>
+        </button>
+        <button type="button" id="btnMenuGuide" class="menu-item">
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/exp-share.png" alt="">
+          <span class="mi-t"><b>Guide</b><em id="miGuideSub">Learn the game, one idea at a time</em></span>
+        </button>
+        <button type="button" id="btnMenuRules" class="menu-item">
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/tm-normal.png" alt="">
+          <span class="mi-t"><b>How it works</b><em>The full rule set</em></span>
+        </button>
+        <button type="button" id="btnMenuAbandon" class="menu-item danger" hidden>
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/smoke-ball.png" alt="">
+          <span class="mi-t"><b>Abandon this run</b><em>Your team is lost — start over</em></span>
+        </button>
+        <button type="button" id="btnMenuQuit" class="menu-item">
+          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/escape-rope.png" alt="">
+          <span class="mi-t"><b>Back to title</b><em>Save is kept — continue anytime</em></span>
+        </button>
       </div>
+      <button type="button" id="btnMenuClose" class="btn-secondary wide">Close</button>
     </div>
   </div>
 
@@ -525,23 +481,15 @@
   </section>
 
   <!-- ===================== TUTOR / ABILITY ===================== -->
-  <section id="screenTutor" class="screen-page ritual-page" hidden>
-    <div class="sub-head">
-      <button type="button" id="btnTutorBack" class="back-pill">Done</button>
-      <h2 class="scr-title" id="tutorTitle">Train Pokémon</h2>
-    </div>
-    <div id="tutorHero" class="tutor-hero" hidden></div>
+  <section id="screenTutor" hidden>
+    <h2 class="scr-title" id="tutorTitle">Move Tutor</h2>
     <p class="hint center" id="tutorSub"></p>
     <div id="tutorBody"></div>
-    <div class="tutor-foot">
-      <button type="button" id="btnTutorDone" class="btn-primary wide">Done — back to camp</button>
-      <button type="button" id="btnTutorCancel" class="btn-secondary wide" hidden>Cancel</button>
-    </div>
+    <button type="button" id="btnTutorBack" class="btn-secondary wide">Cancel</button>
   </section>
 
   <!-- ===================== REWARD ===================== -->
-  <section id="screenReward" class="screen-page moment-page" hidden>
-    <div class="screen-kicker" id="rewardKicker">Result</div>
+  <section id="screenReward" hidden>
     <h2 class="scr-title" id="rewardTitle">Victory!</h2>
     <div id="rewardBody" class="panel center"></div>
     <div class="footer-btns">
@@ -550,8 +498,7 @@
   </section>
 
   <!-- ===================== CATCH ===================== -->
-  <section id="screenCatch" class="screen-page moment-page" hidden>
-    <div class="screen-kicker" id="catchKicker">Encounter result</div>
+  <section id="screenCatch" hidden>
     <h2 class="scr-title" id="catchTitle">Gotcha!</h2>
     <div id="catchBody" class="panel center"></div>
     <div id="catchSwap"></div>
@@ -561,10 +508,9 @@
   </section>
 
   <!-- ===================== SECTION SUMMARY ===================== -->
-  <section id="screenSummary" class="screen-page moment-page" hidden>
+  <section id="screenSummary" hidden>
     <div class="sum-wrap">
-      <div class="sum-crest">✦</div>
-      <div class="screen-kicker" id="sumKicker">Section report</div>
+      <div class="sum-crest"></div>
       <h2 class="scr-title" id="sumTitle">Section complete</h2>
       <p class="hint center" id="sumSub"></p>
       <div class="sum-stats" id="sumStats"></div>
@@ -577,25 +523,13 @@
     </div>
   </section>
 
-  <!-- ===================== SECTION FIVE GIFT ===================== -->
-  <div id="screenSectionGift" class="overlay" hidden>
-    <div class="overlay-card gift-card" role="dialog" aria-modal="true" aria-labelledby="giftTitle">
-      <div class="gift-star" aria-hidden="true">✦</div>
-      <p class="gift-kicker">Section 5 reached</p>
-      <h3 id="giftTitle" class="picker-title">A gift for your journey</h3>
-      <div class="gift-item"><span id="giftBallArt"></span><span><b>Master Ball</b><em>One guaranteed catch. Save it for the moment that matters.</em></span></div>
-      <button type="button" id="btnGiftTake" class="btn-primary wide">Take Master Ball</button>
-    </div>
-  </div>
-
   <!-- ===================== NICKNAME (overlay) ===================== -->
   <div id="screenNickname" class="overlay" hidden>
     <div class="overlay-card nick-card">
-      <div class="nick-kicker">Name your partner</div>
       <div id="nickSprite" class="nick-sprite"></div>
       <div class="nick-species" id="nickSpecies"></div>
       <div class="types center" id="nickTypes"></div>
-      <p class="hint center" id="nickHint">This is the name you will remember them by. It stays with them forever.</p>
+      <p class="hint center" id="nickHint"></p>
       <input id="nickInput" class="search nick-input" type="text" autocomplete="off"
              spellcheck="false" placeholder="Nickname"/>
       <button type="button" id="btnNickOk" class="btn-primary wide">Confirm name</button>
@@ -623,6 +557,69 @@
       <button type="button" id="btnSaveImportClose" class="btn-secondary wide">Cancel</button>
     </div>
   </div>
+
+  <!-- ===================== COACH (overlay) ===================== -->
+  <!-- One lesson at a time, in the professor's voice. Never chained: the
+       coach module refuses to open a second card while this one is up or
+       immediately after it closes. src/coach.js fills the card. -->
+  <div id="screenCoach" class="overlay coach-overlay" hidden>
+    <div class="overlay-card coach-card"></div>
+  </div>
+
+  <!-- ===================== MODE EXPLAINER (overlay) ===================== -->
+  <div id="screenModeInfo" class="overlay coach-overlay mode-overlay" hidden>
+    <div class="overlay-card coach-card mode-card">
+      <div class="coach-dialogue-row mode-dialogue-row">
+        <div class="coach-body mode-copy">
+          <div class="coach-who mode-who">
+            <h3 id="modeTitle">Mode</h3>
+            <em>Before you start</em>
+          </div>
+          <p class="mode-lede" id="modeLede"></p>
+          <ul class="mode-points" id="modePoints"></ul>
+        </div>
+        <div class="coach-head immersive coach-dialogue-professor mode-dialogue-professor">
+          <span class="coach-portrait" id="modeFace"></span>
+        </div>
+      </div>
+      <div class="coach-actions mode-actions">
+        <button type="button" id="btnModeGo" class="btn-primary wide">Let's go</button>
+        <button type="button" id="btnModeBack" class="coach-skip">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== TUTORIAL SKIP CHOICE (overlay) ===================== -->
+  <div id="screenSkipTutorialChoice" class="overlay" hidden>
+    <div class="overlay-card mode-card">
+      <div class="coach-head">
+        <span class="coach-portrait" id="skipChooseFace"></span>
+        <div class="coach-who"><b>Select Mode</b><em>Ready to play</em></div>
+      </div>
+      <p class="mode-lede">Since you know what you are doing, choose which mode you would like to play. Every mode will play as normal with no further tutorial or onboarding.</p>
+      <button type="button" id="btnSkipChooseDaily" class="btn-primary wide">Daily Battle</button>
+      <button type="button" id="btnSkipChooseFree" class="btn-primary wide" style="margin-top: 8px;">Random Battle</button>
+      <button type="button" id="btnSkipChooseGauntlet" class="btn-primary wide" style="margin-top: 8px;">Gauntlet</button>
+      <button type="button" id="btnSkipChooseBack" class="btn-secondary wide" style="margin-top: 16px;">Back</button>
+    </div>
+  </div>
+
+  <!-- ===================== GUIDE ===================== -->
+  <!-- Every lesson, permanently re-readable. This is what licenses the game
+       to stop nagging: if someone gets stuck later, the answer is here rather
+       than on a wiki. -->
+  <section id="screenGuide" hidden>
+    <div class="sub-head">
+      <button type="button" id="btnGuideBack" class="back-pill">Back</button>
+      <h2 class="scr-title">Guide</h2>
+    </div>
+    <div class="guide-hero">
+      <span class="coach-portrait" id="guideFace"></span>
+      <p class="hint">Everything <b id="guideWho">the professor</b> explains during a run, in one place.
+         Tap any card to read it again.</p>
+    </div>
+    <div id="guideBody"></div>
+  </section>
 
   <!-- ===================== INSTALL HOW-TO (overlay) ===================== -->
   <!-- iOS/iPadOS and desktop Safari expose no install API, so the same pill
@@ -658,7 +655,7 @@
   </div>
 
   <!-- ===================== EVOLUTION ===================== -->
-  <section id="screenEvolve" class="screen-page ritual-page" hidden>
+  <section id="screenEvolve" hidden>
     <div class="evo-wrap">
       <div id="evoStage" class="evo-stage"></div>
       <p id="evoText" class="evo-text"></p>
@@ -669,9 +666,8 @@
   <!-- ===================== DAILY RESULT ===================== -->
   <!-- The Daily is finite, so it has a real ending: a scored, dated, shareable
        result rather than just "your last Pokemon fainted". -->
-  <section id="screenDailyResult" class="screen-page moment-page" hidden>
+  <section id="screenDailyResult" hidden>
     <div class="end-box dr-box">
-      <div class="screen-kicker" id="drKicker">Daily result</div>
       <h2 class="scr-title" id="drTitle">Daily complete!</h2>
       <p class="hint center" id="drSub"></p>
       <div class="sum-stats" id="drStats"></div>
@@ -695,9 +691,8 @@
   </section>
 
   <!-- ===================== GAME OVER ===================== -->
-  <section id="screenGameOver" class="screen-page moment-page" hidden>
+  <section id="screenGameOver" hidden>
     <div class="end-box">
-      <div class="screen-kicker" id="goKicker">Run ended</div>
       <h2 class="scr-title dead">Run over</h2>
       <div id="goScore" class="score-box"></div>
       <div id="goMvp"></div>
@@ -720,7 +715,7 @@
        app-loader.js   -> post-paint game controller loader
        nuzlocke.js    -> window.Nuz          (needs Core)
        ...feature modules...
-       coach.js       -> window.Coach         (plain-language move/item facts)
+       coach.js       -> window.Coach         (lessons + plain-language facts)
        savecode.js    -> window.SaveCode      (backup files)
        pwa.js         -> window.PWA           (service worker + install button)
        app.js         -> boots the game       (needs everything above)
