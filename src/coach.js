@@ -342,11 +342,10 @@
 
   // ---- honest item copy ---------------------------------------------------
   // The names are canon and stay canon; this is the subtitle that goes with
-  // them. "Full Heal" is the worst offender in the game: it cures status and
-  // restores ZERO HP, and it sits in the shop directly beside "Full Restore",
-  // which does both. Everyone reads it as "heals everything".
+  // them. Full Restore is now the only healing item on a fresh shelf, so the
+  // wording makes its HP-and-status behavior explicit.
   var ITEM_PLAIN = {
-    fullheal:    { one: 'Status only \u2014 no HP', long: 'Cures poison, burn, paralysis, sleep or freeze. It restores <b>no HP at all</b>. For HP you want a Potion.' },
+    fullheal:    { one: 'Status only \u2014 no HP', long: 'Cures poison, burn, paralysis, sleep or freeze. It restores <b>no HP at all</b>. For HP and status, use Full Restore.' },
     fullrestore: { one: 'Full HP + cures status', long: 'The one that really does everything: back to full HP <b>and</b> clears any status.' },
     maxpotion:   { one: 'Full HP, status stays', long: 'Restores every point of HP, but a burn or paralysis will still be there afterwards.' },
     potion:      { one: 'Small heal (20%)', long: 'Restores a fifth of max HP. Cheap, and enough to survive one more hit.' },
@@ -484,7 +483,7 @@
       body: 'Tap the pulsing <b>Capture Encounter</b> button.' },
     { id: 'battleBag', where: 'battle', title: 'Heal mid-battle',
       say: 'I can help you heal during a battle, but healing uses your turn.',
-      body: 'Tap <b>Bag</b> to choose a healing item.' },
+      body: 'Tap <b>Bag</b> to choose a Full Restore.' },
     { id: 'tutorialDamage', where: 'battle', title: 'Weaken Pikachu first',
       say: 'Pikachu cannot be knocked out here. Status moves will wait; I highlighted your strongest damaging STAB move, which gets a 50% same-type bonus.',
       body: 'Tap the pulsing <b>damaging move</b>, then I will show you how to throw a Poke Ball.' },
@@ -500,9 +499,9 @@
     { id: 'healOpen', where: '_tutorial', title: 'Heal your new friend',
       say: 'I want you to practice healing your new teammate between battles.',
       body: 'Tap <b>{NAME}\u2019s card</b> on your team.' },
-    { id: 'healUse', where: '_tutorial', title: 'Use a Potion',
+    { id: 'healUse', where: '_tutorial', title: 'Use a Full Restore',
       say: 'Good. Now I will show you where healing happens.',
-      body: 'Tap the pulsing <b>Use Potion</b> button.' },
+      body: 'Tap the pulsing <b>Use Full Restore</b> button.' },
     { id: 'onward', where: '_tutorial', title: 'Continue onward',
       say: 'I can see your friend is healed and ready. I will lead you to the next stop.',
       body: 'Tap the pulsing <b>Wild Battle 1</b> button.' },
@@ -525,7 +524,7 @@
       say: 'Your save lives only in this browser; nothing is stored online.',
       body: 'Tap <b>Save progress</b> to download a backup.' },
     { id: 'mart', where: 'items', title: 'Open the Mart',
-      say: 'I keep Balls and Potions in stock, while held items and stones rotate each section.',
+      say: 'I keep the right Ball tier and Full Restores in stock, while held items and stones rotate each section.',
       body: 'Tap the <b>Mart</b> to see what is in stock.' },
     { id: 'train', where: 'training', title: 'Train your Pokemon',
       say: 'I use the Train service to improve moves, ability, nature, and Stat Points.',
@@ -1166,7 +1165,7 @@
     if (!l) return false;
     // Scripted tutorial beats carry a progress value, not a card number:
     // several cards can teach one milestone and a full-HP catch skips the
-    // Potion interaction. The sheet renders this as a bar, so it never claims
+    // Healing interaction. The sheet renders this as a bar, so it never claims
     // that two different cards are the same numbered step.
     if (!opts.force && opts.bypassSeen &&
         window.Game && typeof window.Game.tutorialProgress === 'function') {

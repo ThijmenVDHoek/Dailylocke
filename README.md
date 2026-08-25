@@ -2,6 +2,8 @@
 
 A daily nuzlocke challenge, played in the browser. Pick a starter, fight through
 sections of wild encounters and trainers, and try to keep your team alive.
+The Mart's healing item is always a Full Restore; Ball tiers progress from
+Poke Ball in section 1 to Great Ball in section 2 and Ultra Ball from section 3.
 
 Three modes, **independent save slots** — so one can never block another:
 
@@ -110,8 +112,8 @@ app permanently offline-less.
 ## Onboarding
 
 Dailylocke is a Pokémon game with a competitive engine underneath it: real
-Showdown movesets, held items, natures, EVs, eight ball types, thirteen
-medicines, branching evolutions. A seasoned player reads all of that at a
+Showdown movesets, held items, natures, EVs, three section-gated Ball tiers,
+and Full Restores, branching evolutions. A seasoned player reads all of that at a
 glance. A casual one bounces off it, and the observed failure was always the
 same shape — mash the first attack, skip the Mart, never train, hold nothing,
 lose to the section boss having never discovered the game had answers.
@@ -134,10 +136,9 @@ too:
   base-stage starter read "All-rounder", which is useless on the one screen
   where the label has to do real work. Something that still evolves is shown as
   *Room to grow*, not as weak.
-* Confusing items get an honest one-liner under their canon name. **Full Heal**
-  is the worst offender in the game: it cures status and restores *zero HP*,
-  and it sits in the shop directly beside Full Restore, which does both. The
-  names are untouched; the gold line underneath tells the truth.
+* Healing is deliberately simple: **Full Restore** is the only healing
+  item available. It returns a Pokemon to full HP and cures status; there are no
+  weaker Potion variants on new runs.
 
 **2. A guided first run.** `Start a fresh game` → pick a sprite and a name →
 pick one of a fixed Treecko / Charmander / Froakie trio (any of the three —
@@ -146,7 +147,7 @@ chosen) → play a real Free Play run with the lessons switched on. Nothing
 about it is faked: same engine, same permadeath, same slot. Sections 1 and 2
 get a safety net (low-power moves, the gentlest trainer, section-1 difficulty,
 and protection from an unlucky early knockout), while section 1 also keeps its
-scripted encounters and extra balls. Normal difficulty begins in section 3.
+scripted encounters. Normal difficulty begins in section 3.
 
 The guided run is a **scripted tutorial**, and every step is a vital beat
 (queue-backed, so a busy surface or an unlucky race can never swallow it). A
@@ -182,13 +183,13 @@ alternate switches are not available until the script reaches them.
    card: Treecko, Charmander and Froakie are all pickable. Naming the partner
    is part of the same conversation — Oak speaks inside the naming dialog too.
 3. **The path** — how a section is shaped, on the route screen. During
-   section 1 the Mart is hidden entirely; the route is just your team, your
-   Bag and the battle button.
+   section 1 the Mart exposes only Poke Balls and Full Restore; advanced
+   item controls remain out of the way while the route teaches the basics.
 4. **Capture encounter** (stop 1) — the lesson pops the moment the battle
    opens (no waiting a turn): weaken it, then throw a ball. The catch
    success is explained too.
 5. **Heal your new friend** — the caught partner joins at catch HP, so the
-   very next step opens its team card and uses a Potion. The next battle
+   very next step opens its team card and uses a Full Restore. The next battle
    button stays locked until the heal has actually happened: catch → heal →
    battle 2, one line with no branches.
 6. **Onward** — once the partner is healed (or arrived at full HP, so there
@@ -217,6 +218,12 @@ alternate switches are not available until the script reaches them.
     opened: with the professor talking to the player. The prologue flags
     clear in section 2 and the run continues as an ordinary one with normal
     randomness, without any section-3 lesson repetition.
+
+**Later milestones.** Clearing section 5 awards a Master Ball. The first wild
+battle of section 6 is a powerful capture encounter drawn from a pool of
+legendary and mythical Pokemon, giving that reward a clear purpose. Daily runs
+still finish after section 5; section 6 is available in endless Free Play (and
+in a Daily moved to Free Play).
 
 (*"Skip tips"* from any card, or turning tips off in Profile mid-run, also
 ends the tutorial and hands over the ordinary game.)

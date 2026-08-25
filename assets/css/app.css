@@ -699,6 +699,7 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 
 /* -------------------------------------------------------------- rewards */
 .reward-money { font-size:2rem; color:var(--gold); margin:10px 0; text-shadow:0 0 26px rgba(255,215,110,.4); }
+.reward-item { color:var(--gold); font-size:1.15rem; margin:10px 0; }
 .losses { margin:14px 0; }
 .losses h4 { color:#ff8b95; font-size:.95rem; margin-bottom:8px; }
 .losses .grave { display:inline-flex; }
@@ -1166,12 +1167,14 @@ textarea.search.save-code {
 /* ===== SECTION SUMMARY ===== */
 
 /* Tutorial linear onboarding helpers (guided run, section 1):
-   the Mart is REMOVED from the route entirely — the team, the bag and the
-   battle button are the only things on screen, so the player cannot wander
-   into the shop before the tutorial is ready to explain it. The bag stays
-   fully visible and interactive. Held-item noise inside the team detail is
-   still tucked away until the game explains held items. */
-.prologue-dim .x-shop { display:none !important; }
+   the Mart only exposes the small section-1 shelf — the team, the bag and the
+   battle button remain the main focus, so the player cannot wander into
+   advanced item controls before the tutorial is ready to explain them.
+   The bag stays fully visible and interactive. Held-item noise inside the
+   team detail is still tucked away until the game explains held items. */
+/* Section 1 still exposes the real shop: its shelf is limited to Poke Balls
+   and Full Restore, so a guided player can buy the same items as everyone
+   else. The class continues to dim advanced controls below. */
 .prologue-dim #xTeamDetail .pd-sec:has(.pd-held) {
   opacity: 0.35;
   pointer-events: none;

@@ -284,6 +284,37 @@
   };
   var PROLOGUE_THIRD_WILD = 'bidoof';
 
+  // Section 5's Master Ball is the player's answer to this encounter. The
+  // first wild battle of section 6 is deliberately a meaningful, high-power
+  // catch instead of another ordinary route roll. Keep the pool legendary or
+  // mythical so the promise is unambiguous, while varying the exact target by
+  // seed (and avoiding species the player has already caught when possible).
+  var SECTION6_CAPTURE_POOL = [
+    'mewtwo', 'mew', 'lugia', 'hooh', 'rayquaza', 'darkrai', 'arceus'
+  ];
+
+  function section6CaptureFor(run) {
+    var seen = run.seenSpecies || {};
+    var party = Array.isArray(run.party) ? run.party : [];
+    var available = SECTION6_CAPTURE_POOL.filter(function (id) {
+      var sp = Dex.species.get(id);
+      if (!sp || !sp.exists) return false;
+      if (seen[id]) return false;
+      return !party.some(function (m) { return m.id === id; });
+    });
+    // A very long run can have seen every target (including lost Pokemon).
+    // Still deliver the promised strong encounter rather than silently falling
+    // back to a normal wild; the dupes clause cannot offer an unused target in
+    // that edge case.
+    if (!available.length) {
+      available = SECTION6_CAPTURE_POOL.filter(function (id) {
+        var sp = Dex.species.get(id); return sp && sp.exists;
+      });
+    }
+    if (!available.length) return null;
+    return C.pick(available, drand(run.seed + '|section6-capture'));
+  }
+
   // The LEAD's STAB types. The guided run's super-effective battle must be
   // weak to the moves of the Pokemon that will actually be attacking -- the
   // party leader -- because the battle only lets the active mon act. In the
@@ -379,6 +410,13 @@
 
   function pickWild(run, opts) {
     opts = opts || {};
+    // Section 6 opens with a guaranteed high-power capture window. It is
+    // checked before the ordinary tier/dupes roll so the reward from section
+    // 5 has a clear purpose: the Master Ball is for this encounter.
+    if (!isPrologueSection(run) && run.section === 6 && run.battleInSection === 0) {
+      var section6Target = section6CaptureFor(run);
+      if (section6Target) return section6Target;
+    }
     if (isPrologueSection(run)) {
       if (run.battleInSection === 0) {
         return 'pikachu';
@@ -452,6 +490,7 @@
 
   async function makeWild(run, speciesId) {
     var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
+    var isSection6Capture = !!(run && !run.prologue && run.section === 6 && run.battleInSection === 0);
     var useTutorialMoves = isTutorialSafetySection(run);
     if (isTutorialCapture) {
       speciesId = 'pikachu';
@@ -480,6 +519,11 @@
     }
     var elite = eliteModFor(run, mon, 0, false);
     if (elite && !isTutorialCapture) mon.elite = elite;
+    if (isSection6Capture) {
+      // This metadata is useful to the battle/route UI and survives a
+      // mid-battle save without changing the normal catch rules.
+      mon.specialEncounter = 'section6-strong-capture';
+    }
     return mon;
   }
 
@@ -785,6 +829,12 @@
   function trainerReward(run) {
     return Math.round(BASE_REWARD * 2 * rewardMultiplier(run) * ascensionRewardBonus(run));
   }
+
+  // Fixed milestone rewards are kept in Nuz so every mode uses the same rule
+  // and the app controller cannot accidentally hand out the prize twice.
+  function sectionCompletionReward(section) {
+    return Number(section) === 5 ? 'masterball' : null;
+  }
   // ------------------------------------------------------------- HEALING ---
   // There is no Poke Center. The team is restored for free after every
   // trainer battle (i.e. once per section) and never in between, so damage
@@ -819,23 +869,20 @@
     var stock = [];
     var s = run.section;
 
-    // --- Balls (always) ---
-    var balls = ['pokeball', 'greatball'];
-    if (s >= 2) balls.push('ultraball');
-    if (s >= 3) balls.push(C.pick(['timerball', 'netball', 'quickball', 'duskball'], rand));
-    if (s >= 7 && rand() < 0.12) balls.push('masterball');
+    // --- Balls (section-gated) ---
+    // There is exactly one regular ball tier on each shelf. The Master Ball is
+    // a section-5 completion prize, never a random shop roll.
+    var balls = s === 1 ? ['pokeball'] : (s === 2 ? ['greatball'] : ['ultraball']);
     balls.forEach(function (id) {
       var b = C.BALLS[id];
       stock.push({ kind: 'ball', id: id, name: b.name, price: b.price, desc: b.desc, stock: id === 'masterball' ? 1 : 99 });
     });
 
-    // --- Healing / status (always a useful spread) ---
-    var heals = ['potion', 'superpotion'];
-    if (s >= 2) heals.push('hyperpotion');
-    if (s >= 4) heals.push('maxpotion');
-    if (s >= 6) heals.push('fullrestore');
-    heals.push('fullheal');
-    if (rand() < 0.5) heals.push('ether'); else heals.push('elixir');
+    // --- Healing ---
+    // Full Restore is the only healing item available in a new run. Keep the
+    // legacy definitions in Core so old saves can be read, but never put the
+    // weaker/status-only medicines back on a fresh shop shelf.
+    var heals = ['fullrestore'];
     heals.forEach(function (id) {
       var h = C.HEAL_ITEMS[id];
       stock.push({ kind: 'heal', id: id, name: h.name, price: h.price, desc: h.desc, stock: 99 });
@@ -1021,7 +1068,8 @@
     bossClauseFor: bossClauseFor, strategyFor: strategyFor, pickRoleFor: pickRoleFor,
     STRATEGIES: STRATEGIES, ELITE_MODS: ELITE_MODS, BOSS_CLAUSES: BOSS_CLAUSES,
     FIELD_POOL: FIELD_POOL,
-    BASE_REWARD: BASE_REWARD, healAll: healAll,
+    SECTION6_CAPTURE_POOL: SECTION6_CAPTURE_POOL, section6CaptureFor: section6CaptureFor,
+    BASE_REWARD: BASE_REWARD, sectionCompletionReward: sectionCompletionReward, healAll: healAll,
     rollMart: rollMart, applyItem: applyItem,
     tutorOptions: tutorOptions, teachMove: teachMove, abilityOptions: abilityOptions,
     mvp: mvp, roster: roster, trainPlayerMon: trainPlayerMon,

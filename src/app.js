@@ -991,10 +991,10 @@
           N.trackMon(run, mon);
           run.seenSpecies[mon.id] = 1;
           N.addItem(run, 'pokeball', 5);
-          N.addItem(run, 'potion', 3);
-          // The guided run starts with a little more slack so a first-timer
-          // can afford to miss a ball throw and still learn the lesson.
-          if (run.prologue) { N.addItem(run, 'greatball', 3); N.addItem(run, 'superpotion', 2); }
+          // Full Restore is the only healing item in the game. Give a new run
+          // a few so the first tutorial can teach the real item instead of a
+          // medicine that will never appear on a fresh shop shelf.
+          N.addItem(run, 'fullrestore', 3);
           N.logMsg(run, 'You set out with ' + nick + ' the ' + mon.species + '.');
           if (mon.shiny) recordShiny(mon, 'starter');
           // The Daily result records which starter you took, so the share card
@@ -1490,6 +1490,7 @@
     renderAscension(trainerNext);
 
     var isCapture = !trainerNext && n === 0;
+    var isStrongCapture = isCapture && run.section === 6;
     var catchOpen = isCapture && !run.catchUsedThisSection;
     $('xNextLabel').innerHTML = trainerNext ? 'Trainer Battle'
       : (isCapture ? 'Capture Encounter' : 'Wild Battle ' + n);
@@ -1517,7 +1518,9 @@
     var desc = $('xNextDesc');
     desc.classList.remove('ok', 'bad');
     if (catchOpen) {
-      desc.textContent = 'Your only catch of Section ' + run.section + ' \u2014 weaken it, then throw a ball.';
+      desc.textContent = isStrongCapture
+        ? 'A powerful catch awaits in Section 6 \u2014 weaken it, then use your best ball.'
+        : 'Your only catch of Section ' + run.section + ' \u2014 weaken it, then throw a ball.';
       desc.classList.add('ok');
     } else if (trainerNext && isG) {
       desc.textContent = 'No items, no running \u2014 win and your survivors are fully restored.';
@@ -1600,8 +1603,8 @@
 
       // 1b. After the capture (before battle 2 of section 1): heal the new
       //     partner. It joins the team at catch HP, and learning to open a
-      //     team card and use a Potion is the most-used skill in the game.
-      //     The next battle button stays locked until the Potion is used, so
+      //     team card and use a Full Restore is the most-used skill in the game.
+      //     The next battle button stays locked until the Full Restore is used, so
       //     the path stays linear: catch -> heal -> battle 2.
       if (pro && run.section === 1 && run.battleInSection === 1 && !tutorialHealed()) {
         var caughtMonH = caughtMonInParty();
@@ -1620,14 +1623,14 @@
           return;
         }
         // The new partner arrived at full HP (or there is nothing to heal):
-        // there is no Potion to press. Fall through to the onward beat below
+        // there is no Full Restore to press. Fall through to the onward beat below
         // instead of stranding the player on the route with no next action.
       }
 
       // 1b2. Healed. The route now has exactly one next action: press the
       //      battle button for stop 2. This is its own beat, not part of the
       //      heal card, so the player is never left looking at a route with
-      //      nothing glowing after the Potion (or after a full-HP catch).
+      //      nothing glowing after the Full Restore (or after a full-HP catch).
       if (pro && run.section === 1 && run.battleInSection === 1 && tutorialHealed()) {
         CO.lesson('onward', {
           anchor: $('btnGoBattle'), actionRequired: true, keepHalo: true,
@@ -1724,7 +1727,7 @@
 
   // The tutorial sheet uses a progress bar, not a step number. Several ideas
   // intentionally take two or more cards (open a card, then press its control),
-  // while a full-HP catch can satisfy healing without a Potion. A card counter
+  // while a full-HP catch can satisfy healing without a Full Restore. A card counter
   // therefore lies; these are the stable conceptual milestones instead.
   function tutorialHealed() {
     if (run && run.tutorialHealDone) return true;
@@ -2083,7 +2086,7 @@
         var artHtml = (window.ItemArt && e.kind !== 'service')
           ? window.ItemArt.itemImg(e.id, 34, 'si-art') : '';
         // The canon name stays; the gold line underneath is what the item
-        // ACTUALLY does. "Full Heal" is the worst offender in the shop --
+        // ACTUALLY does. legacy status-only medicines are not stocked on new runs --
         // everyone reads it as "restores everything", and it restores no HP.
         var plainHtml = itemPlainHtml(e.id, 'si-plain');
         // ✦Tip: a recommendation, not a lesson. Only for a held item that
@@ -2113,9 +2116,8 @@
       grid.appendChild(wrap);
     });
 
-    // The Full Heal name-trap needs no lesson: the gold label under the item
-    // ("Status only — no HP") already says it, and the guided run used to
-    // add a redundant card on top of it.
+    // Full Restore is self-explanatory: it is the only healing item on a
+    // fresh shelf, and its label states that it restores HP and status.
 
     // sell
     var sell = $('martSell');
@@ -2919,11 +2921,11 @@
     }
     gridHtml += '</div>';
 
-    // Potion suggestion
+    // Full Restore suggestion
     var potionHtml = '';
     if (mon.hpPct < 1 && !C.isFainted(mon)) {
       var bestPotion = null;
-      var potionOrder = ['maxpotion', 'fullrestore', 'hyperpotion', 'superpotion', 'potion'];
+      var potionOrder = ['fullrestore', 'maxpotion', 'hyperpotion', 'superpotion', 'potion'];
       for (var pi = 0; pi < potionOrder.length; pi++) {
         if (run.bag[potionOrder[pi]] && run.bag[potionOrder[pi]] > 0) { bestPotion = potionOrder[pi]; break; }
       }
@@ -3046,7 +3048,7 @@
     if (close) close.addEventListener('click', function () {
       window.Modal.close('xTeamDetail');
     });
-    // Potion button
+    // Full Restore button
     var potionBtn = host.querySelector('.pd-potion-btn');
     if (potionBtn) potionBtn.addEventListener('click', function () {
       var itemId = potionBtn.dataset.potion;
@@ -3211,7 +3213,7 @@
     if (!CO || !CO.tipsOn() || !run || !run.prologue) return;
 
     // Section 1, before battle 2: the "heal your new friend" bubble on the
-    // actual Potion button inside the new partner's card.
+    // actual Full Restore button inside the new partner's card.
     if (run.section === 1 && run.battleInSection === 1 && !run.tutorialHealDone &&
         !!caughtMonInParty() && mon === caughtMonInParty() && mon.hpPct < 1 &&
         partySel > 0) {
@@ -3307,7 +3309,7 @@
 
   // Items you own, shown above the shop. Tapping one uses/gives it.
   // The Bag: EVERYTHING you own, in one place above the shop -- balls,
-  // medicine, evolution/forme/mega stones and held items, including the ones
+  // Full Restores, evolution/forme/mega stones and held items, including the ones
   // currently equipped on a Pokemon (those are owned too, they were just
   // invisible before because they live on `mon.item`, not in `run.bag`).
   function bagGroupOf(id) {
@@ -3868,7 +3870,7 @@
     if (!run.party.length) return;
     var kind = bagGroupOf(itemId);
     // Evolution and forme items are now "used on" a Pokemon exactly like a
-    // potion, instead of only being reachable from the party detail panel.
+    // Full Restore, instead of only being reachable from the party detail panel.
     var mode = (kind === 'heal') ? 'use'
              : (kind === 'evo' || kind === 'forme') ? 'evolve'
              : 'give';
@@ -4589,6 +4591,13 @@
       // it can never break free, so say exactly that.
       u.log('A SHINY ' + speciesOf(cfg.enemies[0]).toUpperCase() + ' appeared!');
       showCatchBanner('\u2728 SHINY \u00b7 guaranteed catch \u00b7 any ball');
+    } else if (cfg.isWild && cfg.enemies[0] &&
+               cfg.enemies[0].specialEncounter === 'section6-strong-capture') {
+      // Make the section-6 promise visible before the first turn. The normal
+      // ball rail remains available, but the banner tells the player why the
+      // Master Ball from section 5 matters.
+      u.log('A powerful Section 6 capture encounter appeared!');
+      showCatchBanner('\u26a1 SECTION 6 \u00b7 powerful capture \u00b7 use your best ball');
     } else if (cfg.catchable) {
       // The animated ball rail communicates the catch opportunity without a
       // second yellow banner covering the battlefield.
@@ -5465,7 +5474,7 @@
 
   var BEAT_TARGETS = {
     // The whole-bar lesson is gone: the bag beat points ONLY at the Bag
-    // button, and the player heals with a Super Potion from inside.
+    // button, and the player heals with a Full Restore from inside.
     battleBag:  { resolve: function () { return document.querySelector('.battle-hud [data-a="bag"]'); } },
     catch:      { side: 'right',
                   resolve: function () {
@@ -6321,11 +6330,24 @@
           if (healed) N.logMsg(run, 'Your team rested and recovered fully.');
         }
         run.money += money;
+        // Clearing section 5 is the gateway to the strong section-6 catch.
+        // Award this once, on the section's trainer victory (handleEnd is
+        // guarded against duplicate resolution), rather than making it a
+        // random shop item.
+        var sectionItemReward = (!N.isGauntlet(run) && !bctx.cfg.isWild &&
+          run.section === 5 && N.sectionCompletionReward(run.section)) || null;
+        if (sectionItemReward) {
+          N.addItem(run, sectionItemReward, 1);
+          N.logMsg(run, 'Section 5 complete! You received a Master Ball.');
+          // Persist the milestone before the player dismisses the reward
+          // screen; a refresh here must not make the prize disappear.
+          saveGame();
+        }
         var ss = run.sectionStats || (run.sectionStats = { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:run.section });
         ss.money = (Number(ss.money) || 0) + (Number(money) || 0);
         ss.won = (Number(ss.won) || 0) + 1;
         dead.forEach(function (d) { ss.lost.push({ name: d.name, id: d.id, shiny: d.shiny }); });
-        showReward(money, dead, false, missed, healed);
+        showReward(money, dead, false, missed, healed, sectionItemReward);
       } else {
         if (!N.alive(run).length) return gameOver();
         var ss2 = run.sectionStats || (run.sectionStats = { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:run.section });
@@ -6335,7 +6357,7 @@
     });
   }
 
-  function showReward(money, dead, lost, missedCatch, healed) {
+  function showReward(money, dead, lost, missedCatch, healed, itemReward) {
     show('Reward');
     $('rewardTitle').textContent = lost ? 'Defeated...' : 'Victory!';
     $('rewardTitle').className = 'scr-title' + (lost ? ' dead' : '');
@@ -6351,7 +6373,10 @@
               '\u2019s only wild encounter \u2014 no new Pokemon this section.</div>';
     }
     if (healed) html += '<p class="reward-heal">Your team was fully restored.</p>';
-    if (!money && (!dead || !dead.length) && !missedCatch && !healed) html += '<p class="hint">You live to fight on.</p>';
+    if (itemReward) {
+      html += '<p class="reward-item">You received a <b>' + escapeHtml(itemName(itemReward)) + '</b>!</p>';
+    }
+    if (!money && (!dead || !dead.length) && !missedCatch && !healed && !itemReward) html += '<p class="hint">You live to fight on.</p>';
     html += '<p class="hint">Battles won: <b>' + run.battlesWon + '</b> \u00b7 Party: <b>' + run.party.length + '</b></p>';
     $('rewardBody').innerHTML = html;
     $('btnRewardDone').onclick = afterBattleAdvance;

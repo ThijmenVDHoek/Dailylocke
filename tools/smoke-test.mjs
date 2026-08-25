@@ -1359,7 +1359,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // the catch is dice, and dice do not belong in a test -- a string of
   // break-outs lets the wild mon KO the only party member and WIPES the run
   // mid-block (an intermittent party=0 caught=0 failure).
-  r3.bag = { masterball: 3, potion: 3, superpotion: 2 };
+  r3.bag = { masterball: 3, fullrestore: 3 };
   r3.money = 100;
   // One dependable starter with a gentle, accurate STAB move. Charmander also
   // gives the following battle a real Fire weakness, so this block can compare
@@ -1542,7 +1542,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     `party=${r3.party.length} caught=${r3.caught}`);
 
   // 5. The next linear beat: heal the new partner before battle 2. The next
-  //    battle button stays locked until the Potion is actually used.
+  //    battle button stays locked until the Full Restore is actually used.
   const healSheet = await until3(() =>
     window.Modal.isOpen('screenCoach') &&
     (window.document.getElementById('coachTitle') || {}).textContent === 'Heal your new friend', 10000);
@@ -1555,13 +1555,13 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   if (caughtSlot) caughtSlot.click();
   const healBubble = await until3(() => {
     const b = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
-    return b && b.textContent === 'Use a Potion' ? b : null;
+    return b && b.textContent === 'Use a Full Restore' ? b : null;
   }, 8000);
-  check('the party sheet points at the Potion button', !!healBubble);
+  check('the party sheet points at the Full Restore button', !!healBubble);
   if (healBubble) window.document.querySelector('.coach-bubble [data-coach-ok]').click();
   await new Promise((r) => setTimeout(r, 250));
   const potionBtn = window.document.querySelector('#xTeamDetail .pd-potion-btn');
-  check('a Potion button is armed for the new partner', !!potionBtn);
+  check('a Full Restore button is armed for the new partner', !!potionBtn);
   const hpBefore = (() => {
     const m = r3.party.find((mm) => String(mm.uid) === String(r3._tutCatchUid));
     return m ? m.hpPct : null;
@@ -1577,7 +1577,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     const m = r3.party.find((mm) => String(mm.uid) === String(r3._tutCatchUid));
     return m ? m.hpPct : null;
   })();
-  check('using the Potion completes the heal step',
+  check('using the Full Restore completes the heal step',
     r3.tutorialHealDone === true && hpAfter != null && hpBefore != null &&
     hpAfter > hpBefore,
     `healDone=${r3.tutorialHealDone} hp=${hpBefore}->${hpAfter}`);
@@ -1751,7 +1751,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
 }
 
 // ================================================== THE GUIDED RUN'S FINALE ==
-// The shop tutorial in section 2: balls -> medicine -> held items ->
+// The shop tutorial in section 2: balls -> Full Restore -> held items ->
 // evolution, each waiting for the previous to be dismissed, and the
 // evolution sheet ending the guided run. This entire sequence silently died
 // once -- the prologue flag was cleared a whole section early and nothing
@@ -1943,7 +1943,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   r6.mode = 'free'; r6.over = false; r6.prologue = false;
   r6.section = 1; r6.battleInSection = 0;
   r6.catchUsedThisSection = false; r6.catchMissed = false; r6.encounterSeen = false;
-  r6.bag = { pokeball: 3, potion: 2 }; r6.money = 100;
+  r6.bag = { pokeball: 3, fullrestore: 2 }; r6.money = 100;
   r6.party = [lead6]; window.Nuz.trackMon(r6, lead6);
 
   const RealBattleUI2 = window.BattleUI;
@@ -3123,17 +3123,16 @@ host2.remove();
     CO.setBadges(true);
 
     // ---- 2. tell the truth ----
-    // Full Heal restores ZERO HP but sits next to Full Restore, which does
-    // both. If this copy ever regresses, the most confusing item in the game
-    // goes back to being unexplained.
+    // Full Restore is the only healing item on new shelves and restores
+    // both HP and status. Keep its plain-language copy honest.
     const fh = CO.itemPlain('fullheal');
-    check('Full Heal is explained as status-only',
+    check('legacy Full Heal copy remains honest',
       !!fh && /status only/i.test(fh.one) && /no HP/i.test(fh.one), fh && fh.one);
     check('Full Restore is explained as the one that does both',
       /full hp/i.test(CO.itemOneLiner('fullrestore')));
     check('Revives are flagged as useless in a nuzlocke',
       /does not work/i.test(CO.itemOneLiner('revive')));
-    check('every heal item the Mart stocks has plain-language copy',
+    check('available healing copy includes Full Restore',
       ['potion', 'superpotion', 'hyperpotion', 'maxpotion', 'fullrestore', 'fullheal',
        'ether', 'maxether', 'elixir'].every((id) => !!CO.itemOneLiner(id)));
     check('every ball has plain-language copy',
@@ -3606,6 +3605,39 @@ host2.remove();
   const plainFirst = N2.pickWild(plain, { dupesClause: true });
   check('a run started without the prologue is unchanged',
     C.bst(plainFirst) > 0 && typeof plainFirst === 'string', plainFirst);
+
+  // ---- section-gated supplies and milestones ------------------------------
+  const martFor = (section) => {
+    const r = N2.newRun(7331);
+    r.mode = 'free'; r.section = section;
+    return N2.rollMart(r);
+  };
+  const ballIds = (section) => martFor(section)
+    .filter((e) => e.kind === 'ball').map((e) => e.id);
+  check('section 1 Mart stocks only Poke Balls',
+    JSON.stringify(ballIds(1)) === JSON.stringify(['pokeball']), ballIds(1).join(', '));
+  check('section 2 Mart stocks only Great Balls',
+    JSON.stringify(ballIds(2)) === JSON.stringify(['greatball']), ballIds(2).join(', '));
+  check('section 3 and later Mart shelves stock only Ultra Balls',
+    [3, 5, 6, 20].every((section) => JSON.stringify(ballIds(section)) === JSON.stringify(['ultraball'])),
+    [3, 5, 6, 20].map((section) => section + ':' + ballIds(section).join(',')).join(' '));
+  check('new Mart shelves stock Full Restore as their only healing item',
+    [1, 2, 3, 6].every((section) => {
+      const ids = martFor(section).filter((e) => e.kind === 'heal').map((e) => e.id);
+      return ids.length === 1 && ids[0] === 'fullrestore';
+    }));
+  check('section 5 completion awards a Master Ball',
+    N2.sectionCompletionReward(5) === 'masterball' && N2.sectionCompletionReward(4) === null);
+
+  const section6 = N2.newRun(7331);
+  section6.mode = 'free'; section6.section = 6; section6.battleInSection = 0;
+  const strongId = N2.pickWild(section6, { dupesClause: true });
+  check('section 6 begins with a legendary or mythical capture encounter',
+    N2.SECTION6_CAPTURE_POOL.includes(strongId) && C.isLegendary(strongId),
+    strongId);
+  const strongMon = await N2.makeWild(section6, strongId);
+  check('the section 6 capture is marked as a strong encounter',
+    strongMon.specialEncounter === 'section6-strong-capture');
 }
 
 const realErrors = consoleErrors.filter((e) => !/THREE|WebGL|cry|audio|sprite|mount unavailable/i.test(e));
