@@ -1177,7 +1177,7 @@
     tier: tier, pickWild: pickWild, makeWild: makeWild,
     trainerFor: trainerFor, makeTrainerTeam: makeTrainerTeam,
     wildReward: wildReward, trainerReward: trainerReward,
-    rewardMultiplier: rewardMultiplier,
+    rewardMultiplier: rewardMultiplier, ascensionRewardBonus: ascensionRewardBonus,
     // ascension
     ASCENSION_START: ASCENSION_START, ASCENSION_EVERY: ASCENSION_EVERY,
     ascension: ascension, ascensionEffects: ascensionEffects,
