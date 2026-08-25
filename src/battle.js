@@ -225,8 +225,9 @@
       playerTypes: playerMons[0].types.slice(),
       enemyTypes: enemyMons[0].types.slice(),
       // Persistence is injected per side (p1 exists before p2 on the staged
-      // start). Tracking them independently means an early p1-only pass can
-      // never mark the whole injection done and skip the p2 loop.
+      // start), and the tutorial capture guard is a separate concern. Tracking
+      // them independently means an early p1-only pass can never mark the whole
+      // injection done and skip the p2 loop (and the damage cap it installs).
       injected: false, p1Injected: false, p2Injected: false
     };
 
@@ -266,11 +267,18 @@
     }
 
     // ---- inject persisted HP/status/PP once the battle object exists -----
-    // Persistent HP/status/PP is injected per side. The staged start writes
-    // >player p1 first (so the starting HP is correct on the first |switch|)
-    // and >player p2 last, so p2 does not exist yet on the first pass. p1 and
-    // p2 are therefore injected on separate passes, and the whole injection is
-    // only "done" once BOTH sides exist.
+    // Two SEPARATE concerns, installed on independent passes:
+    //   1. persistent HP/status/PP -- per side. The staged start writes
+    //      >player p1 first (so the starting HP is correct on the first
+    //      |switch|) and >player p2 last, so p2 does not exist yet on the
+    //      first pass. p1 and p2 are therefore injected on separate passes,
+    //      and the whole injection is only "done" once BOTH sides exist.
+    //   2. the tutorial capture target protection -- a damage cap on the
+    //      enemy Pikachu that makes it un-KO-able during the teaching
+    //      encounter.
+    // The old version set state.injected = true as soon as p1 existed, which
+    // made every later call return early -- the p2 loop (and the damage cap
+    // inside it) never ran, so a single strong move could faint Pikachu.
     function injectPersistence() {
       var b = stream.battle;
       if (!b) return;
@@ -313,6 +321,80 @@
         }
       } catch (e) { console.warn('[battle] inject failed', e); }
       state.injected = state.p1Injected && state.p2Injected;
+      // The capture guard is installed the moment the enemy object exists,
+      // even if p1's persistence was already injected on an earlier pass. It
+      // is idempotent (a guarded Pokemon keeps the cap for the battle).
+      if (cfg.isTutorialCapture) installTutorialCaptureGuard();
+      if (cfg.isTutorialSafe) installTutorialPlayerGuard();
+    }
+
+    // The teaching encounter's safety net. The player must be able to weaken
+    // the capture target without ever knocking it out: an ordinary strong
+    // move (Overheat), a critical hit, an OHKO move and residual chip (burn,
+    // poison, weather) all have to leave it alive and weakened.
+    //
+    // Capping incoming damage at the floor (15% of max HP) BEFORE the
+    // simulator can queue a faint is the only single chokepoint that covers
+    // every route -- every HP reduction in @pkmn/sim funnels through
+    // Pokemon.damage(), so this override catches ordinary moves, crits, OHKO
+    // moves and residual alike. Repairing a faint after the engine has
+    // already queued it is too late (faintQueued is processed before the next
+    // request).
+    //
+    // Scoped to isTutorialCapture battles and matched on the active enemy's
+    // RUN-mon id, so it never applies to later Pikachu battles, trainer
+    // battles, non-tutorial encounters or the caught Pokemon afterwards.
+    function installTutorialCaptureGuard() {
+      var b = stream.battle;
+      if (!b || !b.p2 || !b.p2.pokemon.length) return;
+      for (var k = 0; k < b.p2.pokemon.length; k++) {
+        var el = b.p2.pokemon[k];
+        if (el.__tutorialCaptureGuard) continue;
+        // Identify the target via the mapped RUN mon where possible. The
+        // simulator Pokemon object carries no `id` of its own (the species id
+        // lives on el.species.id), so the old `el.id === 'pikachu'` check
+        // matched nothing and the cap was never installed even when this code
+        // ran. Prefer the run-mon id, fall back to the species id.
+        var em = monOf(el);
+        var targetId = String(
+          (em && em.id) || (el.species && el.species.id) || el.id || ''
+        ).toLowerCase();
+        if (targetId !== 'pikachu') continue;
+        el.__tutorialCaptureGuard = true;
+        var originalDamage = el.damage;
+        el.damage = function (damage, source, effect) {
+          var floor = Math.max(1, Math.round(this.maxhp * 0.15));
+          var incoming = Number(damage);
+          var safeDamage = Number.isFinite(incoming)
+            ? Math.min(Math.max(0, incoming), Math.max(0, this.hp - floor))
+            : 0;
+          return originalDamage.call(this, safeDamage, source, effect);
+        };
+      }
+    }
+
+    // Introductory opponents use real legal moves instead of Splash, so the
+    // battles feel like battles. Keep the tutorial promise separately: an
+    // unlucky crit or damage roll must not delete the player's Pokemon while
+    // the run is still teaching its basics. The cap is scoped to the guided
+    // run's first two sections (cfg.isTutorialSafe from app.js).
+    function installTutorialPlayerGuard() {
+      var b = stream.battle;
+      if (!b || !b.p1 || !b.p1.pokemon.length) return;
+      for (var k = 0; k < b.p1.pokemon.length; k++) {
+        var el = b.p1.pokemon[k];
+        if (el.__tutorialPlayerGuard) continue;
+        el.__tutorialPlayerGuard = true;
+        var originalDamage = el.damage;
+        el.damage = function (damage, source, effect) {
+          var floor = Math.max(1, Math.round(this.maxhp * 0.12));
+          var incoming = Number(damage);
+          var safeDamage = Number.isFinite(incoming)
+            ? Math.min(Math.max(0, incoming), Math.max(0, this.hp - floor))
+            : 0;
+          return originalDamage.call(this, safeDamage, source, effect);
+        };
+      }
     }
 
     // ---- pull live state back into run mons ------------------------------
@@ -679,7 +761,15 @@
     streams.omniscient.write('>start ' + JSON.stringify(startMsg));
     streams.omniscient.write('>player p1 ' + JSON.stringify({ name: p1Name, team: Teams.pack(p1Team) }));
     injectPersistence();
+    if (cfg.isTutorialSafe) installTutorialPlayerGuard();
     streams.omniscient.write('>player p2 ' + JSON.stringify({ name: p2Name, team: Teams.pack(p2Team) }));
+    // The enemy side now exists: arm the tutorial capture guard immediately
+    // rather than waiting for the first streamed chunk to drive
+    // injectPersistence(). A move can resolve before that chunk is read, and
+    // the damage cap must be in place before any damage routes through the
+    // enemy. Idempotent if the chunk-driven pass has already run.
+    if (cfg.isTutorialCapture) installTutorialCaptureGuard();
+    if (cfg.isTutorialSafe) installTutorialPlayerGuard();
 
     // ---- public API -------------------------------------------------------
     var api = {
