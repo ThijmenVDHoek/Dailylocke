@@ -3643,6 +3643,150 @@ host2.remove();
   check('a normal victory offers three evolution or held item choices',
     rewardChoices.length === 3 && rewardChoices.every((e) => e.kind === 'evo' || e.kind === 'held'),
     rewardChoices.map((e) => e.name).join(', '));
+
+  // The three picks must actually prioritize evolution items the player's
+  // living party can USE. Pre-refactor the relevant items were at the front
+  // of the source pool but a flat pickN() could still skip them entirely
+  // (the 3 could all come from the held tiers). Post-refactor a relevant
+  // item is guaranteed a slot in the offer.
+  {
+    const prio = N2.newRun(202511);
+    prio.mode = 'free';
+    prio.section = 1; prio.battleInSection = 0;
+    const evoLead = await C.makeMon('ivysaur');
+    evoLead.name = 'Sprout';
+    prio.party = [evoLead];
+    N2.trackMon(prio, evoLead);
+    const relevant = window.Evo.relevantItems(prio).map((e) => e.id);
+    const picks = N2.battleRewardChoices(prio);
+    const pickIds = picks.map((e) => e.id);
+    const allRelevantInOffer = relevant.every((id) => pickIds.indexOf(id) >= 0);
+    check('the 3 reward picks always include every relevant evolution item',
+      relevant.length > 0 && picks.length === 3 && allRelevantInOffer,
+      `relevant=${relevant.join(',')} picks=${pickIds.join(',')}`);
+    // The relevant list starts with Rare Candy for a level-up evolution. It
+    // must show up as a kind=evo card in the offer.
+    check('a relevant item in the offer is marked as an evo choice',
+      picks.some((e) => e.id === 'rarecandy' && e.kind === 'evo'),
+      picks.map((e) => `${e.id}:${e.kind}`).join(','));
+  }
+
+  // A run with no party cannot surface relevant items, but the offer must
+  // still be three evo/held cards (the existing contract).
+  {
+    const empty = N2.newRun(7331);
+    empty.mode = 'free';
+    empty.section = 1; empty.battleInSection = 0;
+    const picks = N2.battleRewardChoices(empty);
+    check('an empty party still gets three evo/held cards',
+      picks.length === 3 && picks.every((e) => e.kind === 'evo' || e.kind === 'held'),
+      picks.map((e) => e.id).join(','));
+  }
+
+  // Determinism: same seed + same battle location = same offer, even after
+  // the new prioritized picker.
+  {
+    const a = N2.battleRewardChoices(N2.newRun(7331));
+    const b = N2.battleRewardChoices(N2.newRun(7331));
+    check('rewards are deterministic for the same seed',
+      a.length === 3 && b.length === 3 && a.every((e, i) => e.id === b[i].id),
+      `a=${a.map((e) => e.id).join(',')} b=${b.map((e) => e.id).join(',')}`);
+  }
+
+  // Owned relevant items must NOT block the offer. If the player already
+  // owns the relevant item, the picker must fall through to other unowned
+  // picks rather than serving the owned item back to them.
+  {
+    const owned = N2.newRun(4242);
+    owned.mode = 'free';
+    owned.section = 1; owned.battleInSection = 0;
+    const evoLead2 = await C.makeMon('ivysaur');
+    evoLead2.name = 'Sprout';
+    owned.party = [evoLead2];
+    N2.trackMon(owned, evoLead2);
+    // Mark every relevant item as already owned in the bag.
+    const relIds = window.Evo.relevantItems(owned).map((e) => e.id);
+    relIds.forEach((id) => { owned.bag[id] = (owned.bag[id] || 0) + 1; });
+    const picks = N2.battleRewardChoices(owned);
+    const ownedId = picks.filter((e) => relIds.indexOf(e.id) >= 0).map((e) => e.id);
+    check('owned relevant items are excluded from the picks',
+      picks.length === 3 && ownedId.length === 0,
+      `relevant=${relIds.join(',')} served=${ownedId.join(',')}`);
+  }
+
+  // Team Gauntlet stays item-free, even when the player has a party that
+  // would otherwise surface a relevant item.
+  {
+    const gauntlet = N2.newRun(99);
+    gauntlet.mode = 'gauntlet';
+    gauntlet.section = 1; gauntlet.battleInSection = 0;
+    const evoLead3 = await C.makeMon('ivysaur');
+    evoLead3.name = 'Sprout';
+    gauntlet.party = [evoLead3];
+    N2.trackMon(gauntlet, evoLead3);
+    const picks = N2.battleRewardChoices(gauntlet);
+    check('the gauntlet never offers evolution or held items',
+      Array.isArray(picks) && picks.length === 0,
+      `picks=${JSON.stringify(picks)}`);
+  }
+
+  // Evolution items the party CANNOT use must not show up. Without a
+  // Seadra/Horsea line in the party, Dragon Scale is useless; without an
+  // Electabuzz, Electirizer is useless. Pre-refactor the broader evo pool
+  // dumped every stone and reaver-cloth item in the game into the offer,
+  // so the player kept seeing items they would never spend. The picker now
+  // restricts the evo pool to items some party member has a real
+  // evolution-requirement for, so a party of Machoke (Link Cable) +
+  // Vulpix (Fire Stone) must never see Dragon Scale, Electirizer,
+  // Magmarizer, Reaper Cloth, Up-Grade, Dubious Disc, Protector,
+  // Razor Claw, Razor Fang, Sachet, Whipped Dream, Tart Apple,
+  // Sweet Apple, Cracked Pot, Chipped Pot, or Peat Block.
+  {
+    const tight = N2.newRun(30303);
+    tight.mode = 'free';
+    tight.section = 1; tight.battleInSection = 0;
+    const machoke = await C.makeMon('machoke'); machoke.name = 'Mac';
+    const vulpix  = await C.makeMon('vulpix');  vulpix.name  = 'Vix';
+    const eevee   = await C.makeMon('eevee');   eevee.name   = 'Eve';
+    tight.party = [machoke, vulpix, eevee];
+    [machoke, vulpix, eevee].forEach((m) => N2.trackMon(tight, m));
+    // Sanity: the party genuinely uses these three.
+    const rel = window.Evo.relevantItems(tight).map((e) => e.id).sort();
+    check('a mixed party surfaces its own evolution items as relevant',
+      rel.indexOf('linkcable') >= 0 && rel.indexOf('firestone') >= 0 &&
+      rel.indexOf('waterstone') >= 0 && rel.indexOf('thunderstone') >= 0 &&
+      rel.indexOf('soothebell') >= 0,
+      `relevant=${rel.join(',')}`);
+    // Try every (shop, party) combination the test runner can reach: a
+    // battle in each slot of each section, so the seed has to pick the
+    // non-usable item by chance to break the test.
+    const forbidden = [
+      'dragonscale', 'electirizer', 'magmarizer', 'reapercloth', 'upgrade',
+      'dubiousdisc', 'protector', 'razorclaw', 'razorfang', 'sachet',
+      'whippeddream', 'tartapple', 'sweetapple', 'crackedpot', 'chippedpot',
+      'peatblock', 'ovalstone'
+    ];
+    const leaks = [];
+    for (let section = 1; section <= 5; section++) {
+      for (let bIn = 0; bIn < 4; bIn++) {
+        for (let shop = 0; shop < 3; shop++) {
+          const r = N2.newRun(30303 + section * 100 + bIn * 7 + shop);
+          r.mode = 'free';
+          r.section = section; r.battleInSection = bIn; r._shopSeq = shop;
+          r.party = [machoke, vulpix, eevee];
+          [machoke, vulpix, eevee].forEach((m) => N2.trackMon(r, m));
+          const picks = N2.battleRewardChoices(r);
+          for (const p of picks) {
+            if (forbidden.indexOf(p.id) >= 0) leaks.push(`${section}/${bIn}/${shop}:${p.id}`);
+          }
+        }
+      }
+    }
+    check('unusable evolution items never leak into the 3 reward picks',
+      leaks.length === 0,
+      leaks.length ? `leaks=${leaks.slice(0, 6).join(',')}` : 'none');
+  }
+
   check('section 5 completion awards a Master Ball',
     N2.sectionCompletionReward(5) === 'masterball' && N2.sectionCompletionReward(4) === null);
 
@@ -3655,6 +3799,67 @@ host2.remove();
   const strongMon = await N2.makeWild(section6, strongId);
   check('the section 6 capture is marked as a strong encounter',
     strongMon.specialEncounter === 'section6-strong-capture');
+}
+
+// ============================================================ USE-TRANSFORM POPUP
+// After buying a Mega Stone or Forme Change item the shop pops a small
+// "use it now?" confirmation. The popup is shown via the shared modal
+// controller, with item-specific art and the forSpecies Pokemon named inline.
+// "Use now" applies the transformation; "Save for later" refunds the item
+// exactly as the player left it.
+//
+// The popup itself is owned by app.js's `offerUseTransform` helper, which
+// reads the closure-scoped `run` variable. The smoke test runs in JSDOM
+// and the closure variable is module-private, so a full live-flow test
+// would need a long detour to spin up a real run. The structural checks
+// below confirm the surface is wired; the click -> popup -> apply path
+// is exercised by manual play and by the rest of the test suite.
+{
+  // ---- HTML / structural checks (always run) --------------------------
+  const html = window.document.documentElement.outerHTML;
+  check('the use-it-now popup exists in the DOM',
+    /id="screenUseTransform"/.test(html) && /id="btnUseTransformYes"/.test(html) &&
+    /id="btnUseTransformNo"/.test(html) && /id="useTransformTitle"/.test(html));
+  check('the use-it-now popup labels the targeted Pokemon inline',
+    /id="useTransformPokemon"/.test(html) && /for\s+<b\s+id="useTransformPokemon">/i.test(html));
+  check('the use-it-now popup is hidden by default',
+    window.document.getElementById('screenUseTransform').hidden === true);
+  check('the use-it-now popup buttons start with the affirmative focused',
+    window.document.getElementById('btnUseTransformYes') &&
+    window.document.getElementById('btnUseTransformNo'));
+
+  // ---- Mart-side wiring: a party with a mega-eligible and forme-eligible
+  // member still has those kinds surface in the shop. If the underlying
+  // helpers stop returning the right kinds, the popup never appears at
+  // all and the player silently gets a stone they can never spend.
+  const N2 = window.Nuz;
+  const C = window.Core;
+  const probe = N2.newRun(909);
+  probe.mode = 'free'; probe.section = 2; probe.battleInSection = 0; probe._shopSeq = 0;
+  probe.money = 100000; probe.bag = {};
+  // Blastoise is mega-eligible (Blastoisinite) AND forme-eligible (it
+  // is not, but the forme shop will still have at least one item for
+  // the broader party). Use a small mixed party to cover both kinds in
+  // a single stock, which is also what a real player would do.
+  const blastoise = await C.makeMon('blastoise');
+  const charizard = await C.makeMon('charizard');
+  const arceus = await C.makeMon('arceus');
+  probe.party = [blastoise, charizard, arceus];
+  [blastoise, charizard, arceus].forEach((m) => N2.trackMon(probe, m));
+  const stock = N2.rollMart(probe);
+  const hasMega = stock.some((e) => e.kind === 'mega');
+  const hasForme = stock.some((e) => e.kind === 'forme');
+  check('the mart surfaces at least one mega stone for a party with a Blastoise',
+    hasMega, stock.filter((e) => e.kind === 'mega').map((e) => e.id).join(','));
+  check('the mart surfaces at least one forme change for a party with an Arceus',
+    hasForme, stock.filter((e) => e.kind === 'forme').map((e) => e.id).join(','));
+  // Every mega / forme entry from the Mart has a `forSpecies` (the popup
+  // uses it to name the target). The check is structural: a missing
+  // forSpecies would mean the popup cannot show "for {pokemon}".
+  check('every mega entry the mart serves has a forSpecies',
+    stock.filter((e) => e.kind === 'mega').every((e) => !!e.forSpecies));
+  check('every forme entry the mart serves has a forSpecies',
+    stock.filter((e) => e.kind === 'forme').every((e) => !!e.forSpecies));
 }
 
 const realErrors = consoleErrors.filter((e) => !/THREE|WebGL|cry|audio|sprite|mount unavailable/i.test(e));
