@@ -23,12 +23,11 @@
 //      two seconds elapsed is not contextual, it is just early.
 //   4. A hint must never look like a button. Everything here carries the
 //      professor's portrait and the .coach- visual register.
-//   5. On by default, tutorial-first and replayable. Lessons fire for
-//      anyone who has not turned tips off. The guided prologue's scripted
-//      beats are gated by the run's own prologue flag; the just-in-time
-//      lessons (Mart, training, catching...) fire once each for everyone
-//      else. Completing the tutorial pre-marks them read, so a player who
-//      finished stays quiet — and every lesson remains in the Guide.
+//   5. On by default, tutorial-first and replayable. Automatic lessons are
+//      gated by the active run's prologue flag, so experienced players are
+//      never interrupted by nickname, catching, battle or Mart instruction.
+//      Every lesson remains available through the Guide when someone asks for
+//      a refresher explicitly.
 //
 // TWO SURFACES, ONE REGISTER
 //   Every lesson is the professor and the frosted speech box; which frame
@@ -342,11 +341,10 @@
 
   // ---- honest item copy ---------------------------------------------------
   // The names are canon and stay canon; this is the subtitle that goes with
-  // them. "Full Heal" is the worst offender in the game: it cures status and
-  // restores ZERO HP, and it sits in the shop directly beside "Full Restore",
-  // which does both. Everyone reads it as "heals everything".
+  // them. Full Restore is now the only healing item on a fresh shelf, so the
+  // wording makes its HP-and-status behavior explicit.
   var ITEM_PLAIN = {
-    fullheal:    { one: 'Status only \u2014 no HP', long: 'Cures poison, burn, paralysis, sleep or freeze. It restores <b>no HP at all</b>. For HP you want a Potion.' },
+    fullheal:    { one: 'Status only \u2014 no HP', long: 'Cures poison, burn, paralysis, sleep or freeze. It restores <b>no HP at all</b>. For HP and status, use Full Restore.' },
     fullrestore: { one: 'Full HP + cures status', long: 'The one that really does everything: back to full HP <b>and</b> clears any status.' },
     maxpotion:   { one: 'Full HP, status stays', long: 'Restores every point of HP, but a burn or paralysis will still be there afterwards.' },
     potion:      { one: 'Small heal (20%)', long: 'Restores a fifth of max HP. Cheap, and enough to survive one more hit.' },
@@ -484,7 +482,7 @@
       body: 'Tap the pulsing <b>Capture Encounter</b> button.' },
     { id: 'battleBag', where: 'battle', title: 'Heal mid-battle',
       say: 'I can help you heal during a battle, but healing uses your turn.',
-      body: 'Tap <b>Bag</b> to choose a healing item.' },
+      body: 'Tap <b>Bag</b> to choose a Full Restore.' },
     { id: 'tutorialDamage', where: 'battle', title: 'Weaken Pikachu first',
       say: 'Pikachu cannot be knocked out here. Status moves will wait; I highlighted your strongest damaging STAB move, which gets a 50% same-type bonus.',
       body: 'Tap the pulsing <b>damaging move</b>, then I will show you how to throw a Poke Ball.' },
@@ -500,9 +498,9 @@
     { id: 'healOpen', where: '_tutorial', title: 'Heal your new friend',
       say: 'I want you to practice healing your new teammate between battles.',
       body: 'Tap <b>{NAME}\u2019s card</b> on your team.' },
-    { id: 'healUse', where: '_tutorial', title: 'Use a Potion',
+    { id: 'healUse', where: '_tutorial', title: 'Use a Full Restore',
       say: 'Good. Now I will show you where healing happens.',
-      body: 'Tap the pulsing <b>Use Potion</b> button.' },
+      body: 'Tap the pulsing <b>Use Full Restore</b> button.' },
     { id: 'onward', where: '_tutorial', title: 'Continue onward',
       say: 'I can see your friend is healed and ready. I will lead you to the next stop.',
       body: 'Tap the pulsing <b>Wild Battle 1</b> button.' },
@@ -525,17 +523,17 @@
       say: 'Your save lives only in this browser; nothing is stored online.',
       body: 'Tap <b>Save progress</b> to download a backup.' },
     { id: 'mart', where: 'items', title: 'Open the Mart',
-      say: 'I keep Balls and Potions in stock, while held items and stones rotate each section.',
+      say: 'I keep the right Ball tier and Full Restores in stock, while held items and stones rotate each section.',
       body: 'Tap the <b>Mart</b> to see what is in stock.' },
     { id: 'train', where: 'training', title: 'Train your Pokemon',
       say: 'I use the Train service to improve moves, ability, nature, and Stat Points.',
       body: 'Tap a Pokemon\u2019s <b>card</b> to see its training services.' },
     { id: 'held', where: 'training', title: 'Choose a held item',
-      say: 'A held item works every turn without costing a move. I will point out good fits.',
-      body: 'Tap <b>Buy</b> on a Tip-marked held item.' },
+      say: 'A held item works every turn without costing a move. Choose one after a victory.',
+      body: 'Choose a <b>held item</b> from the battle reward.' },
     { id: 'evolve', where: 'training', title: 'Evolve your starter',
-      say: 'Your starter is ready to evolve. Here, evolution uses an item.',
-      body: 'Tap the <b>Rare Candy</b> tile in the Mart.' },
+      say: 'Your starter is ready to evolve. Evolution items come from battle rewards.',
+      body: 'Choose an evolution item reward, then use the <b>Rare Candy</b> on your team.' },
     { id: 'evoOpen', where: '_tutorial', title: 'Open your starter',
       say: 'I put the Rare Candy in your bag. I will show you where to use it.',
       body: 'Tap <b>{NAME}</b> on your team.' },
@@ -1166,7 +1164,7 @@
     if (!l) return false;
     // Scripted tutorial beats carry a progress value, not a card number:
     // several cards can teach one milestone and a full-HP catch skips the
-    // Potion interaction. The sheet renders this as a bar, so it never claims
+    // Healing interaction. The sheet renders this as a bar, so it never claims
     // that two different cards are the same numbered step.
     if (!opts.force && opts.bypassSeen &&
         window.Game && typeof window.Game.tutorialProgress === 'function') {

@@ -245,6 +245,156 @@
     return types.map(function (t) { return '<span class="type type-' + t + '">' + t + '</span>'; }).join('');
   }
 
+  // ---- transformation shop cards -----------------------------------------
+  // Forme changes and Mega Stones are the two remaining party-specific shop
+  // shelves. Unlike ordinary items, their value is in the Pokemon they create,
+  // so a name + item sprite is not enough: show a large result silhouette and
+  // compare the concrete type, base-stat and ability changes before purchase.
+  var TRANSFORM_STATS = [
+    ['hp', 'HP'], ['atk', 'Atk'], ['def', 'Def'],
+    ['spa', 'Sp. Atk'], ['spd', 'Sp. Def'], ['spe', 'Speed']
+  ];
+
+  function martTransformOwner(entry) {
+    if (!run || !Array.isArray(run.party)) return null;
+    if (entry.forId != null) {
+      for (var i = 0; i < run.party.length; i++) {
+        if (String(run.party[i].uid) === String(entry.forId) || run.party[i].id === entry.forId) return run.party[i];
+      }
+    }
+    if (entry.forSpecies) {
+      for (var j = 0; j < run.party.length; j++) {
+        if (run.party[j].name === entry.forSpecies) return run.party[j];
+      }
+    }
+    return null;
+  }
+
+  function martTransformInfo(entry) {
+    var owner = martTransformOwner(entry);
+    if (!owner) return null;
+    var targets = [];
+    if (entry.kind === 'mega' && window.Mega) {
+      var mega = window.Mega.infoFor(entry.id);
+      var megaTarget = mega && mega.forme;
+      if (!megaTarget && entry.forme) megaTarget = Dex.species.get(entry.forme).id;
+      if (megaTarget) targets.push({ id: megaTarget });
+    } else if (entry.kind === 'forme' && window.Forme) {
+      targets = window.Forme.targetsFor(owner, entry.id).map(function (target) {
+        return { id: target.id };
+      });
+    }
+    targets = targets.filter(function (target) {
+      var sp = Dex.species.get(target.id);
+      return sp && sp.exists;
+    });
+    if (!targets.length) return null;
+    return { owner: owner, from: Dex.species.get(owner.id), targets: targets };
+  }
+
+  function firstAbility(species) {
+    if (!species || !species.abilities) return '';
+    for (var key in species.abilities) {
+      if (species.abilities[key]) return species.abilities[key];
+    }
+    return '';
+  }
+
+  function distinctValues(values) {
+    var out = [];
+    values.forEach(function (value) {
+      if (out.indexOf(value) < 0) out.push(value);
+    });
+    return out;
+  }
+
+  function transformTypeSpec(info) {
+    var before = (info.from.types || []).join(' / ');
+    var after = distinctValues(info.targets.map(function (target) {
+      return (Dex.species.get(target.id).types || []).join(' / ');
+    }));
+    if (after.length > 1) return 'varies by result';
+    return before === after[0] ? before + ' (unchanged)' : before + ' → ' + after[0];
+  }
+
+  function transformStatSpec(info) {
+    var before = info.from.baseStats || {};
+    var lines = info.targets.map(function (target) {
+      var after = Dex.species.get(target.id).baseStats || {};
+      var changes = [];
+      TRANSFORM_STATS.forEach(function (stat) {
+        var delta = (after[stat[0]] || 0) - (before[stat[0]] || 0);
+        if (delta) changes.push(stat[1] + ' ' + (delta > 0 ? '+' : '') + delta);
+      });
+      return changes.length ? changes.join(' · ') : 'no base-stat change';
+    });
+    return distinctValues(lines).length === 1 ? lines[0] : 'varies by result';
+  }
+
+  function transformBstSpec(info) {
+    var before = C.bst(info.from.id);
+    var after = distinctValues(info.targets.map(function (target) { return C.bst(target.id); }));
+    if (after.length > 1) return before + ' → varies by result';
+    var delta = after[0] - before;
+    return before + ' → ' + after[0] + ' (' + (delta > 0 ? '+' : '') + delta + ')';
+  }
+
+  function transformAbilitySpec(info) {
+    var before = firstAbility(info.from);
+    var after = distinctValues(info.targets.map(function (target) {
+      return firstAbility(Dex.species.get(target.id));
+    }));
+    if (after.length > 1) return 'varies by result';
+    return before === after[0] ? (after[0] || 'unchanged') + ' (unchanged)' :
+      (before || 'none') + ' → ' + (after[0] || 'none');
+  }
+
+  function transformSilhouettes(info) {
+    var cls = info.targets.length > 1 ? ' multi' : '';
+    return '<div class="si-transform-results' + cls + '">' +
+      info.targets.slice(0, 4).map(function (target) {
+        return '<span class="si-transform-silhouette" aria-label="Result silhouette">' +
+          animSprite(target.id, info.targets.length > 1 ? 84 : 116,
+            info.targets.length > 1 ? 92 : 126, '', 1.25) + '</span>';
+      }).join('') + '</div>';
+  }
+
+  function transformShopTileHtml(entry) {
+    var info = martTransformInfo(entry);
+    if (!info) return '';
+    var type = entry.kind === 'mega' ? 'Mega transformation' : 'Permanent forme change';
+    var description = entry.kind === 'mega'
+      ? 'Use during battle to temporarily transform this Pokemon.'
+      : 'Use from the team to permanently change this Pokemon\'s forme.';
+    var targetCount = info.targets.length > 1 ? ' · choose 1 of ' + info.targets.length + ' results' : '';
+    var price = entry.sale ? '$' + entry.price + ' sale' : '$' + entry.price;
+    return '<div class="si-transform-card">' +
+      '<div class="si-top si-transform-top">' +
+        (window.ItemArt ? window.ItemArt.itemImg(entry.id, 38, 'si-art') : '') +
+        '<span class="si-name">' + escapeHtml(entry.name) + '</span>' +
+        '<span class="si-price' + (entry.sale ? ' sale' : '') + '">' + price + '</span>' +
+      '</div>' +
+      '<div class="si-transform-visual">' +
+        '<div class="si-transform-source"><span class="si-transform-source-label">Your Pokemon</span>' +
+          animSprite(info.owner.id, 58, 66, '', 1.15, info.owner.shiny) +
+          '<b>' + escapeHtml(entry.forSpecies || speciesOf(info.owner)) + '</b></div>' +
+        '<span class="si-transform-arrow" aria-hidden="true">→</span>' +
+        '<div class="si-transform-result"><span class="si-transform-source-label">Result' + targetCount + '</span>' +
+          transformSilhouettes(info) + '</div>' +
+      '</div>' +
+      '<div class="si-transform-specs">' +
+        '<div><b>Type</b><span>' + escapeHtml(transformTypeSpec(info)) + '</span></div>' +
+        '<div><b>Base stats</b><span>' + escapeHtml(transformStatSpec(info)) + '</span></div>' +
+        '<div><b>BST</b><span>' + escapeHtml(transformBstSpec(info)) + '</span></div>' +
+        '<div><b>Ability</b><span>' + escapeHtml(transformAbilitySpec(info)) + '</span></div>' +
+        '<div><b>Duration</b><span>' + escapeHtml(type) + '</span></div>' +
+      '</div>' +
+      '<div class="si-desc si-transform-desc">' + escapeHtml(description) + '</div>' +
+      '<div class="si-hot">✦ available for ' + escapeHtml(entry.forSpecies || speciesOf(info.owner)) + '</div>' +
+      (run.bag[entry.id] ? '<div class="si-own">owned: ' + run.bag[entry.id] + '</div>' : '') +
+    '</div>';
+  }
+
   // Small roster row for history tiles: party sprites in a tight row, with
   // the MVP marked by a tiny gold pill.
   function rosterRowHtml(roster, mvpId) {
@@ -630,7 +780,9 @@
   // questions: what is it, how long is it, what's the catch.
   function withModeInfo(mode, go) {
     var C2 = window.Coach;
-    if (!C2 || C2.modeSeen(mode) || !C2.tipsOn()) { go(); return; }
+    if (!C2 || !C2.modeSeen || !C2.inPrologue() || C2.modeSeen(mode) || !C2.tipsOn()) {
+      go(); return;
+    }
     var info = C2.modeInfo(mode);
     if (!info) { go(); return; }
     var el = $('screenModeInfo');
@@ -869,6 +1021,7 @@
     // scripted coach can graduate the player at the start of section 2, while
     // a separate safety marker keeps both opening sections approachable.
     run.prologue = !!opts.prologue;
+    if (!run.prologue && window.Coach) window.Coach.setPrologue(false);
     run.tutorialSafeThrough = run.prologue ? 2 : 0;
     // Section 1 is a finite script. These flags are run-scoped (not profile
     // lesson history), so a player who has already seen a lesson or reloads
@@ -991,10 +1144,10 @@
           N.trackMon(run, mon);
           run.seenSpecies[mon.id] = 1;
           N.addItem(run, 'pokeball', 5);
-          N.addItem(run, 'potion', 3);
-          // The guided run starts with a little more slack so a first-timer
-          // can afford to miss a ball throw and still learn the lesson.
-          if (run.prologue) { N.addItem(run, 'greatball', 3); N.addItem(run, 'superpotion', 2); }
+          // Full Restore is the only healing item in the game. Give a new run
+          // a few so the first tutorial can teach the real item instead of a
+          // medicine that will never appear on a fresh shop shelf.
+          N.addItem(run, 'fullrestore', 3);
           N.logMsg(run, 'You set out with ' + nick + ' the ' + mon.species + '.');
           if (mon.shiny) recordShiny(mon, 'starter');
           // The Daily result records which starter you took, so the share card
@@ -1490,6 +1643,7 @@
     renderAscension(trainerNext);
 
     var isCapture = !trainerNext && n === 0;
+    var isStrongCapture = isCapture && run.section === 6;
     var catchOpen = isCapture && !run.catchUsedThisSection;
     $('xNextLabel').innerHTML = trainerNext ? 'Trainer Battle'
       : (isCapture ? 'Capture Encounter' : 'Wild Battle ' + n);
@@ -1517,7 +1671,9 @@
     var desc = $('xNextDesc');
     desc.classList.remove('ok', 'bad');
     if (catchOpen) {
-      desc.textContent = 'Your only catch of Section ' + run.section + ' \u2014 weaken it, then throw a ball.';
+      desc.textContent = isStrongCapture
+        ? 'A powerful catch awaits in Section 6 \u2014 weaken it, then use your best ball.'
+        : 'Your only catch of Section ' + run.section + ' \u2014 weaken it, then throw a ball.';
       desc.classList.add('ok');
     } else if (trainerNext && isG) {
       desc.textContent = 'No items, no running \u2014 win and your survivors are fully restored.';
@@ -1562,7 +1718,7 @@
   // pile onto the scripted beats.
   function routeCoach(trainerNext, isG) {
     var CO = window.Coach;
-    if (!CO || !CO.tipsOn() || isG) return;
+    if (!run || !run.prologue || !CO || !CO.tipsOn() || isG) return;
     // Request on a SHORT beat, not immediately: renderCrossroads() is always
     // followed synchronously by show('Crossroads'), so the screen is still
     // hidden at render time -- and a beat requested into a hidden screen
@@ -1573,7 +1729,10 @@
     // render, and a beat raced by another card waits instead of dying.
     setTimeout(requestRouteLesson, 0);
     function requestRouteLesson() {
-      if ($('screenCrossroads').hidden) return;
+      // A queued callback can outlive the tutorial flag (for example when
+      // graduation happens before the next frame). Never let it fall through
+      // to the old contextual lesson path after the run becomes ordinary.
+      if ($('screenCrossroads').hidden || !run || !run.prologue) return;
       var n = run.battleInSection;
       var pro = run && run.prologue;
       var onRoute = function () { return !$('screenCrossroads').hidden; };
@@ -1600,8 +1759,8 @@
 
       // 1b. After the capture (before battle 2 of section 1): heal the new
       //     partner. It joins the team at catch HP, and learning to open a
-      //     team card and use a Potion is the most-used skill in the game.
-      //     The next battle button stays locked until the Potion is used, so
+      //     team card and use a Full Restore is the most-used skill in the game.
+      //     The next battle button stays locked until the Full Restore is used, so
       //     the path stays linear: catch -> heal -> battle 2.
       if (pro && run.section === 1 && run.battleInSection === 1 && !tutorialHealed()) {
         var caughtMonH = caughtMonInParty();
@@ -1620,14 +1779,14 @@
           return;
         }
         // The new partner arrived at full HP (or there is nothing to heal):
-        // there is no Potion to press. Fall through to the onward beat below
+        // there is no Full Restore to press. Fall through to the onward beat below
         // instead of stranding the player on the route with no next action.
       }
 
       // 1b2. Healed. The route now has exactly one next action: press the
       //      battle button for stop 2. This is its own beat, not part of the
       //      heal card, so the player is never left looking at a route with
-      //      nothing glowing after the Potion (or after a full-HP catch).
+      //      nothing glowing after the Full Restore (or after a full-HP catch).
       if (pro && run.section === 1 && run.battleInSection === 1 && tutorialHealed()) {
         CO.lesson('onward', {
           anchor: $('btnGoBattle'), actionRequired: true, keepHalo: true,
@@ -1724,7 +1883,7 @@
 
   // The tutorial sheet uses a progress bar, not a step number. Several ideas
   // intentionally take two or more cards (open a card, then press its control),
-  // while a full-HP catch can satisfy healing without a Potion. A card counter
+  // while a full-HP catch can satisfy healing without a Full Restore. A card counter
   // therefore lies; these are the stable conceptual milestones instead.
   function tutorialHealed() {
     if (run && run.tutorialHealDone) return true;
@@ -1885,23 +2044,20 @@
       var seenF = {};
       window.Forme.relevantItems(run).forEach(function (f) {
         if (seenF[f.id]) return; seenF[f.id] = 1;
+        var formeOwner = run.party.filter(function (m) { return m.name === f.forSpecies; })[0];
         martStock.push({ kind: 'forme', id: f.id, name: f.name, price: f.price,
                          desc: f.desc, stock: 99, hot: true, unique: true,
-                         forSpecies: f.forSpecies });
+                         forSpecies: f.forSpecies, forId: formeOwner && formeOwner.id });
       });
     }
     drawMart();
     shopCoach();
   }
 
-  // ---- the shop tutorial (guided run, section 2) ---------------------------
-  // The Mart's shelf labels already explain what every item does, so the
-  // tutorial skips the "Balls / Medicine / Held items" speech entirely.
-  // What section 2 forces instead, in order, is the two things the shop
-  // unlocks that the player must DO:
-  //   1. EVOLUTION -- buy the Rare Candy and use it to evolve the starter.
-  //   2. TRAINING  -- the guided session through moves, ability, nature and
-  //                   Stat Points, hand-held bubble by bubble (tutorGuide).
+  // ---- the section-2 tutorial (guided run) -------------------------------
+  // Evolution and held items are battle rewards now, not shop stock. The
+  // tutorial therefore uses the Rare Candy awarded at the end of section 1,
+  // then walks the player through using it and training the starter.
   // Only when both have actually happened does the tutorial conclude.
   function shopCoach() {
     var CO = window.Coach;
@@ -1917,31 +2073,21 @@
       var evolved = !!run.tutorialEvolved || !starter;
 
       if (!evolved) {
-        // Guarantee the forced evolution can actually be bought.
-        var rcPrice = (window.Evo && window.Evo.itemPrice('rarecandy')) || 3000;
-        if (!run.bag.rarecandy && run.money < rcPrice) {
-          run.money = rcPrice;
-          saveGame();
-          toast('Professor Oak spotted you the cash for a Rare Candy.');
-        }
+        // A tutorial save from before battle rewards were introduced may reach
+        // section 2 without its Rare Candy. Repair that one incomplete
+        // tutorial state with the same item a section-1 reward supplies; it is
+        // never added to the shop.
         if (!run.bag.rarecandy) {
-          // One lesson, one tile. It remains the only permitted route action
-          // after the sheet closes until Rare Candy is really in the bag.
-          CO.lesson('evolve', {
-            anchor: martTileFor('rarecandy') || evoShelfEl() || $('xShopBlock'),
-            actionRequired: true, keepHalo: true, bypassSeen: true,
-            vital: true, stillValid: onRoute,
-            onShow: function () { if (!CO.seen('evolve')) CO.markSeen('evolve'); }
-          });
-          return;
+          N.addItem(run, 'rarecandy', 1);
+          N.logMsg(run, 'Tutorial reward: you received a Rare Candy.');
+          saveGame();
         }
 
-        // Buying is a separate action from choosing the Pokemon. Point at the
-        // starter's one team card instead of making the player infer the next
-        // step from the item they just bought.
+        // Point at the starter's one team card instead of making the player
+        // infer the next step from the reward they selected.
         var starterSlot = scrollTeamSlotIntoView(starter);
         if (starterSlot) {
-          // The player just bought the evolution item down in the Mart. Move
+          // The player received the evolution item as a battle reward. Move
           // the viewport back to the team grid and use a compact tooltip on
           // the exact Pokemon that can evolve, instead of opening another
           // full sheet over the shop they just used.
@@ -1981,27 +2127,6 @@
       // in section 2. Nothing in section 3+ re-explains anything.
       concludeTutorial();
     }, 0);
-  }
-
-  // The Rare Candy tile inside the Mart (Evolution Items shelf), or the
-  // shelf heading, so the sheet can scroll the real thing into view.
-  function martTileFor(itemId) {
-    var grid = $('martGrid');
-    if (!grid) return null;
-    var tile = grid.querySelector('.shop-item[data-tip="item:' + itemId + '"]');
-    if (tile) return tile;
-    // Fall back to the shelf heading that contains the item.
-    var head = grid.querySelector('.sub-title');
-    return head || null;
-  }
-  function evoShelfEl() {
-    var grid = $('martGrid');
-    if (!grid) return null;
-    var heads = grid.querySelectorAll('.sub-title');
-    for (var i = 0; i < heads.length; i++) {
-      if (/evolution items/i.test(heads[i].textContent || '')) return heads[i];
-    }
-    return null;
   }
 
   // The guided first run is over: the safety net and scripted beats stop, and
@@ -2053,10 +2178,12 @@
     var grid = $('martGrid');
     grid.innerHTML = '';
     var isPro = run && run.prologue;
-    // In tutorial section 1: only balls + basic heals. In section 2: shop explained (balls, heals, held).
+    // In tutorial section 1: only balls + Full Restore. Later sections add
+    // the dedicated Forme Change and Mega Stone shelves; held/evolution items
+    // are chosen after victories.
     var groups = (isPro && run.section === 1) 
       ? { ball: 'Poke Balls', heal: 'Medicine' }
-      : { ball: 'Poke Balls', heal: 'Medicine', evo: 'Evolution Items', forme: 'Forme Change', mega: 'Mega Stones', held: 'Held Items', service: 'Services' };
+      : { ball: 'Poke Balls', heal: 'Medicine', forme: 'Forme Change', mega: 'Mega Stones', service: 'Services' };
     Object.keys(groups).forEach(function (k) {
       var items = martStock.filter(function (e) {
         if (e.kind !== k) return false;
@@ -2078,12 +2205,16 @@
         // so it still reads as a goal rather than a broken tile.
         var broke = !sold && run.money < e.price;
         var d = document.createElement('div');
-        if (e.kind !== 'service') d.setAttribute('data-tip', 'item:' + e.id);
+        if (e.kind !== 'service' && e.kind !== 'forme' && e.kind !== 'mega') {
+          d.setAttribute('data-tip', 'item:' + e.id);
+        }
         d.className = 'shop-item' + (sold ? ' sold' : '') + (broke ? ' broke' : '') + (e.kind === 'service' ? ' service' : '') + (e.hot ? ' hot' : '') + (e.kind === 'mega' ? ' mega-item' : '') + (e.kind === 'forme' ? ' forme-item' : '');
-        var artHtml = (window.ItemArt && e.kind !== 'service')
+        var transformHtml = (e.kind === 'forme' || e.kind === 'mega')
+          ? transformShopTileHtml(e) : '';
+        var artHtml = (window.ItemArt && e.kind !== 'service' && !transformHtml)
           ? window.ItemArt.itemImg(e.id, 34, 'si-art') : '';
         // The canon name stays; the gold line underneath is what the item
-        // ACTUALLY does. "Full Heal" is the worst offender in the shop --
+        // ACTUALLY does. legacy status-only medicines are not stocked on new runs --
         // everyone reads it as "restores everything", and it restores no HP.
         var plainHtml = itemPlainHtml(e.id, 'si-plain');
         // ✦Tip: a recommendation, not a lesson. Only for a held item that
@@ -2097,7 +2228,7 @@
               (window.Coach.heldPlain(e.id) || ''));
           }
         }
-        d.innerHTML = tipHtml +
+        d.innerHTML = transformHtml || tipHtml +
           '<div class="si-top">' + artHtml + '<span class="si-name">' + e.name + '</span>' +
           '<span class="si-price' + (e.sale ? ' sale' : '') + '">' + (sold ? 'SOLD' : '$' + e.price) + '</span></div>' +
           '<div class="si-desc">' + (e.desc || '') + plainHtml + '</div>' +
@@ -2113,9 +2244,8 @@
       grid.appendChild(wrap);
     });
 
-    // The Full Heal name-trap needs no lesson: the gold label under the item
-    // ("Status only — no HP") already says it, and the guided run used to
-    // add a redundant card on top of it.
+    // Full Restore is self-explanatory: it is the only healing item on a
+    // fresh shelf, and its label states that it restores HP and status.
 
     // sell
     var sell = $('martSell');
@@ -2558,9 +2688,11 @@
     // How to actually pick a move. Fires once, on the list itself, the first
     // time someone opens the move tab.
     var CO2 = window.Coach;
-    if (CO2 && CO2.tipsOn() && !tutorGuideActive() && !CO2.seen('moveChoice')) {
+    if (CO2 && CO2.tipsOn() && run && run.prologue && !tutorGuideActive() && !CO2.seen('moveChoice')) {
       setTimeout(function () {
-        if (!$('screenTutor').hidden) CO2.lesson('moveChoice', { anchor: $('trCurrent') });
+        if (run && run.prologue && !$('screenTutor').hidden) {
+          CO2.lesson('moveChoice', { anchor: $('trCurrent') });
+        }
       }, 500);
     }
   }
@@ -2919,11 +3051,11 @@
     }
     gridHtml += '</div>';
 
-    // Potion suggestion
+    // Full Restore suggestion
     var potionHtml = '';
     if (mon.hpPct < 1 && !C.isFainted(mon)) {
       var bestPotion = null;
-      var potionOrder = ['maxpotion', 'fullrestore', 'hyperpotion', 'superpotion', 'potion'];
+      var potionOrder = ['fullrestore', 'maxpotion', 'hyperpotion', 'superpotion', 'potion'];
       for (var pi = 0; pi < potionOrder.length; pi++) {
         if (run.bag[potionOrder[pi]] && run.bag[potionOrder[pi]] > 0) { bestPotion = potionOrder[pi]; break; }
       }
@@ -3046,7 +3178,7 @@
     if (close) close.addEventListener('click', function () {
       window.Modal.close('xTeamDetail');
     });
-    // Potion button
+    // Full Restore button
     var potionBtn = host.querySelector('.pd-potion-btn');
     if (potionBtn) potionBtn.addEventListener('click', function () {
       var itemId = potionBtn.dataset.potion;
@@ -3166,7 +3298,7 @@
     // Evolution lessons, on the row itself. The branch warning takes
     // precedence: it is the one with a consequence attached.
     var CO = window.Coach;
-    if (CO && CO.tipsOn() && !isG) {
+    if (CO && CO.tipsOn() && run && run.prologue && !isG) {
       var evoBox = host.querySelector('.evo-box');
       if (evoBox) {
         var branching = evoBox.querySelectorAll('.evo-btn').length > 1;
@@ -3192,7 +3324,7 @@
             CO.lesson(which, {
               anchor: evoBox,
               vital: pro,
-              stillValid: function () { return window.Modal.isOpen('xTeamDetail'); }
+              stillValid: function () { return window.Modal.isOpen('xTeamDetail') && !!(run && run.prologue); }
             });
           }, 480);
         }
@@ -3211,7 +3343,7 @@
     if (!CO || !CO.tipsOn() || !run || !run.prologue) return;
 
     // Section 1, before battle 2: the "heal your new friend" bubble on the
-    // actual Potion button inside the new partner's card.
+    // actual Full Restore button inside the new partner's card.
     if (run.section === 1 && run.battleInSection === 1 && !run.tutorialHealDone &&
         !!caughtMonInParty() && mon === caughtMonInParty() && mon.hpPct < 1 &&
         partySel > 0) {
@@ -3307,7 +3439,7 @@
 
   // Items you own, shown above the shop. Tapping one uses/gives it.
   // The Bag: EVERYTHING you own, in one place above the shop -- balls,
-  // medicine, evolution/forme/mega stones and held items, including the ones
+  // Full Restores, evolution/forme/mega stones and held items, including the ones
   // currently equipped on a Pokemon (those are owned too, they were just
   // invisible before because they live on `mon.item`, not in `run.bag`).
   function bagGroupOf(id) {
@@ -3824,7 +3956,7 @@
     // tutorial speech. `run.caught` is incremented immediately before the
     // catch screen opens, so exactly 1 identifies that first capture.
     var isStarterNickname = !!(run && run.prologue && !$('screenStarter').hidden);
-    var isFirstCaptureNickname = !!(run && run.caught === 1 && !$('screenCatch').hidden);
+    var isFirstCaptureNickname = !!(run && run.prologue && run.caught === 1 && !$('screenCatch').hidden);
     var hint = $('nickHint');
     if (hint) {
       hint.hidden = !(isStarterNickname || isFirstCaptureNickname);
@@ -3868,7 +4000,7 @@
     if (!run.party.length) return;
     var kind = bagGroupOf(itemId);
     // Evolution and forme items are now "used on" a Pokemon exactly like a
-    // potion, instead of only being reachable from the party detail panel.
+    // Full Restore, instead of only being reachable from the party detail panel.
     var mode = (kind === 'heal') ? 'use'
              : (kind === 'evo' || kind === 'forme') ? 'evolve'
              : 'give';
@@ -4589,6 +4721,13 @@
       // it can never break free, so say exactly that.
       u.log('A SHINY ' + speciesOf(cfg.enemies[0]).toUpperCase() + ' appeared!');
       showCatchBanner('\u2728 SHINY \u00b7 guaranteed catch \u00b7 any ball');
+    } else if (cfg.isWild && cfg.enemies[0] &&
+               cfg.enemies[0].specialEncounter === 'section6-strong-capture') {
+      // Make the section-6 promise visible before the first turn. The normal
+      // ball rail remains available, but the banner tells the player why the
+      // Master Ball from section 5 matters.
+      u.log('A powerful Section 6 capture encounter appeared!');
+      showCatchBanner('\u26a1 SECTION 6 \u00b7 powerful capture \u00b7 use your best ball');
     } else if (cfg.catchable) {
       // The animated ball rail communicates the catch opportunity without a
       // second yellow banner covering the battlefield.
@@ -5465,7 +5604,7 @@
 
   var BEAT_TARGETS = {
     // The whole-bar lesson is gone: the bag beat points ONLY at the Bag
-    // button, and the player heals with a Super Potion from inside.
+    // button, and the player heals with a Full Restore from inside.
     battleBag:  { resolve: function () { return document.querySelector('.battle-hud [data-a="bag"]'); } },
     catch:      { side: 'right',
                   resolve: function () {
@@ -5613,7 +5752,7 @@
 
   function battleCoach(catchOpen) {
     var CO = window.Coach;
-    if (!CO || !CO.tipsOn()) return;
+    if (!CO || !CO.tipsOn() || !run || !run.prologue) return;
     // Short settle beat only: the capture-encounter tutorial must pop the
     // moment the battle is on screen, not wait for the first turn to finish.
     setTimeout(function () { runBattleCoach(catchOpen); }, 80);
@@ -5626,7 +5765,7 @@
     if ($('screenBattle').hidden || !ui) return;
     if (!document.querySelector('.battle-hud')) return;
     var CO = window.Coach;
-    if (!CO || !CO.tipsOn()) return;
+    if (!CO || !CO.tipsOn() || !run || !run.prologue) return;
 
     // The HUD re-rendered for this request: re-pin the armed beat's glow
     // on the fresh node and keep any open bubble glued to it.
@@ -5811,6 +5950,9 @@
     html += '<p class="hint">Battles won: <b>' + run.battlesWon + '</b> \u00b7 Party: <b>' +
             run.party.length + '</b></p>';
     $('rewardBody').innerHTML = html;
+    // A previous victory may have disabled Continue while waiting for an item
+    // choice. Fleeing has no choice screen, so make sure it remains escapable.
+    $('btnRewardDone').disabled = false;
     $('btnRewardDone').onclick = afterBattleAdvance;
     renderHud();
   }
@@ -6216,9 +6358,9 @@
       '<p class="reward-money">+$' + money + '</p>';
 
     var COc = window.Coach;
-    if (COc && COc.tipsOn() && !COc.seen('caught')) {
+    if (COc && COc.tipsOn() && run && run.prologue && !COc.seen('caught')) {
       setTimeout(function () {
-        if ($('screenCatch').hidden) return;
+        if ($('screenCatch').hidden || !run || !run.prologue) return;
         COc.lesson('caught', {
           vital: !!(run && run.prologue),
           stillValid: function () { return !$('screenCatch').hidden; }
@@ -6321,11 +6463,25 @@
           if (healed) N.logMsg(run, 'Your team rested and recovered fully.');
         }
         run.money += money;
+        // Clearing section 5 is the gateway to the strong section-6 catch.
+        // Award this once, on the section's trainer victory (handleEnd is
+        // guarded against duplicate resolution), rather than making it a
+        // random shop item.
+        var sectionItemReward = (!N.isGauntlet(run) && !bctx.cfg.isWild &&
+          run.section === 5 && N.sectionCompletionReward(run.section)) || null;
+        var itemChoices = N.battleRewardChoices(run);
+        if (sectionItemReward) {
+          N.addItem(run, sectionItemReward, 1);
+          N.logMsg(run, 'Section 5 complete! You received a Master Ball.');
+          // Persist the milestone before the player dismisses the reward
+          // screen; a refresh here must not make the prize disappear.
+          saveGame();
+        }
         var ss = run.sectionStats || (run.sectionStats = { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:run.section });
         ss.money = (Number(ss.money) || 0) + (Number(money) || 0);
         ss.won = (Number(ss.won) || 0) + 1;
         dead.forEach(function (d) { ss.lost.push({ name: d.name, id: d.id, shiny: d.shiny }); });
-        showReward(money, dead, false, missed, healed);
+        showReward(money, dead, false, missed, healed, sectionItemReward, itemChoices);
       } else {
         if (!N.alive(run).length) return gameOver();
         var ss2 = run.sectionStats || (run.sectionStats = { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:run.section });
@@ -6335,7 +6491,8 @@
     });
   }
 
-  function showReward(money, dead, lost, missedCatch, healed) {
+  function showReward(money, dead, lost, missedCatch, healed, itemReward, itemChoices) {
+    itemChoices = Array.isArray(itemChoices) ? itemChoices : [];
     show('Reward');
     $('rewardTitle').textContent = lost ? 'Defeated...' : 'Victory!';
     $('rewardTitle').className = 'scr-title' + (lost ? ' dead' : '');
@@ -6351,10 +6508,50 @@
               '\u2019s only wild encounter \u2014 no new Pokemon this section.</div>';
     }
     if (healed) html += '<p class="reward-heal">Your team was fully restored.</p>';
-    if (!money && (!dead || !dead.length) && !missedCatch && !healed) html += '<p class="hint">You live to fight on.</p>';
+    if (itemReward) {
+      html += '<p class="reward-item">You received a <b>' + escapeHtml(itemName(itemReward)) + '</b>!</p>';
+    }
+    if (itemChoices.length) {
+      html += '<div class="reward-pick"><h3>Choose one reward</h3>' +
+        '<p class="hint">Take one evolution item or held item.</p>' +
+        '<div class="reward-choices">' + itemChoices.map(function (entry) {
+          var kind = entry.kind === 'evo' ? 'Evolution item' : 'Held item';
+          return '<button type="button" class="reward-choice" data-reward-id="' +
+            escapeHtml(entry.id) + '"><span class="reward-choice-art">' +
+            (window.ItemArt ? window.ItemArt.itemImg(entry.id, 42) : '') +
+            '</span><span class="reward-choice-copy"><b>' + escapeHtml(entry.name) +
+            '</b><small>' + escapeHtml(kind) + '</small><em>' + escapeHtml(entry.desc || '') +
+            '</em></span></button>';
+        }).join('') + '</div><p class="hint reward-pick-note">Select one reward to continue.</p></div>';
+    }
+    if (!money && (!dead || !dead.length) && !missedCatch && !healed && !itemReward && !itemChoices.length) {
+      html += '<p class="hint">You live to fight on.</p>';
+    }
     html += '<p class="hint">Battles won: <b>' + run.battlesWon + '</b> \u00b7 Party: <b>' + run.party.length + '</b></p>';
     $('rewardBody').innerHTML = html;
-    $('btnRewardDone').onclick = afterBattleAdvance;
+    var continueBtn = $('btnRewardDone');
+    continueBtn.disabled = itemChoices.length > 0;
+    continueBtn.onclick = afterBattleAdvance;
+    $('rewardBody').querySelectorAll('[data-reward-id]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        if (button.disabled) return;
+        var picked = null;
+        for (var ri = 0; ri < itemChoices.length; ri++) {
+          if (itemChoices[ri].id === button.dataset.rewardId) { picked = itemChoices[ri]; break; }
+        }
+        if (!picked) return;
+        itemChoices.forEach(function (entry) {
+          var node = $('rewardBody').querySelector('[data-reward-id="' + entry.id + '"]');
+          if (node) { node.disabled = true; node.classList.toggle('picked', node === button); }
+        });
+        N.addItem(run, picked.id, 1);
+        N.logMsg(run, 'You chose ' + picked.name + ' as your battle reward.');
+        var note = $('rewardBody').querySelector('.reward-pick-note');
+        if (note) note.textContent = picked.name + ' added to your bag.';
+        continueBtn.disabled = false;
+        saveGame();
+      });
+    });
     renderHud();
   }
 
@@ -6372,6 +6569,14 @@
       return;
     }
     if (newSection) {
+      // Evolution items come from battle rewards. Ensure the guided run has
+      // the Rare Candy it needs when it reaches section 2, even if the player
+      // picked a different reward in section 1 or is loading an older tutorial
+      // save. This is a tutorial safety net, never shop stock.
+      if (run.prologue && finishedSection === 1 && !run.bag.rarecandy) {
+        N.addItem(run, 'rarecandy', 1);
+        N.logMsg(run, 'Section 1 tutorial reward: you received a Rare Candy.');
+      }
       recordSectionMark(finishedSection);
       // A finite run ENDS here rather than rolling into another section.
       if (run.maxSections && finishedSection >= run.maxSections) {
@@ -6460,7 +6665,7 @@
     // "Save progress" button is right there on this screen, so the lesson
     // points at the real thing and the next tap does it for real.
     var COs = window.Coach;
-    if (COs && COs.tipsOn() && !COs.seen('save')) {
+    if (COs && COs.tipsOn() && run && run.prologue && !COs.seen('save')) {
       setTimeout(function () {
         if ($('screenSummary').hidden) return;
         COs.lesson('save', {

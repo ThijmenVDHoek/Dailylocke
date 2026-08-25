@@ -647,10 +647,13 @@
   // ------------------------------------------------------------- SHOP ----
   function itemPrice(id) { return PD.itemCost[id] || 3000; }
 
-  // Healing is a PERCENTAGE of the target's max HP. At level 100 a flat 20 HP
-  // potion is meaningless (a Blissey has 651 HP), so every potion scales.
+  // Healing is a PERCENTAGE of the target's max HP. Full Restore is the only
+  // healing item offered by new runs; the older entries remain as read-only
+  // compatibility data for saves made before the shop rules changed.
   //   healPct: 0..1 of max HP
   var HEAL_ITEMS = {
+    // Legacy medicine entries remain readable for pre-change saves. New
+    // inventory and Mart code only grants the Full Restore entry below.
     potion:      { name: 'Potion',       healPct: 0.20, price: 400,  desc: 'Restores 20% of max HP.' },
     superpotion: { name: 'Super Potion', healPct: 0.35, price: 900,  desc: 'Restores 35% of max HP.' },
     hyperpotion: { name: 'Hyper Potion', healPct: 0.50, price: 1600, desc: 'Restores 50% of max HP.' },

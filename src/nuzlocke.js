@@ -284,6 +284,37 @@
   };
   var PROLOGUE_THIRD_WILD = 'bidoof';
 
+  // Section 5's Master Ball is the player's answer to this encounter. The
+  // first wild battle of section 6 is deliberately a meaningful, high-power
+  // catch instead of another ordinary route roll. Keep the pool legendary or
+  // mythical so the promise is unambiguous, while varying the exact target by
+  // seed (and avoiding species the player has already caught when possible).
+  var SECTION6_CAPTURE_POOL = [
+    'mewtwo', 'mew', 'lugia', 'hooh', 'rayquaza', 'darkrai', 'arceus'
+  ];
+
+  function section6CaptureFor(run) {
+    var seen = run.seenSpecies || {};
+    var party = Array.isArray(run.party) ? run.party : [];
+    var available = SECTION6_CAPTURE_POOL.filter(function (id) {
+      var sp = Dex.species.get(id);
+      if (!sp || !sp.exists) return false;
+      if (seen[id]) return false;
+      return !party.some(function (m) { return m.id === id; });
+    });
+    // A very long run can have seen every target (including lost Pokemon).
+    // Still deliver the promised strong encounter rather than silently falling
+    // back to a normal wild; the dupes clause cannot offer an unused target in
+    // that edge case.
+    if (!available.length) {
+      available = SECTION6_CAPTURE_POOL.filter(function (id) {
+        var sp = Dex.species.get(id); return sp && sp.exists;
+      });
+    }
+    if (!available.length) return null;
+    return C.pick(available, drand(run.seed + '|section6-capture'));
+  }
+
   // The LEAD's STAB types. The guided run's super-effective battle must be
   // weak to the moves of the Pokemon that will actually be attacking -- the
   // party leader -- because the battle only lets the active mon act. In the
@@ -379,6 +410,13 @@
 
   function pickWild(run, opts) {
     opts = opts || {};
+    // Section 6 opens with a guaranteed high-power capture window. It is
+    // checked before the ordinary tier/dupes roll so the reward from section
+    // 5 has a clear purpose: the Master Ball is for this encounter.
+    if (!isPrologueSection(run) && run.section === 6 && run.battleInSection === 0) {
+      var section6Target = section6CaptureFor(run);
+      if (section6Target) return section6Target;
+    }
     if (isPrologueSection(run)) {
       if (run.battleInSection === 0) {
         return 'pikachu';
@@ -452,6 +490,7 @@
 
   async function makeWild(run, speciesId) {
     var isTutorialCapture = !!(run && run.prologue && run.section === 1 && run.battleInSection === 0);
+    var isSection6Capture = !!(run && !run.prologue && run.section === 6 && run.battleInSection === 0);
     var useTutorialMoves = isTutorialSafetySection(run);
     if (isTutorialCapture) {
       speciesId = 'pikachu';
@@ -480,6 +519,11 @@
     }
     var elite = eliteModFor(run, mon, 0, false);
     if (elite && !isTutorialCapture) mon.elite = elite;
+    if (isSection6Capture) {
+      // This metadata is useful to the battle/route UI and survives a
+      // mid-battle save without changing the normal catch rules.
+      mon.specialEncounter = 'section6-strong-capture';
+    }
     return mon;
   }
 
@@ -785,6 +829,12 @@
   function trainerReward(run) {
     return Math.round(BASE_REWARD * 2 * rewardMultiplier(run) * ascensionRewardBonus(run));
   }
+
+  // Fixed milestone rewards are kept in Nuz so every mode uses the same rule
+  // and the app controller cannot accidentally hand out the prize twice.
+  function sectionCompletionReward(section) {
+    return Number(section) === 5 ? 'masterball' : null;
+  }
   // ------------------------------------------------------------- HEALING ---
   // There is no Poke Center. The team is restored for free after every
   // trainer battle (i.e. once per section) and never in between, so damage
@@ -811,71 +861,95 @@
     return pct;
   }
 
+  // --------------------------------------------------- BATTLE REWARDS ---
+  // Evolution and held items are prizes, not shop stock. The choice is seeded
+  // by the battle's location, so reopening a reward screen cannot reroll the
+  // offer, while different runs still get different items.
+  function rewardItemInfo(id, kind) {
+    if (kind === 'evo' && window.Evo) {
+      return {
+        id: id, kind: kind, name: window.Evo.itemName(id),
+        desc: window.Evo.itemDesc(id), stock: 1
+      };
+    }
+    var info = C.heldItemInfo(id);
+    return { id: id, kind: 'held', name: info.name, desc: info.desc, stock: 1 };
+  }
+
+  function battleRewardChoices(run) {
+    // Team Gauntlet is deliberately item-free, just like its existing rules.
+    if (!run || isGauntlet(run)) return [];
+    var evoIds = window.Evo ? window.Evo.allEvolutionItems() : [];
+    var evoSet = {};
+    evoIds.forEach(function (id) { evoSet[id] = 1; });
+    var pool = [];
+    var seen = {};
+    function add(id, kind) {
+      if (!id || seen[id] || C.BALLS[id] || C.HEAL_ITEMS[id]) return;
+      if (kind === 'evo' && !evoSet[id]) return;
+      var valid = kind === 'evo'
+        ? !!(window.Evo && window.Evo.itemExists(id))
+        : !!Dex.items.get(id).exists;
+      if (!valid) return;
+      seen[id] = 1;
+      pool.push(rewardItemInfo(id, kind));
+    }
+
+    // Put items relevant to the current party first, then let the broader
+    // evolution pool fill out the offer. This keeps the choice useful without
+    // making the reward deterministic for every species.
+    if (window.Evo) {
+      window.Evo.relevantItems(run).forEach(function (entry) { add(entry.id, 'evo'); });
+      evoIds.forEach(function (id) { add(id, 'evo'); });
+    }
+    Object.keys(C.ITEM_TIERS).forEach(function (tierName) {
+      C.ITEM_TIERS[tierName].forEach(function (id) { add(id, 'held'); });
+    });
+
+    var rand = C.mulberry32(C.hashString(run.seed + '|item-reward|' + run.section + '|' +
+      run.battleInSection + '|' + (run._shopSeq || 0)));
+    var fresh = pool.filter(function (entry) { return !ownsItem(run, entry.id); });
+    var source = fresh.length >= 3 ? fresh : pool;
+    return C.pickN(source, Math.min(3, source.length), rand);
+  }
+
   // ---------------------------------------------------------------- MART ---
-  // Curated rotating stock + always-available services.
+  // Balls and Full Restore stay in the Mart; evolution and held items are
+  // battle rewards now. Forme-change items and Mega Stones retain their
+  // dedicated party-specific shelves.
   function rollMart(run) {
     var seed = C.hashString(run.seed + '|mart|' + run.section + '|' + run.battleInSection + '|' + (run._shopSeq || 0));
     var rand = C.mulberry32(seed);
     var stock = [];
     var s = run.section;
 
-    // --- Balls (always) ---
-    var balls = ['pokeball', 'greatball'];
-    if (s >= 2) balls.push('ultraball');
-    if (s >= 3) balls.push(C.pick(['timerball', 'netball', 'quickball', 'duskball'], rand));
-    if (s >= 7 && rand() < 0.12) balls.push('masterball');
+    // --- Balls (section-gated) ---
+    // There is exactly one regular ball tier on each shelf. The Master Ball is
+    // a section-5 completion prize, never a random shop roll.
+    var balls = s === 1 ? ['pokeball'] : (s === 2 ? ['greatball'] : ['ultraball']);
     balls.forEach(function (id) {
       var b = C.BALLS[id];
       stock.push({ kind: 'ball', id: id, name: b.name, price: b.price, desc: b.desc, stock: id === 'masterball' ? 1 : 99 });
     });
 
-    // --- Healing / status (always a useful spread) ---
-    var heals = ['potion', 'superpotion'];
-    if (s >= 2) heals.push('hyperpotion');
-    if (s >= 4) heals.push('maxpotion');
-    if (s >= 6) heals.push('fullrestore');
-    heals.push('fullheal');
-    if (rand() < 0.5) heals.push('ether'); else heals.push('elixir');
+    // --- Healing ---
+    // Full Restore is the only healing item available in a new run. Keep the
+    // legacy definitions in Core so old saves can be read, but never put the
+    // weaker/status-only medicines back on a fresh shop shelf.
+    var heals = ['fullrestore'];
     heals.forEach(function (id) {
       var h = C.HEAL_ITEMS[id];
       stock.push({ kind: 'heal', id: id, name: h.name, price: h.price, desc: h.desc, stock: 99 });
     });
 
-    // --- Held items: weighted by tier, more exotic later ---
-    var T = C.ITEM_TIERS;
-    var picks = []
-      .concat(C.pickN(T.common, 2, rand))
-      .concat(C.pickN(T.core, s >= 2 ? 3 : 2, rand))
-      .concat(C.pickN(T.typed, 1, rand));
-    if (s >= 4) picks = picks.concat(C.pickN(T.rare, s >= 7 ? 3 : 2, rand));
-    var seen = {};
-    picks.forEach(function (id) {
-      if (seen[id] || !Dex.items.get(id).exists) return;
-      seen[id] = 1;
-      var info = C.heldItemInfo(id);
-      stock.push({ kind: 'held', id: id, name: info.name, price: info.price, desc: info.desc, stock: 1 });
-    });
-
-    // --- Evolution items ---
-    // ONLY items a Pokemon currently in the party can actually use. No filler:
-    // a shelf full of stones for Pokemon you don't own is just noise.
-    var E = window.Evo;
-    if (E) {
-      E.relevantItems(run).forEach(function (ent) {
-        stock.push({ kind: 'evo', id: ent.id, name: E.itemName(ent.id),
-                     price: E.itemPrice(ent.id), desc: E.itemDesc(ent.id),
-                     stock: 99, hot: true,
-                     forSpecies: ent.forSpecies, becomes: ent.becomes });
-      });
-    }
-
     // --- Forme change items (only for a LIVING party member) ---
     var FM = window.Forme;
     if (FM) {
       FM.relevantItems(run).forEach(function (f) {
+        var formeOwner = run.party.filter(function (m) { return m.name === f.forSpecies; })[0];
         stock.push({ kind: 'forme', id: f.id, name: f.name, price: f.price,
                      desc: f.desc, stock: 99, hot: true, unique: true,
-                     forSpecies: f.forSpecies });
+                     forSpecies: f.forSpecies, forId: formeOwner && formeOwner.id });
       });
     }
 
@@ -885,9 +959,11 @@
     var MG = window.Mega;
     if (MG) {
       MG.relevantStones(run).forEach(function (st2) {
+        var megaOwner = run.party.filter(function (m) { return m.name === st2.forSpecies; })[0];
         stock.push({ kind: 'mega', id: st2.id, name: st2.name, price: st2.price,
                      desc: MG.desc(st2.id), stock: 1, hot: true, unique: true,
-                     forme: st2.formeName, forSpecies: st2.forSpecies });
+                     forme: st2.formeName, forSpecies: st2.forSpecies,
+                     forId: megaOwner && megaOwner.id });
       });
     }
 
@@ -1021,7 +1097,9 @@
     bossClauseFor: bossClauseFor, strategyFor: strategyFor, pickRoleFor: pickRoleFor,
     STRATEGIES: STRATEGIES, ELITE_MODS: ELITE_MODS, BOSS_CLAUSES: BOSS_CLAUSES,
     FIELD_POOL: FIELD_POOL,
-    BASE_REWARD: BASE_REWARD, healAll: healAll,
+    SECTION6_CAPTURE_POOL: SECTION6_CAPTURE_POOL, section6CaptureFor: section6CaptureFor,
+    BASE_REWARD: BASE_REWARD, sectionCompletionReward: sectionCompletionReward, healAll: healAll,
+    battleRewardChoices: battleRewardChoices,
     rollMart: rollMart, applyItem: applyItem,
     tutorOptions: tutorOptions, teachMove: teachMove, abilityOptions: abilityOptions,
     mvp: mvp, roster: roster, trainPlayerMon: trainPlayerMon,
