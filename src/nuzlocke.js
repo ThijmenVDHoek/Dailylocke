@@ -861,8 +861,62 @@
     return pct;
   }
 
+  // --------------------------------------------------- BATTLE REWARDS ---
+  // Evolution and held items are prizes, not shop stock. The choice is seeded
+  // by the battle's location, so reopening a reward screen cannot reroll the
+  // offer, while different runs still get different items.
+  function rewardItemInfo(id, kind) {
+    if (kind === 'evo' && window.Evo) {
+      return {
+        id: id, kind: kind, name: window.Evo.itemName(id),
+        desc: window.Evo.itemDesc(id), stock: 1
+      };
+    }
+    var info = C.heldItemInfo(id);
+    return { id: id, kind: 'held', name: info.name, desc: info.desc, stock: 1 };
+  }
+
+  function battleRewardChoices(run) {
+    // Team Gauntlet is deliberately item-free, just like its existing rules.
+    if (!run || isGauntlet(run)) return [];
+    var evoIds = window.Evo ? window.Evo.allEvolutionItems() : [];
+    var evoSet = {};
+    evoIds.forEach(function (id) { evoSet[id] = 1; });
+    var pool = [];
+    var seen = {};
+    function add(id, kind) {
+      if (!id || seen[id] || C.BALLS[id] || C.HEAL_ITEMS[id]) return;
+      if (kind === 'evo' && !evoSet[id]) return;
+      var valid = kind === 'evo'
+        ? !!(window.Evo && window.Evo.itemExists(id))
+        : !!Dex.items.get(id).exists;
+      if (!valid) return;
+      seen[id] = 1;
+      pool.push(rewardItemInfo(id, kind));
+    }
+
+    // Put items relevant to the current party first, then let the broader
+    // evolution pool fill out the offer. This keeps the choice useful without
+    // making the reward deterministic for every species.
+    if (window.Evo) {
+      window.Evo.relevantItems(run).forEach(function (entry) { add(entry.id, 'evo'); });
+      evoIds.forEach(function (id) { add(id, 'evo'); });
+    }
+    Object.keys(C.ITEM_TIERS).forEach(function (tierName) {
+      C.ITEM_TIERS[tierName].forEach(function (id) { add(id, 'held'); });
+    });
+
+    var rand = C.mulberry32(C.hashString(run.seed + '|item-reward|' + run.section + '|' +
+      run.battleInSection + '|' + (run._shopSeq || 0)));
+    var fresh = pool.filter(function (entry) { return !ownsItem(run, entry.id); });
+    var source = fresh.length >= 3 ? fresh : pool;
+    return C.pickN(source, Math.min(3, source.length), rand);
+  }
+
   // ---------------------------------------------------------------- MART ---
-  // Curated rotating stock + always-available services.
+  // Balls and Full Restore stay in the Mart; evolution and held items are
+  // battle rewards now. Forme-change items and Mega Stones retain their
+  // dedicated party-specific shelves.
   function rollMart(run) {
     var seed = C.hashString(run.seed + '|mart|' + run.section + '|' + run.battleInSection + '|' + (run._shopSeq || 0));
     var rand = C.mulberry32(seed);
@@ -887,34 +941,6 @@
       var h = C.HEAL_ITEMS[id];
       stock.push({ kind: 'heal', id: id, name: h.name, price: h.price, desc: h.desc, stock: 99 });
     });
-
-    // --- Held items: weighted by tier, more exotic later ---
-    var T = C.ITEM_TIERS;
-    var picks = []
-      .concat(C.pickN(T.common, 2, rand))
-      .concat(C.pickN(T.core, s >= 2 ? 3 : 2, rand))
-      .concat(C.pickN(T.typed, 1, rand));
-    if (s >= 4) picks = picks.concat(C.pickN(T.rare, s >= 7 ? 3 : 2, rand));
-    var seen = {};
-    picks.forEach(function (id) {
-      if (seen[id] || !Dex.items.get(id).exists) return;
-      seen[id] = 1;
-      var info = C.heldItemInfo(id);
-      stock.push({ kind: 'held', id: id, name: info.name, price: info.price, desc: info.desc, stock: 1 });
-    });
-
-    // --- Evolution items ---
-    // ONLY items a Pokemon currently in the party can actually use. No filler:
-    // a shelf full of stones for Pokemon you don't own is just noise.
-    var E = window.Evo;
-    if (E) {
-      E.relevantItems(run).forEach(function (ent) {
-        stock.push({ kind: 'evo', id: ent.id, name: E.itemName(ent.id),
-                     price: E.itemPrice(ent.id), desc: E.itemDesc(ent.id),
-                     stock: 99, hot: true,
-                     forSpecies: ent.forSpecies, becomes: ent.becomes });
-      });
-    }
 
     // --- Forme change items (only for a LIVING party member) ---
     var FM = window.Forme;
@@ -1070,6 +1096,7 @@
     FIELD_POOL: FIELD_POOL,
     SECTION6_CAPTURE_POOL: SECTION6_CAPTURE_POOL, section6CaptureFor: section6CaptureFor,
     BASE_REWARD: BASE_REWARD, sectionCompletionReward: sectionCompletionReward, healAll: healAll,
+    battleRewardChoices: battleRewardChoices,
     rollMart: rollMart, applyItem: applyItem,
     tutorOptions: tutorOptions, teachMove: teachMove, abilityOptions: abilityOptions,
     mvp: mvp, roster: roster, trainPlayerMon: trainPlayerMon,

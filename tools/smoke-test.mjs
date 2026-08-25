@@ -1765,6 +1765,7 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   // A fresh profile entering section 2 of the guided run: tips on, still
   // mid-prologue, and the section-1 lessons legitimately behind them.
   window.Modal.closeAll();   // no stale card from an earlier block
+  CO2.clearMark();            // also clear a non-modal bubble from the prior run
   await waitMs(700);         // let the coach cooldown pass, as a player would
   CO2.attach(window.Storage.blankProfile(), () => {});
   CO2.setOnboarded(true);
@@ -1785,17 +1786,29 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   check('the section-2 Mart is not dimmed during the shop tutorial',
     !window.document.getElementById('screenCrossroads').classList.contains('prologue-dim'));
 
-  const up = await until2(() => !window.document.getElementById('screenCoach').hidden);
-  const evoT = up ? window.document.getElementById('coachTitle').textContent : null;
-  check('section 2 opens with the forced evolution sheet, not shelf-by-shelf',
-    evoT === 'Evolve your starter', evoT);
-  check('the evolution sheet does NOT conclude the tutorial by itself',
+  const up = await until2(() => {
+    const sheet = window.document.getElementById('screenCoach');
+    const bubble = window.document.querySelector('.coach-bubble:not([hidden]) .cb-title');
+    return !sheet.hidden || (bubble && bubble.textContent === 'Open your starter');
+  });
+  const sheetTitle = !window.document.getElementById('screenCoach').hidden
+    ? window.document.getElementById('coachTitle').textContent : '';
+  const bubbleTitle = (window.document.querySelector('.coach-bubble:not([hidden]) .cb-title') || {}).textContent || '';
+  check('section 2 points to the reward-provided evolution item',
+    !!up && (sheetTitle === 'Open your starter' || bubbleTitle === 'Open your starter'),
+    sheetTitle || bubbleTitle);
+  check('the evolution prompt does NOT conclude the tutorial by itself',
     CO2.inPrologue() === true && g.prologue === true);
 
   // Dismiss it, then simulate the two things the tutorial demands: the
   // starter actually evolves, and training is completed. Only then does the
   // prologue end.
-  if (up) window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  if (!window.document.getElementById('screenCoach').hidden) {
+    window.document.querySelector('#screenCoach [data-coach-ok]').click();
+  } else {
+    const bubbleOk = window.document.querySelector('.coach-bubble:not([hidden]) [data-coach-ok]');
+    if (bubbleOk) bubbleOk.click();
+  }
   await waitMs(760);
   g.tutorialEvolved = true;
   g.tutorialTrained = true;
@@ -3623,6 +3636,13 @@ host2.remove();
       const ids = martFor(section).filter((e) => e.kind === 'heal').map((e) => e.id);
       return ids.length === 1 && ids[0] === 'fullrestore';
     }));
+  check('the Mart no longer stocks evolution or held items',
+    [1, 2, 3, 6].every((section) =>
+      martFor(section).every((e) => e.kind !== 'evo' && e.kind !== 'held')));
+  const rewardChoices = N2.battleRewardChoices(N2.newRun(7331));
+  check('a normal victory offers three evolution or held item choices',
+    rewardChoices.length === 3 && rewardChoices.every((e) => e.kind === 'evo' || e.kind === 'held'),
+    rewardChoices.map((e) => e.name).join(', '));
   check('section 5 completion awards a Master Ball',
     N2.sectionCompletionReward(5) === 'masterball' && N2.sectionCompletionReward(4) === null);
 

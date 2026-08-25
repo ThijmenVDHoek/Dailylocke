@@ -700,6 +700,22 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 /* -------------------------------------------------------------- rewards */
 .reward-money { font-size:2rem; color:var(--gold); margin:10px 0; text-shadow:0 0 26px rgba(255,215,110,.4); }
 .reward-item { color:var(--gold); font-size:1.15rem; margin:10px 0; }
+.reward-pick { margin:16px auto 8px; max-width:760px; }
+.reward-pick h3 { margin:0 0 3px; color:var(--ink); }
+.reward-choices { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; margin-top:10px; }
+.reward-choice { display:flex; align-items:center; gap:8px; min-width:0; padding:10px; text-align:left; color:var(--ink); background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.14); border-radius:10px; }
+.reward-choice:hover, .reward-choice:focus-visible { background:rgba(255,215,110,.14); border-color:var(--gold); }
+.reward-choice.picked { background:rgba(74,222,128,.16); border-color:#4ade80; }
+.reward-choice:disabled { opacity:.48; cursor:default; }
+.reward-choice-art { flex:0 0 42px; display:grid; place-items:center; }
+.reward-choice-copy { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.reward-choice-copy b { color:var(--gold); overflow-wrap:anywhere; }
+.reward-choice-copy small { color:var(--ink-3); font-size:.72rem; }
+.reward-choice-copy em { color:var(--ink-2); font-size:.7rem; font-style:normal; line-height:1.25; }
+.reward-pick-note { margin:9px 0 0; color:var(--gold); }
+@media (max-width:420px) {
+  .reward-choices { grid-template-columns:1fr; }
+}
 .losses { margin:14px 0; }
 .losses h4 { color:#ff8b95; font-size:.95rem; margin-bottom:8px; }
 .losses .grave { display:inline-flex; }

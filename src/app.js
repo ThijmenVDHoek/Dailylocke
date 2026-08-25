@@ -1903,14 +1903,10 @@
     shopCoach();
   }
 
-  // ---- the shop tutorial (guided run, section 2) ---------------------------
-  // The Mart's shelf labels already explain what every item does, so the
-  // tutorial skips the "Balls / Medicine / Held items" speech entirely.
-  // What section 2 forces instead, in order, is the two things the shop
-  // unlocks that the player must DO:
-  //   1. EVOLUTION -- buy the Rare Candy and use it to evolve the starter.
-  //   2. TRAINING  -- the guided session through moves, ability, nature and
-  //                   Stat Points, hand-held bubble by bubble (tutorGuide).
+  // ---- the section-2 tutorial (guided run) -------------------------------
+  // Evolution and held items are battle rewards now, not shop stock. The
+  // tutorial therefore uses the Rare Candy awarded at the end of section 1,
+  // then walks the player through using it and training the starter.
   // Only when both have actually happened does the tutorial conclude.
   function shopCoach() {
     var CO = window.Coach;
@@ -1926,31 +1922,21 @@
       var evolved = !!run.tutorialEvolved || !starter;
 
       if (!evolved) {
-        // Guarantee the forced evolution can actually be bought.
-        var rcPrice = (window.Evo && window.Evo.itemPrice('rarecandy')) || 3000;
-        if (!run.bag.rarecandy && run.money < rcPrice) {
-          run.money = rcPrice;
-          saveGame();
-          toast('Professor Oak spotted you the cash for a Rare Candy.');
-        }
+        // A tutorial save from before battle rewards were introduced may reach
+        // section 2 without its Rare Candy. Repair that one incomplete
+        // tutorial state with the same item a section-1 reward supplies; it is
+        // never added to the shop.
         if (!run.bag.rarecandy) {
-          // One lesson, one tile. It remains the only permitted route action
-          // after the sheet closes until Rare Candy is really in the bag.
-          CO.lesson('evolve', {
-            anchor: martTileFor('rarecandy') || evoShelfEl() || $('xShopBlock'),
-            actionRequired: true, keepHalo: true, bypassSeen: true,
-            vital: true, stillValid: onRoute,
-            onShow: function () { if (!CO.seen('evolve')) CO.markSeen('evolve'); }
-          });
-          return;
+          N.addItem(run, 'rarecandy', 1);
+          N.logMsg(run, 'Tutorial reward: you received a Rare Candy.');
+          saveGame();
         }
 
-        // Buying is a separate action from choosing the Pokemon. Point at the
-        // starter's one team card instead of making the player infer the next
-        // step from the item they just bought.
+        // Point at the starter's one team card instead of making the player
+        // infer the next step from the reward they selected.
         var starterSlot = scrollTeamSlotIntoView(starter);
         if (starterSlot) {
-          // The player just bought the evolution item down in the Mart. Move
+          // The player received the evolution item as a battle reward. Move
           // the viewport back to the team grid and use a compact tooltip on
           // the exact Pokemon that can evolve, instead of opening another
           // full sheet over the shop they just used.
@@ -1990,27 +1976,6 @@
       // in section 2. Nothing in section 3+ re-explains anything.
       concludeTutorial();
     }, 0);
-  }
-
-  // The Rare Candy tile inside the Mart (Evolution Items shelf), or the
-  // shelf heading, so the sheet can scroll the real thing into view.
-  function martTileFor(itemId) {
-    var grid = $('martGrid');
-    if (!grid) return null;
-    var tile = grid.querySelector('.shop-item[data-tip="item:' + itemId + '"]');
-    if (tile) return tile;
-    // Fall back to the shelf heading that contains the item.
-    var head = grid.querySelector('.sub-title');
-    return head || null;
-  }
-  function evoShelfEl() {
-    var grid = $('martGrid');
-    if (!grid) return null;
-    var heads = grid.querySelectorAll('.sub-title');
-    for (var i = 0; i < heads.length; i++) {
-      if (/evolution items/i.test(heads[i].textContent || '')) return heads[i];
-    }
-    return null;
   }
 
   // The guided first run is over: the safety net and scripted beats stop, and
@@ -2062,10 +2027,12 @@
     var grid = $('martGrid');
     grid.innerHTML = '';
     var isPro = run && run.prologue;
-    // In tutorial section 1: only balls + basic heals. In section 2: shop explained (balls, heals, held).
+    // In tutorial section 1: only balls + Full Restore. Later sections add
+    // the dedicated Forme Change and Mega Stone shelves; held/evolution items
+    // are chosen after victories.
     var groups = (isPro && run.section === 1) 
       ? { ball: 'Poke Balls', heal: 'Medicine' }
-      : { ball: 'Poke Balls', heal: 'Medicine', evo: 'Evolution Items', forme: 'Forme Change', mega: 'Mega Stones', held: 'Held Items', service: 'Services' };
+      : { ball: 'Poke Balls', heal: 'Medicine', forme: 'Forme Change', mega: 'Mega Stones', service: 'Services' };
     Object.keys(groups).forEach(function (k) {
       var items = martStock.filter(function (e) {
         if (e.kind !== k) return false;
@@ -5828,6 +5795,9 @@
     html += '<p class="hint">Battles won: <b>' + run.battlesWon + '</b> \u00b7 Party: <b>' +
             run.party.length + '</b></p>';
     $('rewardBody').innerHTML = html;
+    // A previous victory may have disabled Continue while waiting for an item
+    // choice. Fleeing has no choice screen, so make sure it remains escapable.
+    $('btnRewardDone').disabled = false;
     $('btnRewardDone').onclick = afterBattleAdvance;
     renderHud();
   }
@@ -6344,6 +6314,7 @@
         // random shop item.
         var sectionItemReward = (!N.isGauntlet(run) && !bctx.cfg.isWild &&
           run.section === 5 && N.sectionCompletionReward(run.section)) || null;
+        var itemChoices = N.battleRewardChoices(run);
         if (sectionItemReward) {
           N.addItem(run, sectionItemReward, 1);
           N.logMsg(run, 'Section 5 complete! You received a Master Ball.');
@@ -6355,7 +6326,7 @@
         ss.money = (Number(ss.money) || 0) + (Number(money) || 0);
         ss.won = (Number(ss.won) || 0) + 1;
         dead.forEach(function (d) { ss.lost.push({ name: d.name, id: d.id, shiny: d.shiny }); });
-        showReward(money, dead, false, missed, healed, sectionItemReward);
+        showReward(money, dead, false, missed, healed, sectionItemReward, itemChoices);
       } else {
         if (!N.alive(run).length) return gameOver();
         var ss2 = run.sectionStats || (run.sectionStats = { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:run.section });
@@ -6365,7 +6336,8 @@
     });
   }
 
-  function showReward(money, dead, lost, missedCatch, healed, itemReward) {
+  function showReward(money, dead, lost, missedCatch, healed, itemReward, itemChoices) {
+    itemChoices = Array.isArray(itemChoices) ? itemChoices : [];
     show('Reward');
     $('rewardTitle').textContent = lost ? 'Defeated...' : 'Victory!';
     $('rewardTitle').className = 'scr-title' + (lost ? ' dead' : '');
@@ -6384,10 +6356,47 @@
     if (itemReward) {
       html += '<p class="reward-item">You received a <b>' + escapeHtml(itemName(itemReward)) + '</b>!</p>';
     }
-    if (!money && (!dead || !dead.length) && !missedCatch && !healed && !itemReward) html += '<p class="hint">You live to fight on.</p>';
+    if (itemChoices.length) {
+      html += '<div class="reward-pick"><h3>Choose one reward</h3>' +
+        '<p class="hint">Take one evolution item or held item.</p>' +
+        '<div class="reward-choices">' + itemChoices.map(function (entry) {
+          var kind = entry.kind === 'evo' ? 'Evolution item' : 'Held item';
+          return '<button type="button" class="reward-choice" data-reward-id="' +
+            escapeHtml(entry.id) + '"><span class="reward-choice-art">' +
+            (window.ItemArt ? window.ItemArt.itemImg(entry.id, 42) : '') +
+            '</span><span class="reward-choice-copy"><b>' + escapeHtml(entry.name) +
+            '</b><small>' + escapeHtml(kind) + '</small><em>' + escapeHtml(entry.desc || '') +
+            '</em></span></button>';
+        }).join('') + '</div><p class="hint reward-pick-note">Select one reward to continue.</p></div>';
+    }
+    if (!money && (!dead || !dead.length) && !missedCatch && !healed && !itemReward && !itemChoices.length) {
+      html += '<p class="hint">You live to fight on.</p>';
+    }
     html += '<p class="hint">Battles won: <b>' + run.battlesWon + '</b> \u00b7 Party: <b>' + run.party.length + '</b></p>';
     $('rewardBody').innerHTML = html;
-    $('btnRewardDone').onclick = afterBattleAdvance;
+    var continueBtn = $('btnRewardDone');
+    continueBtn.disabled = itemChoices.length > 0;
+    continueBtn.onclick = afterBattleAdvance;
+    $('rewardBody').querySelectorAll('[data-reward-id]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        if (button.disabled) return;
+        var picked = null;
+        for (var ri = 0; ri < itemChoices.length; ri++) {
+          if (itemChoices[ri].id === button.dataset.rewardId) { picked = itemChoices[ri]; break; }
+        }
+        if (!picked) return;
+        itemChoices.forEach(function (entry) {
+          var node = $('rewardBody').querySelector('[data-reward-id="' + entry.id + '"]');
+          if (node) { node.disabled = true; node.classList.toggle('picked', node === button); }
+        });
+        N.addItem(run, picked.id, 1);
+        N.logMsg(run, 'You chose ' + picked.name + ' as your battle reward.');
+        var note = $('rewardBody').querySelector('.reward-pick-note');
+        if (note) note.textContent = picked.name + ' added to your bag.';
+        continueBtn.disabled = false;
+        saveGame();
+      });
+    });
     renderHud();
   }
 
@@ -6405,6 +6414,14 @@
       return;
     }
     if (newSection) {
+      // Evolution items come from battle rewards. Ensure the guided run has
+      // the Rare Candy it needs when it reaches section 2, even if the player
+      // picked a different reward in section 1 or is loading an older tutorial
+      // save. This is a tutorial safety net, never shop stock.
+      if (run.prologue && finishedSection === 1 && !run.bag.rarecandy) {
+        N.addItem(run, 'rarecandy', 1);
+        N.logMsg(run, 'Section 1 tutorial reward: you received a Rare Candy.');
+      }
       recordSectionMark(finishedSection);
       // A finite run ENDS here rather than rolling into another section.
       if (run.maxSections && finishedSection >= run.maxSections) {

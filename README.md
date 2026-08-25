@@ -4,6 +4,8 @@ A daily nuzlocke challenge, played in the browser. Pick a starter, fight through
 sections of wild encounters and trainers, and try to keep your team alive.
 The Mart's healing item is always a Full Restore; Ball tiers progress from
 Poke Ball in section 1 to Great Ball in section 2 and Ultra Ball from section 3.
+Evolution and held items are victory rewards: choose one of three after each
+win.
 
 Three modes, **independent save slots** — so one can never block another:
 
