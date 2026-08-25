@@ -646,51 +646,64 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 }
 .shop-item.service { background:linear-gradient(160deg, rgba(192,124,232,.16), var(--surface)); }
 
-/* Transformation offers are decisions, not tiny item rows. Give each one a
-   full-width card with a large result silhouette and a readable comparison
-   panel, while keeping the target's species name hidden until the player uses
-   the item. */
-.shop-grid:has(.shop-item.forme-item),
-.shop-grid:has(.shop-item.mega-item) { grid-template-columns:1fr; }
+/* Forme / mega offers used to be full-width single cards so each one could
+   show source sprite, target sprite(s), five-spec grid and a long
+   description. With typically just 1-2 of them on the shelf at a time, that
+   layout was three times taller than every other shop tile. Now each one is
+   a compact card sitting in a horizontal carousel -- source + result sprite
+   on a single line, a one-line benefit underneath, "for {species}" on the
+   right -- so the whole shelf can be scanned in a glance. */
+.shop-grid.forme-carousel {
+  /* Override the default 2-column grid: a single horizontal row of compact
+     cards, scrolling sideways when there are more than fit on screen. */
+  display:flex; gap:10px; overflow-x:auto; overflow-y:hidden;
+  grid-template-columns:none;
+  padding:4px 2px 12px; margin:0 -2px;
+  scroll-snap-type:x mandatory;
+  scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.22) transparent;
+  -webkit-overflow-scrolling:touch;
+}
+.shop-grid.forme-carousel::-webkit-scrollbar { height:5px; }
+.shop-grid.forme-carousel::-webkit-scrollbar-thumb { background:rgba(255,255,255,.22); }
+.shop-grid.forme-carousel .shop-item.forme-item,
+.shop-grid.forme-carousel .shop-item.mega-item {
+  /* Each compact tile takes a fixed width so 2-3 fit on screen and the rest
+     scroll. flex:0 0 keeps the snap alignment consistent. */
+  flex:0 0 260px; min-width:260px; max-width:280px;
+  scroll-snap-align:start;
+  padding:10px 12px 11px;
+}
 .shop-item.forme-item, .shop-item.mega-item { padding:0; overflow:hidden; }
-.si-transform-card { padding:16px 18px 15px; }
-.si-transform-top { margin-bottom:8px; }
-.si-transform-top .si-name { font-size:1.15rem; }
-.si-transform-visual {
-  display:grid; grid-template-columns:minmax(90px,.7fr) auto minmax(210px,1.3fr);
-  align-items:center; gap:14px; min-height:150px; padding:10px 0 14px;
+.si-transform-card { padding:0; }
+.si-transform-top { margin-bottom:6px; }
+.si-transform-top .si-name { font-size:1.02rem; }
+.si-transform-top .si-art { width:28px; height:28px; }
+/* Side-by-side sprites: source -> result, with the "for species" tag to
+   the right so the player knows who this is for. Multi-target formes
+   (Arceus plates) collapse to a single "choose 1 of N" badge in the
+   result slot. */
+.si-transform-sprites {
+  display:flex; align-items:center; gap:8px; padding:6px 0 7px;
 }
-.si-transform-source, .si-transform-result {
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
-  min-width:0; text-align:center; gap:4px;
+.si-transform-source-mini, .si-transform-result-mini {
+  flex:0 0 auto; display:flex; align-items:flex-end; justify-content:center;
+  min-width:54px; min-height:48px;
 }
-.si-transform-source > .anim-mon { display:block; margin:4px auto 1px; }
-.si-transform-source > b { color:#fff; font-size:.85rem; overflow-wrap:anywhere; }
-.si-transform-source-label {
-  color:var(--ink-3); font-size:.62rem; letter-spacing:1.1px; text-transform:uppercase;
+.si-transform-source-mini .anim-mon, .si-transform-result-mini .anim-mon { display:block; }
+.si-transform-arrow { color:var(--gold); font-size:1.5rem; text-shadow:0 0 14px rgba(255,215,110,.35); }
+.si-transform-mult {
+  display:flex; align-items:center; justify-content:center;
+  min-width:54px; min-height:48px; padding:0 8px;
+  font-size:.72rem; color:var(--ink-2); text-align:center;
+  background:rgba(255,255,255,.08); border-radius:var(--r-sm);
 }
-.si-transform-arrow { color:var(--gold); font-size:2rem; text-shadow:0 0 18px rgba(255,215,110,.35); }
-.si-transform-results { display:flex; align-items:flex-end; justify-content:center; gap:4px; min-width:0; }
-.si-transform-silhouette { display:flex; align-items:flex-end; justify-content:center; min-width:0; }
-.si-transform-silhouette .anim-mon {
-  display:block; filter:brightness(0) saturate(0); animation:evopPulse 2.4s ease-in-out infinite;
+.si-transform-for {
+  flex:1; min-width:0; text-align:right;
+  color:var(--ink-3); font-size:.72rem; line-height:1.25;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
-.si-transform-results.multi .si-transform-silhouette + .si-transform-silhouette { margin-left:-6px; }
-.si-transform-specs {
-  display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:6px;
-  padding:10px 0; border-top:1px solid rgba(255,255,255,.1); border-bottom:1px solid rgba(255,255,255,.1);
-}
-.si-transform-specs > div {
-  display:flex; flex-direction:column; gap:3px; min-width:0; padding:7px 8px;
-  border-radius:var(--r-sm); background:rgba(0,0,0,.16);
-}
-.si-transform-specs b { color:var(--gold); font-size:.65rem; letter-spacing:.7px; text-transform:uppercase; }
-.si-transform-specs span { color:var(--ink-2); font-size:.76rem; line-height:1.25; overflow-wrap:anywhere; }
-.si-transform-desc { margin-top:9px; }
-@media (max-width:600px) {
-  .si-transform-visual { grid-template-columns:minmax(72px,.65fr) auto minmax(150px,1.35fr); gap:8px; }
-  .si-transform-specs { grid-template-columns:repeat(2, minmax(0,1fr)); }
-}
+.si-transform-desc { margin-top:0; font-size:.78rem; }
+.si-transform-desc .si-plain { margin-top:0; display:inline; }
 
 .sell-grid { display:flex; flex-wrap:wrap; gap:7px; }
 .sell-btn {
@@ -749,6 +762,12 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .reward-pick { margin:16px auto 8px; max-width:760px; }
 .reward-pick h3 { margin:0 0 3px; color:var(--ink); }
 .reward-choices { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; margin-top:10px; }
+/* A 4-card row (3 item picks + a "skip for cash" offer) widens the grid
+   but keeps the same gap, so the 4th card sits at the end without
+   compressing the 3 item cards. The skip card is the one that uses the
+   .reward-choice-cash modifier; the grid rule is separate so future
+   4-card offers without cash would still work. */
+.reward-choices-4 { grid-template-columns:repeat(4, minmax(0, 1fr)); }
 .reward-choice { display:flex; align-items:center; gap:8px; min-width:0; padding:10px; text-align:left; color:var(--ink); background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.14); border-radius:10px; }
 .reward-choice:hover, .reward-choice:focus-visible { background:rgba(255,215,110,.14); border-color:var(--gold); }
 .reward-choice.picked { background:rgba(74,222,128,.16); border-color:#4ade80; }
@@ -759,8 +778,25 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .reward-choice-copy small { color:var(--ink-3); font-size:.72rem; }
 .reward-choice-copy em { color:var(--ink-2); font-size:.7rem; font-style:normal; line-height:1.25; }
 .reward-pick-note { margin:9px 0 0; color:var(--gold); }
+/* The "skip for cash" card is a deliberate trade, not an item choice:
+   it has no item sprite, a giant dollar sign in place of one, and a
+   gold-tinted surface so it reads as a different category from the
+   three item cards it sits next to. The picked state is the same
+   green as a real item pick -- a chosen card is a chosen card, and
+   the only state the Continue button needs to track is "picked". */
+.reward-choice-cash { background:linear-gradient(160deg, rgba(255,215,110,.18), rgba(255,215,110,.05)); border-color:rgba(255,215,110,.45); }
+.reward-choice-cash:hover, .reward-choice-cash:focus-visible { background:linear-gradient(160deg, rgba(255,215,110,.28), rgba(255,215,110,.10)); border-color:var(--gold); }
+.reward-choice-cash .reward-choice-copy b { color:var(--gold); }
+.reward-choice-cash-art {
+  width:42px; height:42px; border-radius:50%;
+  background:linear-gradient(160deg, var(--gold), #f0a93a);
+  color:#231a00; font-weight:700; font-size:1.55rem; line-height:1;
+  display:grid; place-items:center;
+  box-shadow:0 0 14px rgba(255,215,110,.45);
+  text-shadow:0 1px 0 rgba(255,255,255,.25);
+}
 @media (max-width:420px) {
-  .reward-choices { grid-template-columns:1fr; }
+  .reward-choices, .reward-choices-4 { grid-template-columns:1fr; }
 }
 .losses { margin:14px 0; }
 .losses h4 { color:#ff8b95; font-size:.95rem; margin-bottom:8px; }
@@ -1401,16 +1437,19 @@ textarea.search.save-code {
 .x-bag-head { display:flex; align-items:baseline; gap:10px; margin-bottom:10px; }
 .x-bag-title { font-size:1.3rem; color:var(--gold); }
 .x-bag-note { font-size:.74rem; color:var(--ink-3); margin-left:auto; }
-.bag-group + .bag-group { margin-top:12px; }
-.bag-label {
-  font-size:.66rem; letter-spacing:1.6px; text-transform:uppercase;
-  color:var(--ink-3); margin-bottom:6px;
-}
+/* A single 2-column grid replaces the old per-category stacks, so with only
+   1 ball + 1 medicine the two tiles sit side by side on a single row. A
+   tiny category chip on every tile preserves the kind (Ball / Heal / Held
+   / Evo / Forme / Mega) the old per-group headers used to carry. */
 .bag-items { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
-@media (max-width:380px) { .bag-items { grid-template-columns:1fr; } }
 /* an equipped item reads as attached to its holder, not as loose stock */
 .owned-item.held { background:rgba(255,215,110,.09); }
 .owned-item.held:hover { background:rgba(255,215,110,.17); }
+.oi-cat {
+  position:absolute; top:4px; right:5px;
+  font-size:.52rem; letter-spacing:.7px; text-transform:uppercase;
+  color:var(--ink-3); opacity:.85;
+}
 .oi-who {
   display:block; font-style:normal; font-size:.7rem; color:var(--gold);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -1558,14 +1597,14 @@ textarea.search.save-code {
 /* ===== OWNED ITEMS (above the shop) ===== */
 .owned-grid { margin-bottom:6px; }
 .owned-item {
-  display:flex; align-items:center; gap:9px; padding:10px 14px;
+  position:relative; display:flex; align-items:center; gap:9px; padding:10px 14px;
   border-radius:var(--r-md); background:rgba(255,255,255,.10); color:var(--ink);
   text-align:left; min-width:0;
   transition:background-color .15s, transform .12s;
 }
 .owned-item:hover { background:rgba(255,255,255,.16); transform:translateY(-2px); }
 .oi-art { flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:28px; }
-.oi-n { flex:1; min-width:0; font-size:.9rem; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.oi-n { flex:1; min-width:0; font-size:.9rem; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:28px; }
 .oi-q { font-size:.78rem; color:var(--ink-3); }
 .owned-empty {
   grid-column:1 / -1; padding:12px 2px; font-size:.86rem; color:var(--ink-3);
@@ -2382,6 +2421,52 @@ body.coach-sheet-open .coach-spot { z-index:850; box-shadow:none; }
 .mode-points span { color:rgba(255,255,255,.68); font-size:.8rem; line-height:1.4; }
 .mode-actions { margin-top:12px; }
 .mode-actions .coach-skip { min-height:36px; }
+
+/* ---- "use the item you just bought?" popup ----
+   Shown right after a Mega Stone or Forme Change item is purchased. A
+   silhouette preview of the transformation sits at the top, the item name
+   +1-line description follow, and the "for {pokemon}" line names the
+   already-known target. Two equally weighted buttons: the affirmative
+   "Use now" leads with the brand primary, "Save for later" is a
+   secondary so a player who doesn't want to use the item has an obvious
+   out at the same size. */
+.use-transform-card {
+  max-width:420px; padding:18px 18px 16px;
+  display:flex; flex-direction:column; align-items:center; text-align:center;
+}
+.use-transform-art {
+  display:flex; align-items:flex-end; justify-content:center; gap:10px;
+  margin:2px 0 10px; min-height:78px;
+}
+.use-transform-art .ut-from,
+.use-transform-art .ut-to {
+  display:flex; flex-direction:column; align-items:center; min-width:0;
+}
+.use-transform-art .ut-arrow {
+  color:var(--gold); font-size:1.6rem; text-shadow:0 0 14px rgba(255,215,110,.35);
+  padding-bottom:6px;
+}
+.use-transform-art .ut-silhouette {
+  filter:brightness(0) saturate(0); opacity:.85;
+}
+.use-transform-art .ut-label {
+  margin-top:4px; color:var(--ink-3); font-size:.68rem; letter-spacing:1px;
+  text-transform:uppercase;
+}
+.use-transform-title {
+  color:#fff; font-size:1.05rem; font-weight:600; margin:0 0 4px;
+}
+.use-transform-sub {
+  color:rgba(255,255,255,.72); font-size:.85rem; line-height:1.45;
+  margin:0 0 8px;
+}
+.use-transform-pokemon {
+  color:rgba(255,255,255,.6); font-size:.78rem; margin:0 0 14px;
+}
+.use-transform-pokemon b { color:#fff; }
+.use-transform-actions { width:100%; display:flex; flex-direction:column; gap:8px; }
+.use-transform-actions .btn-primary,
+.use-transform-actions .btn-secondary { width:100%; }
 
 /* ---- the guide ---- */
 .guide-hero { display:flex; gap:12px; align-items:center; margin:0 0 18px; }

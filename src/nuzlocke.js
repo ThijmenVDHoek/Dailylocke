@@ -879,6 +879,25 @@
   function battleRewardChoices(run) {
     // Team Gauntlet is deliberately item-free, just like its existing rules.
     if (!run || isGauntlet(run)) return [];
+    // The party can only USE evolution items that one of its living members
+    // has a real evolution-requirement for. Building the pool from
+    // allEvolutionItems() put Dragon Scales and every stone into the offer
+    // even when no party member needed them -- an item the player can never
+    // spend is a wasted card. Restrict the broader evo pool to that
+    // "usable" set: a Fire Stone only appears if a living party member has
+    // a Fire Stone evolution, a Link Cable only if a trade evolution is
+    // actually available, etc. An empty party means the evo pool is empty
+    // too, and the three cards all come from the held tiers.
+    var usableEvoSet = {};
+    var relevant = [];
+    if (window.Evo) {
+      window.Evo.relevantItems(run).forEach(function (entry) {
+        usableEvoSet[entry.id] = 1;
+        if (ownsItem(run, entry.id)) return;
+        var info = rewardItemInfo(entry.id, 'evo');
+        if (info) relevant.push(info);
+      });
+    }
     var evoIds = window.Evo ? window.Evo.allEvolutionItems() : [];
     var evoSet = {};
     evoIds.forEach(function (id) { evoSet[id] = 1; });
@@ -886,7 +905,12 @@
     var seen = {};
     function add(id, kind) {
       if (!id || seen[id] || C.BALLS[id] || C.HEAL_ITEMS[id]) return;
-      if (kind === 'evo' && !evoSet[id]) return;
+      if (kind === 'evo') {
+        // The "usable" gate: an evo item must be one the party can actually
+        // spend. relevantItems() already computed the set we need.
+        if (!usableEvoSet[id]) return;
+        if (!evoSet[id]) return;
+      }
       var valid = kind === 'evo'
         ? !!(window.Evo && window.Evo.itemExists(id))
         : !!Dex.items.get(id).exists;
@@ -895,12 +919,16 @@
       pool.push(rewardItemInfo(id, kind));
     }
 
-    // Put items relevant to the current party first, then let the broader
-    // evolution pool fill out the offer. This keeps the choice useful without
-    // making the reward deterministic for every species.
+    // Build the broader pool. The relevant items (already gathered above)
+    // double as part of the pool, so the freshness filter and the fallback
+    // path see them too. Held items stay unfiltered: most held items are
+    // useful to any Pokemon, and the held pool is what fills the offer when
+    // the party has no evolutions left to make.
     if (window.Evo) {
-      window.Evo.relevantItems(run).forEach(function (entry) { add(entry.id, 'evo'); });
-      evoIds.forEach(function (id) { add(id, 'evo'); });
+      // Add the relevant evo items first so the freshness filter and the
+      // seed share see them in a stable order.
+      relevant.forEach(function (entry) { add(entry.id, 'evo'); });
+      Object.keys(usableEvoSet).forEach(function (id) { add(id, 'evo'); });
     }
     Object.keys(C.ITEM_TIERS).forEach(function (tierName) {
       C.ITEM_TIERS[tierName].forEach(function (id) { add(id, 'held'); });
@@ -909,8 +937,34 @@
     var rand = C.mulberry32(C.hashString(run.seed + '|item-reward|' + run.section + '|' +
       run.battleInSection + '|' + (run._shopSeq || 0)));
     var fresh = pool.filter(function (entry) { return !ownsItem(run, entry.id); });
-    var source = fresh.length >= 3 ? fresh : pool;
-    return C.pickN(source, Math.min(3, source.length), rand);
+
+    // 1. Relevant (unowned) first: an item a living party member needs is
+    //    the most useful pick the player can make, so lead with the relevant
+    //    list and let seeded randomness shuffle the order.
+    if (relevant.length >= 3) {
+      return C.pickN(relevant, 3, rand);
+    }
+
+    // 2. Fill the remaining slots from the broader unowned pool, then from
+    //    the full pool only as a last resort so the player still gets three
+    //    cards. Each filler list is shuffled with the same seeded RNG so the
+    //    offer still varies between runs of the same seed.
+    var taken = {};
+    var out = relevant.slice();
+    out.forEach(function (entry) { taken[entry.id] = 1; });
+    if (out.length < 3) {
+      var fillers = fresh.filter(function (entry) { return !taken[entry.id]; });
+      var extras = C.pickN(fillers, 3 - out.length, rand);
+      extras.forEach(function (entry) { taken[entry.id] = 1; out.push(entry); });
+    }
+    if (out.length < 3) {
+      pool.forEach(function (entry) {
+        if (out.length >= 3 || taken[entry.id]) return;
+        taken[entry.id] = 1;
+        out.push(entry);
+      });
+    }
+    return out;
   }
 
   // ---------------------------------------------------------------- MART ---

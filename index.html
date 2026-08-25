@@ -604,6 +604,27 @@
     </div>
   </div>
 
+  <!-- ===================== USE TRANSFORM ITEM (overlay) ===================== -->
+  <!-- Confirmation popup shown immediately after buying a Mega Stone or Forme
+       Change item: do you want to use it now, or save it for later? Items are
+       party-specific (Mega Stones only work for one species; forme items only
+       change one base forme) so the popup already knows which Pokemon the item
+       targets. -->
+  <div id="screenUseTransform" class="overlay" hidden>
+    <div class="overlay-card mode-card use-transform-card">
+      <div class="use-transform-art" id="useTransformArt"></div>
+      <div class="use-transform-title" id="useTransformTitle"></div>
+      <p class="use-transform-sub" id="useTransformSub"></p>
+      <p class="use-transform-pokemon">
+        For <b id="useTransformPokemon"></b>
+      </p>
+      <div class="use-transform-actions">
+        <button type="button" id="btnUseTransformYes" class="btn-primary wide">Use now</button>
+        <button type="button" id="btnUseTransformNo" class="btn-secondary wide">Save for later</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===================== GUIDE ===================== -->
   <!-- Every lesson, permanently re-readable. This is what licenses the game
        to stop nagging: if someone gets stuck later, the answer is here rather

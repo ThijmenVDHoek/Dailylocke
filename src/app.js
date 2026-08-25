@@ -308,89 +308,107 @@
     return out;
   }
 
-  function transformTypeSpec(info) {
-    var before = (info.from.types || []).join(' / ');
-    var after = distinctValues(info.targets.map(function (target) {
-      return (Dex.species.get(target.id).types || []).join(' / ');
-    }));
-    if (after.length > 1) return 'varies by result';
-    return before === after[0] ? before + ' (unchanged)' : before + ' → ' + after[0];
-  }
+  // The old full-size tile (transformTypeSpec / transformStatSpec /
+  // transformBstSpec / transformAbilitySpec / transformSilhouettes) was
+  // replaced by transformBenefit() + a compact two-sprite preview. Those
+  // functions are intentionally gone: the card this small has no room for
+  // five spec cells, and "varies by result" is exactly the line a player
+  // will skip. The helpers below intentionally do not call them.
 
-  function transformStatSpec(info) {
-    var before = info.from.baseStats || {};
-    var lines = info.targets.map(function (target) {
-      var after = Dex.species.get(target.id).baseStats || {};
-      var changes = [];
-      TRANSFORM_STATS.forEach(function (stat) {
-        var delta = (after[stat[0]] || 0) - (before[stat[0]] || 0);
-        if (delta) changes.push(stat[1] + ' ' + (delta > 0 ? '+' : '') + delta);
-      });
-      return changes.length ? changes.join(' · ') : 'no base-stat change';
+  // One-line summary of the most consequential change a forme / mega stone
+  // makes, so the compact shop tile can still show "what does this do?" at a
+  // glance. Order of preference: type change, then a real stat deltas, then
+  // ability swap. Lines that say "unchanged" or "varies by result" are
+  // dropped -- they are noise on a card this small. Returns an empty string
+  // if nothing meaningful changed.
+  function transformBenefit(info) {
+    var before;
+    var after;
+    // 1. Type change (only if it actually changes).
+    before = (info.from.types || []).join(' / ');
+    after = distinctValues(info.targets.map(function (t) {
+      return (Dex.species.get(t.id).types || []).join(' / ');
+    }));
+    if (after.length === 1 && after[0] !== before) {
+      return 'Type: ' + before + ' \u2192 ' + after[0];
+    }
+    // 2. Stat deltas (only the non-zero ones, condensed).
+    before = info.from.baseStats || {};
+    after = info.targets.map(function (t) {
+      return Dex.species.get(t.id).baseStats || {};
     });
-    return distinctValues(lines).length === 1 ? lines[0] : 'varies by result';
-  }
-
-  function transformBstSpec(info) {
-    var before = C.bst(info.from.id);
-    var after = distinctValues(info.targets.map(function (target) { return C.bst(target.id); }));
-    if (after.length > 1) return before + ' → varies by result';
-    var delta = after[0] - before;
-    return before + ' → ' + after[0] + ' (' + (delta > 0 ? '+' : '') + delta + ')';
-  }
-
-  function transformAbilitySpec(info) {
-    var before = firstAbility(info.from);
-    var after = distinctValues(info.targets.map(function (target) {
-      return firstAbility(Dex.species.get(target.id));
+    if (after.length === 1) {
+      var b2 = after[0];
+      var parts = [];
+      TRANSFORM_STATS.forEach(function (s) {
+        var d = (b2[s[0]] || 0) - (before[s[0]] || 0);
+        if (d) parts.push(s[1] + (d > 0 ? ' +' : ' ') + d);
+      });
+      if (parts.length) return 'Stats: ' + parts.join(' \u00b7 ');
+    } else {
+      // Multi-target forme (e.g. Arceus plates): each target gives a different
+      // type, so mention the type roster once.
+      var types = distinctValues(info.targets.map(function (t) {
+        return (Dex.species.get(t.id).types || []).join(' / ');
+      }));
+      if (types.length && types.join(' / ') !== before) {
+        return 'Type: ' + before + ' \u2192 ' + types.join(' / ');
+      }
+    }
+    // 3. Ability swap.
+    before = firstAbility(info.from);
+    after = distinctValues(info.targets.map(function (t) {
+      return firstAbility(Dex.species.get(t.id));
     }));
-    if (after.length > 1) return 'varies by result';
-    return before === after[0] ? (after[0] || 'unchanged') + ' (unchanged)' :
-      (before || 'none') + ' → ' + (after[0] || 'none');
+    if (after.length === 1 && after[0] && after[0] !== before) {
+      return 'Ability: ' + (before || 'none') + ' \u2192 ' + after[0];
+    }
+    return '';
   }
 
-  function transformSilhouettes(info) {
-    var cls = info.targets.length > 1 ? ' multi' : '';
-    return '<div class="si-transform-results' + cls + '">' +
-      info.targets.slice(0, 4).map(function (target) {
-        return '<span class="si-transform-silhouette" aria-label="Result silhouette">' +
-          animSprite(target.id, info.targets.length > 1 ? 84 : 116,
-            info.targets.length > 1 ? 92 : 126, '', 1.25) + '</span>';
-      }).join('') + '</div>';
+  // Same one-line benefit string transformShopTileHtml() uses internally, but
+  // available as a standalone helper for the plain shop tile path. Forme /
+  // mega items have no plain one-liner in the coach module (both itemOneLiner
+  // and heldPlain return null for them), so we derive a short spec line
+  // here. Returns '' if there's nothing meaningful to say.
+  function formeBenefitHtml(entry) {
+    var info = martTransformInfo(entry);
+    if (!info) return '';
+    var line = transformBenefit(info);
+    return line ? '<span class="si-plain">' + escapeHtml(line) + '</span>' : '';
   }
 
   function transformShopTileHtml(entry) {
     var info = martTransformInfo(entry);
     if (!info) return '';
-    var type = entry.kind === 'mega' ? 'Mega transformation' : 'Permanent forme change';
-    var description = entry.kind === 'mega'
-      ? 'Use during battle to temporarily transform this Pokemon.'
-      : 'Use from the team to permanently change this Pokemon\'s forme.';
-    var targetCount = info.targets.length > 1 ? ' · choose 1 of ' + info.targets.length + ' results' : '';
     var price = entry.sale ? '$' + entry.price + ' sale' : '$' + entry.price;
+    // Source sprite (the holder) and a single result sprite, side by side.
+    // The "for {species}" chip on the right is the small inline label so
+    // the player can read at a glance which Pokemon this is meant for.
+    var ownerName = entry.forSpecies || speciesOf(info.owner);
+    var single = info.targets.length === 1;
     return '<div class="si-transform-card">' +
       '<div class="si-top si-transform-top">' +
-        (window.ItemArt ? window.ItemArt.itemImg(entry.id, 38, 'si-art') : '') +
+        (window.ItemArt ? window.ItemArt.itemImg(entry.id, 32, 'si-art') : '') +
         '<span class="si-name">' + escapeHtml(entry.name) + '</span>' +
         '<span class="si-price' + (entry.sale ? ' sale' : '') + '">' + price + '</span>' +
       '</div>' +
-      '<div class="si-transform-visual">' +
-        '<div class="si-transform-source"><span class="si-transform-source-label">Your Pokemon</span>' +
-          animSprite(info.owner.id, 58, 66, '', 1.15, info.owner.shiny) +
-          '<b>' + escapeHtml(entry.forSpecies || speciesOf(info.owner)) + '</b></div>' +
-        '<span class="si-transform-arrow" aria-hidden="true">→</span>' +
-        '<div class="si-transform-result"><span class="si-transform-source-label">Result' + targetCount + '</span>' +
-          transformSilhouettes(info) + '</div>' +
+      '<div class="si-transform-sprites">' +
+        '<span class="si-transform-source-mini">' +
+          animSprite(info.owner.id, 48, 54, '', 1.15, info.owner.shiny) +
+        '</span>' +
+        '<span class="si-transform-arrow" aria-hidden="true">\u2192</span>' +
+        '<span class="si-transform-result-mini">' +
+          (single
+            ? animSprite(info.targets[0].id, 48, 54, '', 1.15, false)
+            : '<span class="si-transform-mult">choose 1 of ' + info.targets.length + '</span>') +
+        '</span>' +
+        '<span class="si-transform-for">for ' + escapeHtml(ownerName) + '</span>' +
       '</div>' +
-      '<div class="si-transform-specs">' +
-        '<div><b>Type</b><span>' + escapeHtml(transformTypeSpec(info)) + '</span></div>' +
-        '<div><b>Base stats</b><span>' + escapeHtml(transformStatSpec(info)) + '</span></div>' +
-        '<div><b>BST</b><span>' + escapeHtml(transformBstSpec(info)) + '</span></div>' +
-        '<div><b>Ability</b><span>' + escapeHtml(transformAbilitySpec(info)) + '</span></div>' +
-        '<div><b>Duration</b><span>' + escapeHtml(type) + '</span></div>' +
+      '<div class="si-desc si-transform-desc">' +
+        escapeHtml(transformBenefit(info) ||
+          (entry.kind === 'mega' ? 'Mega stone.' : 'Forme change.')) +
       '</div>' +
-      '<div class="si-desc si-transform-desc">' + escapeHtml(description) + '</div>' +
-      '<div class="si-hot">✦ available for ' + escapeHtml(entry.forSpecies || speciesOf(info.owner)) + '</div>' +
       (run.bag[entry.id] ? '<div class="si-own">owned: ' + run.bag[entry.id] + '</div>' : '') +
     '</div>';
   }
@@ -2195,7 +2213,10 @@
       h.className = 'sub-title'; h.textContent = groups[k];
       grid.appendChild(h);
       var wrap = document.createElement('div');
-      wrap.className = 'shop-grid';
+      // Forme and Mega shelves render as a horizontal carousel so the compact
+      // tiles sit side by side and scroll if there are more than the screen
+      // can fit. Ordinary groups keep the 2-column grid.
+      wrap.className = 'shop-grid' + (k === 'forme' || k === 'mega' ? ' forme-carousel' : '');
       items.forEach(function (e) {
         // Unique stock (Mega Stones): if you already own one, don't offer it
         // again. Selling it removes it from the bag, so it comes straight back.
@@ -2231,7 +2252,7 @@
         d.innerHTML = transformHtml || tipHtml +
           '<div class="si-top">' + artHtml + '<span class="si-name">' + e.name + '</span>' +
           '<span class="si-price' + (e.sale ? ' sale' : '') + '">' + (sold ? 'SOLD' : '$' + e.price) + '</span></div>' +
-          '<div class="si-desc">' + (e.desc || '') + plainHtml + '</div>' +
+          '<div class="si-desc">' + plainHtml + (e.kind === 'forme' || e.kind === 'mega' ? formeBenefitHtml(e) : '') + '</div>' +
           (e.kind === 'evo' ? '<div class="si-tag evo">evolution</div>' : '') +
           (e.kind === 'mega' ? '<div class="si-tag mega">mega stone</div>' : '') +
           (e.kind === 'forme' ? '<div class="si-tag forme">forme change</div>' : '') +
@@ -2293,6 +2314,150 @@
     // arm the next, single team-card target instead of making the player guess
     // where the candy is supposed to be used.
     if (run && run.prologue && run.section === 2) shopCoach();
+    // Mega Stones and Forme Change items are party-specific: the shop entry
+    // already knows exactly which Pokemon the item is for, so a confirmation
+    // popup is the natural next step. Without it a player buys a stone, walks
+    // back to the team, and may not even remember which member it was meant
+    // for by the time they get there. Items that aren't player-specific
+    // (balls, Full Restore, ordinary held items) keep their silent flow.
+    if (e.kind === 'mega' || e.kind === 'forme') {
+      offerUseTransform(e);
+    }
+  }
+
+  // ---- "use the item you just bought?" popup ---------------------------
+  // Mega Stones and Forme Change items are always sold in the shop with a
+  // `forSpecies` (and forme items also carry their target forme). That lets the
+  // popup name the Pokemon, preview the change as a silhouette, and offer a
+  // single "Use now" without forcing the player to dig through the team
+  // strip. The popup is one-shot: closing it (any way) records that the
+  // player was offered, so a refresh during the dialog doesn't re-trigger it.
+  function offerUseTransform(entry) {
+    if (!entry || !run || N.isGauntlet(run)) return;
+    var owner = martTransformOwner(entry);
+    if (!owner) return;       // no eligible party member any more (fainted?): skip
+    var formeId = null, kind = entry.kind;
+    if (kind === 'forme' && window.Forme) {
+      var ts = window.Forme.targetsFor(owner, entry.id);
+      if (!ts.length) return;     // item no longer usable (e.g. party changed)
+      formeId = ts[0].id;
+    } else if (kind === 'mega' && window.Mega) {
+      var info = window.Mega.infoFor(entry.id);
+      if (!info) return;
+      formeId = info.forme;
+    } else return;
+
+    // The item is now in the bag. Spend the bag count so the popup reflects
+    // reality, but do not commit a save until the player commits either way
+    // (so "Save for later" leaves the item exactly where they expect it).
+    var bagCount = run.bag[entry.id] || 0;
+    run.bag[entry.id] = bagCount - 1;
+    if (run.bag[entry.id] <= 0) delete run.bag[entry.id];
+    saveGame();
+    drawMart(); drawOwned();
+
+    var title, sub;
+    if (kind === 'mega') {
+      title = 'Use ' + entry.name + '?';
+      sub = entry.desc || 'Mega stones let this Pokemon Mega Evolve in battle.';
+    } else {
+      title = 'Change to ' + (formeId ? Dex.species.get(formeId).name + '?' : 'this forme?');
+      sub = entry.desc || 'This item changes ' + owner.name + '\u2019s forme.';
+    }
+
+    $('useTransformTitle').textContent = title;
+    $('useTransformSub').textContent = sub;
+    $('useTransformPokemon').textContent = monDisplayName(owner) + ' (' + speciesOf(owner) + ')';
+
+    // The art is a from -> arrow -> silhouette (or revealed sprite) of the
+    // forme. Use the same compact preview as the shop tile so the popup and
+    // the card it came from look like one decision, not two.
+    var artHtml;
+    if (formeId) {
+      var reveal = kind === 'forme';
+      artHtml = '<div class="ut-from">' + animSprite(owner.id, 56, 64, '', 1.15, owner.shiny) +
+        '<span class="ut-label">Now</span></div>' +
+        '<span class="ut-arrow" aria-hidden="true">\u2192</span>' +
+        '<div class="ut-to">' + evoPreviewHtml(owner.id, formeId, { reveal: reveal }) +
+        '<span class="ut-label">' + escapeHtml(Dex.species.get(formeId).name) + '</span></div>';
+    } else {
+      artHtml = '<div class="ut-from">' + animSprite(owner.id, 56, 64, '', 1.15, owner.shiny) +
+        '<span class="ut-label">' + escapeHtml(speciesOf(owner)) + '</span></div>';
+    }
+    $('useTransformArt').innerHTML = artHtml;
+
+    var done = false;
+    function close() {
+      if (done) return;
+      done = true;
+      window.Modal.close('screenUseTransform');
+    }
+    // Refund + save the player's no on close (Escape, click outside, Cancel).
+    function refundItem() {
+      run.bag[entry.id] = (run.bag[entry.id] || 0) + 1;
+      saveGame();
+    }
+    function applyNow() {
+      applyTransformItem(owner, entry, formeId, kind);
+    }
+
+    var yesBtn = $('btnUseTransformYes');
+    var noBtn = $('btnUseTransformNo');
+    yesBtn.onclick = function () { close(); applyNow(); };
+    noBtn.onclick = function () { refundItem(); close(); };
+
+    // First-time auto-focus on the affirmative: a player who just bought the
+    // stone is most likely going to use it, and a stray Enter should
+    // commit, not dismiss the popup.
+    window.Modal.open('screenUseTransform', {
+      initialFocus: yesBtn,
+      onClose: function () {
+        if (done) return;       // close() already handled
+        // Closed by Escape / outside-click / X: keep the item. Same effect
+        // as "Save for later" without taking the user through a second tap.
+        done = true;
+      }
+    });
+  }
+
+  // Apply a freshly-bought Mega Stone or Forme Change item to a specific
+  // party member. Mega Stones are equipped as held items; the actual mega
+  // evolution is a battle-only effect (the engine does the work in-fight).
+  // Forme Change items can be held (Plates, Drives, Memories -- the mon
+  // changes forme immediately and keeps the item) or one-shot key tools
+  // (Gracidea, Reveal Glass -- consumed on use, mon ends up holding nothing).
+  // `setHeldItemAndEnforce` in forme.js handles both held-formes and the
+  // forme tool case; we only run a separate animation when the forme has
+  // actually changed, so an Arceus plate just equips and the game keeps
+  // moving.
+  async function applyTransformItem(mon, entry, formeId, kind) {
+    if (!run || !mon) return;
+    var itemId = entry.id;
+    if (kind === 'mega') {
+      // Mega stones are HELD items, not consumed. Give one to the bag
+      // (the popup already decremented; this is the one being equipped) and
+      // equip it via the forme-equip path so the engine sees it before the
+      // next battle. enforceHeldForme for a Mega is a no-op (the forme
+      // doesn't change in the overworld), so this is just a safe equip.
+      N.addItem(run, itemId, 1);
+      try {
+        if (window.Forme && window.Forme.setHeldItemAndEnforce) {
+          await window.Forme.setHeldItemAndEnforce(run, mon, itemId);
+        } else {
+          mon.item = itemId;
+        }
+      } catch (e) { console.warn('[transform] equip failed', e); }
+      N.logMsg(run, mon.name + ' is now holding ' + entry.name + '.');
+      toast(mon.name + ' can now Mega Evolve with ' + entry.name + '!');
+      drawOwned(); renderHud(); saveGame();
+      return;
+    }
+    // Forme change path: show the same white-out morph the party sheet uses.
+    if (formeId) {
+      startFormeChange(mon, itemId, formeId);
+    } else {
+      toast('Nothing happened.');
+    }
   }
 
   // ------------------------------------------------------ TRAIN POKEMON ---
@@ -3451,6 +3616,11 @@
     return 'held';
   }
 
+  // Inline category chip name shown on every bag item, so the player can tell
+  // Poke Balls from Medicine at a glance even though both live in the same
+  // 2-column grid. Order matches the categories in the Mart.
+  var BAG_GROUP_LABEL = { ball: 'Ball', heal: 'Heal', held: 'Held', evo: 'Evo', forme: 'Forme', mega: 'Mega' };
+
   function drawOwned() {
     var host = $('xOwned');
     if (!host) return;
@@ -3480,35 +3650,35 @@
       return;
     }
 
-    var GROUPS = [['ball', 'Poke Balls'], ['heal', 'Medicine'], ['held', 'Held Items'],
-                  ['evo', 'Evolution Items'], ['forme', 'Forme Change'], ['mega', 'Mega Stones']];
-    var html = '';
-    GROUPS.forEach(function (g) {
-      var mine = ids.filter(function (id) { return bagGroupOf(id) === g[0]; });
-      if (!mine.length) return;
-      html += '<div class="bag-group"><div class="bag-label">' + g[1] + '</div><div class="bag-items">';
-      mine.forEach(function (id) {
-        var e = entries[id];
-        // one row per equipped copy, so you can see who is holding what
-        e.holders.forEach(function (m) {
-          html += '<button class="owned-item held" data-take="' + m.uid + '" data-tip="item:' + id + '">' +
-            '<span class="oi-art">' + (window.ItemArt ? window.ItemArt.itemImg(id, 28) : '') + '</span>' +
-            '<span class="oi-n">' + itemName(id) +
-              '<em class="oi-who">' + escapeHtml(m.name) + '</em></span>' +
-            '<span class="oi-q take">take</span>' +
-            '</button>';
-        });
-        if (e.qty > 0) {
-          html += '<button class="owned-item" data-item="' + id + '" data-tip="item:' + id + '">' +
-            '<span class="oi-art">' + (window.ItemArt ? window.ItemArt.itemImg(id, 28) : '') + '</span>' +
-            '<span class="oi-n">' + itemName(id) + itemPlainHtml(id, 'oi-plain') + '</span>' +
-            '<span class="oi-q">x' + e.qty + '</span>' +
-            '</button>';
-        }
+    // A SINGLE flat 2-column grid replaces the old per-category stacks. With
+    // 1 ball + 1 medicine the two tiles sit side by side on one row; the
+    // grid wraps naturally when more items exist later. A small category
+    // chip on every tile preserves the information the old group headers
+    // used to carry.
+    var cards = [];
+    ids.forEach(function (id) {
+      var e = entries[id];
+      var group = BAG_GROUP_LABEL[bagGroupOf(id)] || '';
+      // one row per equipped copy, so you can see who is holding what
+      e.holders.forEach(function (m) {
+        cards.push('<button class="owned-item held" data-take="' + m.uid + '" data-tip="item:' + id + '">' +
+          (group ? '<span class="oi-cat">' + group + '</span>' : '') +
+          '<span class="oi-art">' + (window.ItemArt ? window.ItemArt.itemImg(id, 28) : '') + '</span>' +
+          '<span class="oi-n">' + itemName(id) +
+            '<em class="oi-who">' + escapeHtml(m.name) + '</em></span>' +
+          '<span class="oi-q take">take</span>' +
+          '</button>');
       });
-      html += '</div></div>';
+      if (e.qty > 0) {
+        cards.push('<button class="owned-item" data-item="' + id + '" data-tip="item:' + id + '">' +
+          (group ? '<span class="oi-cat">' + group + '</span>' : '') +
+          '<span class="oi-art">' + (window.ItemArt ? window.ItemArt.itemImg(id, 28) : '') + '</span>' +
+          '<span class="oi-n">' + itemName(id) + itemPlainHtml(id, 'oi-plain') + '</span>' +
+          '<span class="oi-q">x' + e.qty + '</span>' +
+          '</button>');
+      }
     });
-    host.innerHTML = html;
+    host.innerHTML = '<div class="bag-items">' + cards.join('') + '</div>';
 
     host.querySelectorAll('[data-item]').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -6512,9 +6682,30 @@
       html += '<p class="reward-item">You received a <b>' + escapeHtml(itemName(itemReward)) + '</b>!</p>';
     }
     if (itemChoices.length) {
+      // A fourth "skip for cash" card is always offered alongside the three
+      // item picks. Its cash is calibrated to be a clear downgrade on trainer
+      // battles (where 2x BASE makes the money reward already the larger of
+      // the two) and a close call on wild battles -- an item the party can
+      // actually use tends to be worth more than a cash infusion, so picking
+      // skip is a deliberate trade, not always strictly optimal. The card
+      // sits at the end of the row so the seeded item order is preserved.
+      var skipId = '__skip_for_cash__';
+      var skipCash = Math.round(N.BASE_REWARD * 0.75 *
+        N.rewardMultiplier(run) * N.ascensionRewardBonus(run));
+      var cards = itemChoices.slice();
+      cards.push({ id: skipId, kind: 'cash', name: 'Cash bundle',
+                   desc: '+$' + skipCash.toLocaleString() + ' instead of an item.' });
       html += '<div class="reward-pick"><h3>Choose one reward</h3>' +
-        '<p class="hint">Take one evolution item or held item.</p>' +
-        '<div class="reward-choices">' + itemChoices.map(function (entry) {
+        '<p class="hint">Take one evolution item, held item, or trade all three for cash.</p>' +
+        '<div class="reward-choices reward-choices-4">' + cards.map(function (entry) {
+          if (entry.id === skipId) {
+            // Cash card: a money-themed pill in place of an item sprite.
+            return '<button type="button" class="reward-choice reward-choice-cash" data-reward-id="' +
+              escapeHtml(entry.id) + '"><span class="reward-choice-art reward-choice-cash-art">' +
+              '$</span><span class="reward-choice-copy"><b>' + escapeHtml(entry.name) +
+              '</b><small>Skip items</small><em>' + escapeHtml(entry.desc) +
+              '</em></span></button>';
+          }
           var kind = entry.kind === 'evo' ? 'Evolution item' : 'Held item';
           return '<button type="button" class="reward-choice" data-reward-id="' +
             escapeHtml(entry.id) + '"><span class="reward-choice-art">' +
@@ -6535,19 +6726,41 @@
     $('rewardBody').querySelectorAll('[data-reward-id]').forEach(function (button) {
       button.addEventListener('click', function () {
         if (button.disabled) return;
+        var pickedId = button.dataset.rewardId;
+        // The 4th card is a cash-only sentinel: the sentinel is not in
+        // itemChoices, so it does not go through N.addItem, and its picked
+        // value is the run.money figure computed up front. Disable every
+        // other card on the way to it, mark the chosen one, and only
+        // enable Continue once the player has actually picked one.
+        var isSkip = pickedId === skipId;
         var picked = null;
         for (var ri = 0; ri < itemChoices.length; ri++) {
-          if (itemChoices[ri].id === button.dataset.rewardId) { picked = itemChoices[ri]; break; }
+          if (itemChoices[ri].id === pickedId) { picked = itemChoices[ri]; break; }
         }
-        if (!picked) return;
+        if (!isSkip && !picked) return;
         itemChoices.forEach(function (entry) {
           var node = $('rewardBody').querySelector('[data-reward-id="' + entry.id + '"]');
           if (node) { node.disabled = true; node.classList.toggle('picked', node === button); }
         });
-        N.addItem(run, picked.id, 1);
-        N.logMsg(run, 'You chose ' + picked.name + ' as your battle reward.');
-        var note = $('rewardBody').querySelector('.reward-pick-note');
-        if (note) note.textContent = picked.name + ' added to your bag.';
+        // Disable the cash card too once it's been picked (the loop above
+        // doesn't know about it). It is already marked .picked via the
+        // toggle on the actual node the player clicked.
+        if (isSkip) {
+          var skipNode = $('rewardBody').querySelector('[data-reward-id="' + skipId + '"]');
+          if (skipNode) { skipNode.disabled = true; skipNode.classList.add('picked'); }
+          run.money = (Number(run.money) || 0) + skipCash;
+          if (run.sectionStats) {
+            run.sectionStats.money = (Number(run.sectionStats.money) || 0) + skipCash;
+          }
+          N.logMsg(run, 'You took the cash (+$' + skipCash.toLocaleString() + ').');
+          var note2 = $('rewardBody').querySelector('.reward-pick-note');
+          if (note2) note2.textContent = '+$' + skipCash.toLocaleString() + ' added to your money.';
+        } else {
+          N.addItem(run, picked.id, 1);
+          N.logMsg(run, 'You chose ' + picked.name + ' as your battle reward.');
+          var note = $('rewardBody').querySelector('.reward-pick-note');
+          if (note) note.textContent = picked.name + ' added to your bag.';
+        }
         continueBtn.disabled = false;
         saveGame();
       });
