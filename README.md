@@ -228,11 +228,13 @@ in a Daily moved to Free Play).
 (*"Skip tips"* from any card, or turning tips off in Profile mid-run, also
 ends the tutorial and hands over the ordinary game.)
 
-**3. Just-in-time lessons.** Every remaining lesson fires on an
-*interaction*, never a timer, and all of them render on the same surfaces as
-the tutorial: the professor's **dialog sheet** out of battle (modal, big
-portrait, typewriter reveal, dialogue first, one action after) and the
-**anchored bubble** in battle. When a lesson is *about* an element (the ball
+**3. Just-in-time lessons.** During the guided run, each remaining lesson
+fires on an *interaction*, never a timer, and all of them render on the same
+surfaces as the tutorial: the professor's **dialog sheet** out of battle
+(modal, big portrait, typewriter reveal, dialogue first, one action after) and
+the **anchored bubble** in battle. Experienced players are not interrupted by
+these automatic lessons; they can open the Guide whenever they want a refresher.
+When a lesson is *about* an element (the ball
 rail, the Party button, the Save progress button) that element pulses for as
 long as the card is up — and while the tutorial waits for it to actually be
 pressed, everything around it dims so the one valid next step is unmistakable.

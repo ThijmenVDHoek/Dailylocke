@@ -1126,11 +1126,11 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
     return null;
   };
 
-  // Free Play now shows a one-time mode explainer before the run starts.
-  // Dismiss it the way a player would, then carry on.
+  // Returning/experienced players go straight into Free Play. The mode
+  // explainer is part of onboarding, not an automatic interruption.
   window.document.getElementById('btnNewRun').click();
-  const modeSheet = await waitFor(() => !window.document.getElementById('screenModeInfo').hidden, 4000);
-  check('a first Free Play press explains the mode first', !!modeSheet);
+  const modeSheet = await waitFor(() => !window.document.getElementById('screenModeInfo').hidden, 1000);
+  check('ordinary Free Play skips the mode explainer', !modeSheet);
   if (modeSheet) window.document.getElementById('btnModeGo').click();
   const starter = await waitFor(() => window.document.querySelector('#starterGrid .pick-btn'));
   check('a Free Play run reaches starter selection', !!starter);
@@ -1143,16 +1143,13 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   }
   const route = await waitFor(() => !window.document.getElementById('screenCrossroads').hidden);
   check('choosing a starter reaches the route', !!route);
-  // Every lesson is the professor's modal sheet now: the route beat ("The
-  // path") lands the moment the crossroads first appears. Play the player:
-  // read the title, dismiss the sheet, and only then act on what is under it.
-  const routeSheet = await waitFor(() => !window.document.getElementById('screenCoach').hidden, 4000);
-  check('the first route visit opens the professor sheet',
-    !!routeSheet &&
-    window.document.getElementById('coachTitle').textContent === 'The path');
+  // Ordinary runs do not receive automatic Professor Oak dialogue. The
+  // Guide remains available when a player explicitly asks for help.
+  const routeSheet = await waitFor(() => !window.document.getElementById('screenCoach').hidden, 1000);
+  check('ordinary Free Play has no automatic route dialogue', !routeSheet);
   if (routeSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
   await new Promise((r) => setTimeout(r, 140));
-  check('dismissing the route sheet releases the dialog stack', window.Modal.depth === 0);
+  check('ordinary Free Play leaves the route dialog-free', window.Modal.depth === 0);
 
   if (route) {
     // Use a known one-step level evolution so the party sheet always offers a
@@ -1171,13 +1168,10 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
       stripSprite && stripSprite.getAttribute('style'));
 
     window.document.querySelector('#xTeam .tslot[data-i="0"]').click();
-    // The evolution lesson stacks over the party sheet as its own modal
-    // (every lesson is the professor's sheet now). Dismiss it before
-    // touching the sheet beneath, exactly like a player must.
-    const evoSheet = await waitFor(() => window.Modal.isOpen('screenCoach'), 4000);
-    check('inspecting an evolution opens its professor sheet',
-      !!evoSheet &&
-      window.document.getElementById('coachTitle').textContent === 'Evolve your starter');
+    // Evolution is a normal action for an experienced player, not an
+    // automatic teaching interruption outside the guided tutorial.
+    const evoSheet = await waitFor(() => window.Modal.isOpen('screenCoach'), 1000);
+    check('ordinary evolution inspection has no automatic professor sheet', !evoSheet);
     if (evoSheet) window.document.querySelector('#screenCoach [data-coach-ok]').click();
     await new Promise((r) => setTimeout(r, 140));
     const evoButton = window.document.querySelector('#xTeamDetail .evo-btn.ready');
@@ -2123,9 +2117,10 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   const gBtn = doc.getElementById('btnGauntlet');
   check('the title offers the Team Gauntlet', !!gBtn && /team gauntlet/i.test(gBtn.textContent));
   gBtn.click();
-  // Same one-time explainer as Free Play; a player taps through it.
-  const gModeSheet = await waitFor(() => !doc.getElementById('screenModeInfo').hidden, 4000);
-  check('a first Gauntlet press explains the mode first', !!gModeSheet);
+  // Experienced players enter the Gauntlet directly; mode explanations are
+  // reserved for the guided tutorial.
+  const gModeSheet = await waitFor(() => !doc.getElementById('screenModeInfo').hidden, 1000);
+  check('ordinary Gauntlet skips the mode explainer', !gModeSheet);
   if (gModeSheet) doc.getElementById('btnModeGo').click();
   check('the gauntlet CTA opens the team draft',
     doc.getElementById('screenTeamBuilder').hidden === false);
@@ -3064,7 +3059,9 @@ host2.remove();
 }
 
 // ============================================================== ONBOARDING ==
-// The teaching layer has three jobs and each one is worth guarding:
+// The teaching layer has three jobs and each one is worth guarding. Automatic
+// lessons are reserved for the guided prologue; the Guide can still replay
+// reference material explicitly for any player:
 //   1. never chain cards (the NN/g rule the whole design rests on)
 //   2. tell the truth about items and moves (the "Full Heal" class of bug)
 //   3. survive a save/restore round trip, so a returning player is not

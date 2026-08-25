@@ -630,7 +630,9 @@
   // questions: what is it, how long is it, what's the catch.
   function withModeInfo(mode, go) {
     var C2 = window.Coach;
-    if (!C2 || C2.modeSeen(mode) || !C2.tipsOn()) { go(); return; }
+    if (!C2 || !C2.modeSeen || !C2.inPrologue() || C2.modeSeen(mode) || !C2.tipsOn()) {
+      go(); return;
+    }
     var info = C2.modeInfo(mode);
     if (!info) { go(); return; }
     var el = $('screenModeInfo');
@@ -869,6 +871,7 @@
     // scripted coach can graduate the player at the start of section 2, while
     // a separate safety marker keeps both opening sections approachable.
     run.prologue = !!opts.prologue;
+    if (!run.prologue && window.Coach) window.Coach.setPrologue(false);
     run.tutorialSafeThrough = run.prologue ? 2 : 0;
     // Section 1 is a finite script. These flags are run-scoped (not profile
     // lesson history), so a player who has already seen a lesson or reloads
@@ -1565,7 +1568,7 @@
   // pile onto the scripted beats.
   function routeCoach(trainerNext, isG) {
     var CO = window.Coach;
-    if (!CO || !CO.tipsOn() || isG) return;
+    if (!run || !run.prologue || !CO || !CO.tipsOn() || isG) return;
     // Request on a SHORT beat, not immediately: renderCrossroads() is always
     // followed synchronously by show('Crossroads'), so the screen is still
     // hidden at render time -- and a beat requested into a hidden screen
@@ -1576,7 +1579,10 @@
     // render, and a beat raced by another card waits instead of dying.
     setTimeout(requestRouteLesson, 0);
     function requestRouteLesson() {
-      if ($('screenCrossroads').hidden) return;
+      // A queued callback can outlive the tutorial flag (for example when
+      // graduation happens before the next frame). Never let it fall through
+      // to the old contextual lesson path after the run becomes ordinary.
+      if ($('screenCrossroads').hidden || !run || !run.prologue) return;
       var n = run.battleInSection;
       var pro = run && run.prologue;
       var onRoute = function () { return !$('screenCrossroads').hidden; };
@@ -2560,9 +2566,11 @@
     // How to actually pick a move. Fires once, on the list itself, the first
     // time someone opens the move tab.
     var CO2 = window.Coach;
-    if (CO2 && CO2.tipsOn() && !tutorGuideActive() && !CO2.seen('moveChoice')) {
+    if (CO2 && CO2.tipsOn() && run && run.prologue && !tutorGuideActive() && !CO2.seen('moveChoice')) {
       setTimeout(function () {
-        if (!$('screenTutor').hidden) CO2.lesson('moveChoice', { anchor: $('trCurrent') });
+        if (run && run.prologue && !$('screenTutor').hidden) {
+          CO2.lesson('moveChoice', { anchor: $('trCurrent') });
+        }
       }, 500);
     }
   }
@@ -3168,7 +3176,7 @@
     // Evolution lessons, on the row itself. The branch warning takes
     // precedence: it is the one with a consequence attached.
     var CO = window.Coach;
-    if (CO && CO.tipsOn() && !isG) {
+    if (CO && CO.tipsOn() && run && run.prologue && !isG) {
       var evoBox = host.querySelector('.evo-box');
       if (evoBox) {
         var branching = evoBox.querySelectorAll('.evo-btn').length > 1;
@@ -3194,7 +3202,7 @@
             CO.lesson(which, {
               anchor: evoBox,
               vital: pro,
-              stillValid: function () { return window.Modal.isOpen('xTeamDetail'); }
+              stillValid: function () { return window.Modal.isOpen('xTeamDetail') && !!(run && run.prologue); }
             });
           }, 480);
         }
@@ -3826,7 +3834,7 @@
     // tutorial speech. `run.caught` is incremented immediately before the
     // catch screen opens, so exactly 1 identifies that first capture.
     var isStarterNickname = !!(run && run.prologue && !$('screenStarter').hidden);
-    var isFirstCaptureNickname = !!(run && run.caught === 1 && !$('screenCatch').hidden);
+    var isFirstCaptureNickname = !!(run && run.prologue && run.caught === 1 && !$('screenCatch').hidden);
     var hint = $('nickHint');
     if (hint) {
       hint.hidden = !(isStarterNickname || isFirstCaptureNickname);
@@ -5622,7 +5630,7 @@
 
   function battleCoach(catchOpen) {
     var CO = window.Coach;
-    if (!CO || !CO.tipsOn()) return;
+    if (!CO || !CO.tipsOn() || !run || !run.prologue) return;
     // Short settle beat only: the capture-encounter tutorial must pop the
     // moment the battle is on screen, not wait for the first turn to finish.
     setTimeout(function () { runBattleCoach(catchOpen); }, 80);
@@ -5635,7 +5643,7 @@
     if ($('screenBattle').hidden || !ui) return;
     if (!document.querySelector('.battle-hud')) return;
     var CO = window.Coach;
-    if (!CO || !CO.tipsOn()) return;
+    if (!CO || !CO.tipsOn() || !run || !run.prologue) return;
 
     // The HUD re-rendered for this request: re-pin the armed beat's glow
     // on the fresh node and keep any open bubble glued to it.
@@ -6225,9 +6233,9 @@
       '<p class="reward-money">+$' + money + '</p>';
 
     var COc = window.Coach;
-    if (COc && COc.tipsOn() && !COc.seen('caught')) {
+    if (COc && COc.tipsOn() && run && run.prologue && !COc.seen('caught')) {
       setTimeout(function () {
-        if ($('screenCatch').hidden) return;
+        if ($('screenCatch').hidden || !run || !run.prologue) return;
         COc.lesson('caught', {
           vital: !!(run && run.prologue),
           stillValid: function () { return !$('screenCatch').hidden; }
@@ -6485,7 +6493,7 @@
     // "Save progress" button is right there on this screen, so the lesson
     // points at the real thing and the next tap does it for real.
     var COs = window.Coach;
-    if (COs && COs.tipsOn() && !COs.seen('save')) {
+    if (COs && COs.tipsOn() && run && run.prologue && !COs.seen('save')) {
       setTimeout(function () {
         if ($('screenSummary').hidden) return;
         COs.lesson('save', {

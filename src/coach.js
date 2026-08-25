@@ -23,12 +23,11 @@
 //      two seconds elapsed is not contextual, it is just early.
 //   4. A hint must never look like a button. Everything here carries the
 //      professor's portrait and the .coach- visual register.
-//   5. On by default, tutorial-first and replayable. Lessons fire for
-//      anyone who has not turned tips off. The guided prologue's scripted
-//      beats are gated by the run's own prologue flag; the just-in-time
-//      lessons (Mart, training, catching...) fire once each for everyone
-//      else. Completing the tutorial pre-marks them read, so a player who
-//      finished stays quiet — and every lesson remains in the Guide.
+//   5. On by default, tutorial-first and replayable. Automatic lessons are
+//      gated by the active run's prologue flag, so experienced players are
+//      never interrupted by nickname, catching, battle or Mart instruction.
+//      Every lesson remains available through the Guide when someone asks for
+//      a refresher explicitly.
 //
 // TWO SURFACES, ONE REGISTER
 //   Every lesson is the professor and the frosted speech box; which frame
