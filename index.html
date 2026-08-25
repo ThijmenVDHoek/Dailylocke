@@ -140,6 +140,11 @@
            exactly two doors: set up a trainer, or restore a backup. Everyone
            else gets the full mode menu.
            src/app.js decides which of #titleFirst / the mode grid is shown. -->
+      <div class="title-steps" id="titleSteps" hidden aria-label="How to start">
+        <div class="title-step"><b>1</b><span>Meet your trainer &amp; partner</span><em>~30 seconds</em></div>
+        <div class="title-step"><b>2</b><span>Pick a mode to explore</span><em>Daily &middot; Free &middot; Gauntlet</em></div>
+        <div class="title-step"><b>3</b><span>Win battles, catch, survive</span><em>Fainted is forever</em></div>
+      </div>
       <div class="title-btns title-first" id="titleFirst" hidden>
         <button type="button" id="btnFreshGame" class="btn-white btn-daily">
           <span class="bd-main">Start a fresh game</span>
@@ -252,6 +257,7 @@
       <button type="button" id="btnSetupBack" class="back-pill">Back</button>
       <h2 class="scr-title">Who are you?</h2>
     </div>
+    <div class="screen-kicker">Step 1 of 2 &middot; make it yours</div>
     <div class="setup-wrap">
       <button type="button" id="setupAvatar" class="setup-avatar" aria-label="Change sprite">
         <img id="setupAvatarImg" src="" alt="">
@@ -270,6 +276,7 @@
 
   <!-- ===================== STARTER ===================== -->
   <section id="screenStarter" class="screen-page choice-page" hidden>
+    <div class="screen-kicker">The first big choice</div>
     <h2 class="scr-title">Choose your first partner</h2>
     <p class="hint center" id="starterSub">Choose carefully. If it faints, it's gone.</p>
     <div id="starterGrid" class="starter-grid"></div>
@@ -282,6 +289,7 @@
       <button type="button" id="btnTbBack" class="back-pill">Back</button>
       <h2 class="scr-title">Build your team</h2>
     </div>
+    <div class="screen-kicker">Team Gauntlet</div>
     <p class="hint center">Pick any 6 Pokemon &mdash; no cost, fully trained.
        Then fight trainer after trainer: no wilds, no cash, no items, no running.
        Survivors heal after every win.</p>
@@ -326,6 +334,26 @@
       </div>
     </div>
 
+    <!-- Where am I? Four battle stops made visible, with the current one lit. -->
+    <div class="x-stepper" id="xStepper" role="list" aria-label="Section progress"></div>
+
+    <!-- The one thing worth doing next — changes as the run state changes. -->
+    <div class="next-move" id="nextMove" hidden>
+      <span class="nm-ic" id="nextMoveIcon"></span>
+      <span class="nm-txt" id="nextMoveText"></span>
+      <span class="nm-arrow" aria-hidden="true">→</span>
+    </div>
+
+    <!-- First section, explained in one minute. Dismissed forever afterwards. -->
+    <aside class="coach-line intro-note" id="xIntro" hidden aria-label="How a section works">
+      <span class="cl-ic">&#127919;</span>
+      <span><b>Here is how a section works:</b> stop 1 is your only catch of the section,
+        stops 2&ndash;3 are more wild battles, and stop 4 is a trainer. Beat the trainer to
+        complete the section &mdash; your survivors are fully healed. Fainted is forever,
+        so keep HP and PP topped up between stops.</span>
+      <button type="button" class="btn-mini intro-dismiss" id="xIntroDismiss">Got it</button>
+    </aside>
+
     <!-- Ascension state: tier, battle-start field effect, boss clause and the
          trainer's intent. Always previewed, never a hidden difficulty tweak. -->
     <div class="x-ascension" id="xAscension" hidden></div>
@@ -359,6 +387,7 @@
       <details class="camp-drawer" id="xShopBlock">
         <summary><span>Shop</span><span class="drawer-note">Buy supplies and upgrades</span></summary>
         <p class="drawer-help">Start with what helps your next battle. Advanced transformations appear as you discover them.</p>
+        <div class="mart-filters" id="martFilters" role="tablist" aria-label="Shop categories"></div>
         <div id="martGrid" class="mart-inline"></div>
         <details class="sell-drawer"><summary>Sell spare items</summary><div id="martSell" class="sell-grid"></div></details>
       </details>
@@ -410,44 +439,83 @@
     <div class="overlay-card"></div>
   </div>
 
-  <!-- ===================== MENU (overlay) ===================== -->
+  <!-- ===================== MENU (overlay) =====================
+       A grouped sheet: the trainer header tells you who you are and where
+       the run stands; the options are grouped by intent. Destructive actions
+       live at the very bottom, outside the thumb's natural path. -->
   <div id="screenMenu" class="overlay" hidden>
     <div class="overlay-card menu-card" role="dialog" aria-modal="true" aria-label="Menu">
-      <div class="menu-list">
-        <button type="button" id="btnMenuProfile" class="menu-item">
-          <span id="menuAvatar" class="mi-ic avatar-ic"></span>
-          <span class="mi-t"><b>Profile</b><em>Your all-time record</em></span>
-        </button>
-        <button type="button" id="btnMenuShinies" class="menu-item">
-          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/shiny-charm.png" alt="">
-          <span class="mi-t"><b>Shiny Collection</b><em id="miShinyCount">No shinies yet</em></span>
-        </button>
-        <button type="button" id="btnMenuHistory" class="menu-item">
-          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/vs-recorder.png" alt="">
-          <span class="mi-t"><b>History</b><em id="miHistCount">No runs finished</em></span>
-        </button>
-        <button type="button" id="btnMenuTransfer" class="menu-item">
-          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/pal-pad.png" alt="">
-          <span class="mi-t"><b>Transfer save</b><em id="miTransferSub">Download a full backup</em></span>
-        </button>
-        <button type="button" id="btnMenuImport" class="menu-item">
-          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/town-map.png" alt="">
-          <span class="mi-t"><b>Import save</b><em>Restore a backup file</em></span>
-        </button>
-        <button type="button" id="btnMenuRules" class="menu-item">
-          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/tm-normal.png" alt="">
-          <span class="mi-t"><b>How it works</b><em>The full rule set</em></span>
-        </button>
-        <button type="button" id="btnMenuAbandon" class="menu-item danger" hidden>
-          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/smoke-ball.png" alt="">
-          <span class="mi-t"><b>Abandon this run</b><em>Your team is lost — start over</em></span>
-        </button>
-        <button type="button" id="btnMenuQuit" class="menu-item">
-          <img class="mi-ic menu-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/escape-rope.png" alt="">
-          <span class="mi-t"><b>Back to title</b><em>Save is kept — continue anytime</em></span>
-        </button>
+      <div class="menu-sheet">
+        <header class="menu-profile">
+          <span class="mp-avatar" id="menuAvatarBig"></span>
+          <div class="mp-id">
+            <div class="mp-name" id="menuTrainerName">Trainer</div>
+            <div class="mp-sub" id="menuTrainerSub">Your adventure</div>
+          </div>
+          <div class="mp-run" id="menuRunState"><small>Status</small>—</div>
+        </header>
+
+        <div class="menu-groups">
+          <div class="menu-label">Your journey</div>
+          <div class="menu-list">
+            <button type="button" id="btnMenuProfile" class="menu-item">
+              <span class="mi-ic avatar-ic" id="menuAvatar"></span>
+              <span class="mi-t"><b>Profile</b><em>Your all-time record</em></span>
+              <span class="mi-chev" aria-hidden="true">›</span>
+            </button>
+            <button type="button" id="btnMenuShinies" class="menu-item">
+              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.6 6.2 6.7.5-5.1 4.4 1.6 6.6L12 16.4 6.2 19.7l1.6-6.6L2.7 8.7l6.7-.5z"/></svg></span>
+              <span class="mi-t"><b>Shiny Collection</b><em id="miShinyCount">No shinies yet</em></span>
+              <span class="mi-chev" aria-hidden="true">›</span>
+            </button>
+            <button type="button" id="btnMenuHistory" class="menu-item">
+              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
+              <span class="mi-t"><b>History</b><em id="miHistCount">No runs finished</em></span>
+              <span class="mi-chev" aria-hidden="true">›</span>
+            </button>
+          </div>
+
+          <div class="menu-label">Save</div>
+          <div class="menu-list">
+            <button type="button" id="btnMenuTransfer" class="menu-item">
+              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg></span>
+              <span class="mi-t"><b>Transfer save</b><em id="miTransferSub">Download a full backup</em></span>
+              <span class="mi-chev" aria-hidden="true">›</span>
+            </button>
+            <button type="button" id="btnMenuImport" class="menu-item">
+              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9m0 0l-4 4m4-4l4 4"/><path d="M4 5V3a1 1 0 011-1h14a1 1 0 011 1v2"/></svg></span>
+              <span class="mi-t"><b>Import save</b><em>Restore a backup file</em></span>
+              <span class="mi-chev" aria-hidden="true">›</span>
+            </button>
+          </div>
+
+          <div class="menu-label">Help</div>
+          <div class="menu-list">
+            <button type="button" id="btnMenuRules" class="menu-item">
+              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5C10.5 5 8.5 4.5 6 4.5c-.7 0-1.4 0-2 .2V19c.6-.2 1.3-.2 2-.2 2.5 0 4.5.5 6 2 1.5-1.5 3.5-2 6-2 .7 0 1.4 0 2 .2V4.7c-.6-.2-1.3-.2-2-.2-2.5 0-4.5.5-6 2z"/><path d="M12 6.5V21"/></svg></span>
+              <span class="mi-t"><b>How it works</b><em>The full rule set</em></span>
+              <span class="mi-chev" aria-hidden="true">›</span>
+            </button>
+          </div>
+
+          <div class="menu-label" id="menuDangerLabel" hidden>Careful</div>
+          <div class="menu-list" id="menuDangerGroup" hidden>
+            <button type="button" id="btnMenuAbandon" class="menu-item danger" hidden>
+              <span class="mi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3L3 6l3 3"/><path d="M18 3l3 3-3 3"/><path d="M3 6h18"/><path d="M12 9v9a3 3 0 11-6 0"/></svg></span>
+              <span class="mi-t"><b>Abandon this run</b><em>Your team is lost — start over</em></span>
+              <span class="mi-chev" aria-hidden="true">›</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="menu-foot">
+          <button type="button" id="btnMenuQuit" class="btn-secondary">
+            <span class="mi-ic" style="width:16px;height:16px;border-radius:0;background:none;display:inline-flex;vertical-align:-3px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-7 9 7v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg></span>
+            Back to title
+          </button>
+          <button type="button" id="btnMenuClose" class="btn-primary">Resume</button>
+        </div>
       </div>
-      <button type="button" id="btnMenuClose" class="btn-secondary wide">Close</button>
     </div>
   </div>
 
@@ -458,14 +526,22 @@
 
   <!-- ===================== TUTOR / ABILITY ===================== -->
   <section id="screenTutor" class="screen-page ritual-page" hidden>
-    <h2 class="scr-title" id="tutorTitle">Move Tutor</h2>
+    <div class="sub-head">
+      <button type="button" id="btnTutorBack" class="back-pill">Done</button>
+      <h2 class="scr-title" id="tutorTitle">Train Pokémon</h2>
+    </div>
+    <div id="tutorHero" class="tutor-hero" hidden></div>
     <p class="hint center" id="tutorSub"></p>
     <div id="tutorBody"></div>
-    <button type="button" id="btnTutorBack" class="btn-secondary wide">Cancel</button>
+    <div class="tutor-foot">
+      <button type="button" id="btnTutorDone" class="btn-primary wide">Done — back to camp</button>
+      <button type="button" id="btnTutorCancel" class="btn-secondary wide" hidden>Cancel</button>
+    </div>
   </section>
 
   <!-- ===================== REWARD ===================== -->
   <section id="screenReward" class="screen-page moment-page" hidden>
+    <div class="screen-kicker" id="rewardKicker">Result</div>
     <h2 class="scr-title" id="rewardTitle">Victory!</h2>
     <div id="rewardBody" class="panel center"></div>
     <div class="footer-btns">
@@ -475,6 +551,7 @@
 
   <!-- ===================== CATCH ===================== -->
   <section id="screenCatch" class="screen-page moment-page" hidden>
+    <div class="screen-kicker" id="catchKicker">Encounter result</div>
     <h2 class="scr-title" id="catchTitle">Gotcha!</h2>
     <div id="catchBody" class="panel center"></div>
     <div id="catchSwap"></div>
@@ -486,7 +563,8 @@
   <!-- ===================== SECTION SUMMARY ===================== -->
   <section id="screenSummary" class="screen-page moment-page" hidden>
     <div class="sum-wrap">
-      <div class="sum-crest"></div>
+      <div class="sum-crest">✦</div>
+      <div class="screen-kicker" id="sumKicker">Section report</div>
       <h2 class="scr-title" id="sumTitle">Section complete</h2>
       <p class="hint center" id="sumSub"></p>
       <div class="sum-stats" id="sumStats"></div>
@@ -513,10 +591,11 @@
   <!-- ===================== NICKNAME (overlay) ===================== -->
   <div id="screenNickname" class="overlay" hidden>
     <div class="overlay-card nick-card">
+      <div class="nick-kicker">Name your partner</div>
       <div id="nickSprite" class="nick-sprite"></div>
       <div class="nick-species" id="nickSpecies"></div>
       <div class="types center" id="nickTypes"></div>
-      <p class="hint center" id="nickHint"></p>
+      <p class="hint center" id="nickHint">This is the name you will remember them by. It stays with them forever.</p>
       <input id="nickInput" class="search nick-input" type="text" autocomplete="off"
              spellcheck="false" placeholder="Nickname"/>
       <button type="button" id="btnNickOk" class="btn-primary wide">Confirm name</button>
@@ -592,6 +671,7 @@
        result rather than just "your last Pokemon fainted". -->
   <section id="screenDailyResult" class="screen-page moment-page" hidden>
     <div class="end-box dr-box">
+      <div class="screen-kicker" id="drKicker">Daily result</div>
       <h2 class="scr-title" id="drTitle">Daily complete!</h2>
       <p class="hint center" id="drSub"></p>
       <div class="sum-stats" id="drStats"></div>
@@ -617,6 +697,7 @@
   <!-- ===================== GAME OVER ===================== -->
   <section id="screenGameOver" class="screen-page moment-page" hidden>
     <div class="end-box">
+      <div class="screen-kicker" id="goKicker">Run ended</div>
       <h2 class="scr-title dead">Run over</h2>
       <div id="goScore" class="score-box"></div>
       <div id="goMvp"></div>

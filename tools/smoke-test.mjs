@@ -410,16 +410,17 @@ check('returning to the title rebuilds its 3D environment',
     window.document.getElementById('btnDailyResults') === null,
     'the main Daily CTA already reopens today\'s result');
 
+  // Redesign 2.0: menu icons are inline SVG — zero network dependency, always
+  // consistent, no broken tiles when the item CDN is unreachable. Every item
+  // must still carry an icon; no font-glyph boxes are allowed.
   const menuItems = [...window.document.querySelectorAll('#screenMenu .menu-item')];
-  const fetchedMenuIcons = menuItems.filter((item) => {
-    const img = item.querySelector('img.mi-ic, .mi-ic img');
-    return img && /^https:\/\//.test(img.src);
-  });
-  check('every menu item uses a matching fetched image icon',
-    menuItems.length > 0 && fetchedMenuIcons.length === menuItems.length,
-    `${fetchedMenuIcons.length}/${menuItems.length} image icons`);
-  check('the menu no longer uses font/SVG-style glyph icons',
-    window.document.querySelector('#screenMenu .mi-glyph') === null);
+  check('every menu item carries an inline icon',
+    menuItems.length > 0 && menuItems.every((item) => !!item.querySelector('.mi-ic svg, .mi-ic img')),
+    `${menuItems.length} menu items`);
+  check('the menu no longer uses font/glyph-style icon hacks',
+    window.document.querySelector('#screenMenu .mi-glyph') === null &&
+    [...window.document.querySelectorAll('#screenMenu .mi-ic:not(.avatar-ic) img')]
+      .every((img) => !/^https:\/\//.test(img.src)));
 
   check('install dock is hidden until the browser offers an install',
     dock.hidden === true && window.PWA.mode === '');
@@ -1331,7 +1332,12 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   if (trainBtn) trainBtn.click();
   const statsTab = await untilSlider(() =>
     window.document.querySelector('#screenTutor .tr-tab[data-t="stats"]'));
+  check('the trainer opens with a hero card and four guided tabs',
+    !!window.document.querySelector('#screenTutor .tutor-hero .th-name') &&
+    window.document.querySelectorAll('#screenTutor .tr-tab').length === 4);
   if (statsTab) statsTab.click();
+  check('the stats tab offers a one-tap suggested spread',
+    !!window.document.querySelector('#screenTutor [data-auto-spread]'));
   const defSlider = await untilSlider(() =>
     window.document.querySelector('#screenTutor .sp-range[data-s="def"]'));
   const liveDefBefore = trained.sp.def;
@@ -1368,6 +1374,39 @@ check('makeMon resolves types', mon.types.join('/') === 'Ghost/Poison', mon.type
   window.document.getElementById('btnTutorBack').click();
   check('a valid slider spread can finish training',
     window.document.getElementById('screenTutor').hidden);
+}
+
+// ============================================= REDESIGN GUIDING SURFACES ==
+// The route screen must always answer "where am I?" and "what next?"; the
+// trainer must open with a hero card; the shop must offer a recommended shelf
+// and category filters. These are the beginner-experience contracts.
+{
+  const doc = window.document;
+  check('the route shows a four-stop section stepper',
+    doc.querySelectorAll('#xStepper .step').length === 4 &&
+    !!doc.querySelector('#xStepper .step.now'));
+  check('the stepper lights exactly one current stop',
+    doc.querySelectorAll('#xStepper .step.now').length === 1);
+  check('the next-move guide is shown with a heading',
+    doc.getElementById('nextMove').hidden === false &&
+    !!doc.querySelector('#nextMoveText b'));
+  check('a veteran route hides the first-section explainer',
+    doc.getElementById('xIntro').hidden === true);
+
+  check('the shop offers category filters',
+    doc.querySelectorAll('#martFilters .mart-filter').length >= 4);
+  check('the shop recommends items for the current party',
+    doc.querySelectorAll('#martGrid .shop-featured .shop-item').length > 0);
+  check('every shop tile keeps an honest one-liner or tag',
+    doc.querySelectorAll('#martGrid .shop-item').length > 0 &&
+    [...doc.querySelectorAll('#martGrid .shop-item')]
+      .every((tile) => !!tile.querySelector('.si-plain, .si-desc, .si-tag')));
+
+  doc.getElementById('btnMenu').click();
+  check('the menu header names the trainer and the run',
+    doc.getElementById('menuTrainerName').textContent.trim().length > 0 &&
+    doc.getElementById('menuRunState').textContent.includes('S'));
+  doc.getElementById('btnMenuClose').click();
 }
 
 // A wiped Daily may still have a zero-HP object in party during a simultaneous

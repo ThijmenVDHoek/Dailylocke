@@ -244,6 +244,35 @@
     return types.map(function (t) { return '<span class="type type-' + t + '">' + t + '</span>'; }).join('');
   }
 
+  // Canonical type colours, used to give cards a whisper of the Pokemon's
+  // identity (a top accent bar, a tinted hero panel) without turning the UI
+  // into a rainbow. The UI stays neutral; the Pokemon provides the colour.
+  var TYPE_HEX = { Normal:'#a8a77a', Fire:'#ee8130', Water:'#6390f0', Electric:'#f7d02c',
+                   Grass:'#7ac74c', Ice:'#96d9d6', Fighting:'#c22e28', Poison:'#a33ea1',
+                   Ground:'#e2bf65', Flying:'#a98ff3', Psychic:'#f95587', Bug:'#a6b91a',
+                   Rock:'#b6a136', Ghost:'#735797', Dragon:'#6f35fc', Dark:'#705746',
+                   Steel:'#b7b7ce', Fairy:'#d685ad' };
+  function typeStyleVars(types, prefix) {
+    var a = (types && types[0]) || 'Normal';
+    var b = (types && types[1]) || a;
+    var ca = TYPE_HEX[a] || '#8a93a5';
+    var cb = TYPE_HEX[b] || ca;
+    var p = prefix || 'pc';
+    return '--' + p + '-a:' + mixHex(ca, '#12151d', .45) + ';' +
+           '--' + p + '-b:' + mixHex(cb, '#12151d', .58) + ';';
+  }
+  function typeGlowVars(types) {
+    var a = (types && types[0]) || 'Normal';
+    var b = (types && types[1]) || a;
+    var ca = TYPE_HEX[a] || '#ffcf5c';
+    var cb = TYPE_HEX[b] || ca;
+    return '--th-a:' + mixHex(ca, '#171c26', .78) + ';--th-b:' + mixHex(cb, '#12151d', .8) + ';' +
+           '--pd-glow:rgba(' + Math.round(parseInt(ca.slice(1,3),16)) + ',' +
+                             Math.round(parseInt(ca.slice(3,5),16)) + ',' +
+                             Math.round(parseInt(ca.slice(5,7),16)) + ',.10);' +
+           '--slot-color:' + ca + ';--mc-color:' + ca + ';--pm-color:' + ca + ';';
+  }
+
   // Small roster row for history tiles: party sprites in a tight row, with
   // the MVP marked by a tiny gold pill.
   function rosterRowHtml(roster, mvpId) {
@@ -634,6 +663,10 @@
     var mode = veteran ? 'modes' : 'first';
     if (firstBlock) firstBlock.hidden = mode !== 'first';
     if (modesBlock) modesBlock.hidden = mode !== 'modes';
+    // The 3-step guide is a first-visit only: teach the shape of the game in
+    // five seconds, then get out of the way forever.
+    var steps = $('titleSteps');
+    if (steps) steps.hidden = mode !== 'first';
     // Nothing below this point matters when the mode grid is hidden.
     if (mode !== 'modes') return;
 
@@ -777,12 +810,16 @@
     starterChoices.forEach(function (mon) {
       var card = document.createElement('div');
       card.className = 'card starter-card';
+      card.setAttribute('style', typeStyleVars(mon.types, 'type'));
       card.innerHTML =
         '<div class="sprite-box">' + bigSprite(mon.id, '', 112, 150, 1, mon.shiny) + '</div>' +
         '<div class="sc-name">' + escapeHtml(mon.name) + '</div>' +
         '<div class="types">' + typeChips(mon.types) + '</div>' +
-        '<div class="statline">HP ' + C.maxHP(mon) + ' \u00b7 BST ' + C.bst(mon.id) + '</div>' +
-        '<div class="ability" data-tip="ability:' + mon.ability + '">' + mon.ability + '</div>' +
+        '<div class="starter-meta"><span class="sm-chip">HP ' + C.maxHP(mon) + '</span>' +
+        '<span class="sm-chip">BST ' + C.bst(mon.id) + '</span>' +
+        (mon.shiny ? '<span class="sm-chip" style="color:var(--gold)">\u2728 Shiny</span>' : '') +
+        '</div>' +
+        '<div class="ability" data-tip="ability:' + mon.ability + '">Ability: ' + mon.ability + '</div>' +
         '<div class="movelist">' + mon.moves.map(function (m) {
           var d = Dex.moves.get(m);
           var pw = d.category === 'Status' ? 'Status' : (d.basePower ? 'Pow ' + d.basePower : '');
@@ -1046,7 +1083,7 @@
     host.innerHTML =
       gbGridHtml +
       '<div class="party-detail">' +
-        '<div class="pd-hero">' +
+        '<div class="pd-hero" style="' + typeGlowVars(mon.types) + '">' +
           '<div class="pd-art">' + bigSprite(mon.id, '', 104, 104, 1, mon.shiny) + '</div>' +
           '<div class="pd-id">' +
             '<div class="pd-species">' + speciesOf(mon) + '</div>' +
@@ -1061,16 +1098,20 @@
         '</div>' +
         '<div class="pd-actions">' +
           '<button class="btn-primary pd-gb-train">Train \u00b7 free</button>' +
+          '<div class="coach-line" style="margin:2px 0 0"><span class="cl-ic">\u2726</span><span>' +
+            'The Gauntlet trains <b>for free</b> \u2014 change moves, ability, nature and stats as much as you like.</span></div>' +
           (hasCollectedShiny(mon.id) ? '<button class="btn-secondary wide pd-gb-shiny" data-gb-shiny="1">' + (mon.shiny ? 'Use normal colours' : 'Make shiny') + '</button>' : '') +
         '</div>' +
         '<div class="pd-sec"><div class="pd-label">Moves</div>' +
           '<div class="pd-moves">' + mon.moves.map(function (m) {
             var mv = Dex.moves.get(m);
             var pw = mv.category === 'Status' ? 'Status' : (mv.basePower ? 'Pow ' + mv.basePower : '');
-            return '<div class="pd-move" data-tip="move:' + mv.id + '" tabindex="0">' +
+            var th = TYPE_HEX[mv.type] || '#8a93a5';
+            return '<div class="pd-move" data-tip="move:' + mv.id + '" tabindex="0" style="--pm-color:' + th + '">' +
               '<div class="pd-move-top"><span class="mv-chip type-' + mv.type + '">' + mv.type + '</span>' +
               '<span class="pd-mv-pw">' + pw + '</span></div>' +
-              '<span class="pd-mn">' + mv.name + '</span></div>';
+              '<span class="pd-mn">' + mv.name + '</span>' +
+              badgesHtml(m, mon, { compact: true }) + '</div>';
           }).join('') + '</div>' +
         '</div>' +
         heldHtml +
@@ -1284,11 +1325,12 @@
         ? 'Daily \u00b7 Section ' + run.section + ' of ' + run.maxSections
         : (isG ? 'Gauntlet \u00b7 Trainer ' + run.section : 'Section ' + run.section);
     }
-    // One quiet line of progress instead of a stepper graphic.
+    // One quiet line of progress plus a visible four-stop map of the section.
     var stageNames = ['Capture', 'Wild', 'Wild', 'Trainer'];
     $('xProgress').textContent = isG
       ? run.trainersBeaten + ' beaten \u00b7 survivors heal after every win'
       : 'Stop ' + Math.min(n + 1, 4) + ' of 4  \u00b7  ' + stageNames[Math.min(n, 3)];
+    drawSectionStepper(n, isG);
     renderAscension(trainerNext);
 
     var isCapture = !trainerNext && n === 0;
@@ -1336,6 +1378,8 @@
 
     drawTeamStrip();
     drawPartyDetail();
+    updateNextMove(trainerNext, isG, n);
+    drawIntroNote(isG);
 
     // The Gauntlet has no economy at all: no cash, no bag, no Mart. The team
     // strip and the trainer preview are the whole route screen.
@@ -1349,6 +1393,98 @@
       openMart();
     }
     maybeOfferSectionFiveGift(isG);
+  }
+
+  // ---- FIRST-SECTION INTRO ------------------------------------------------
+  // One dismissible explainer on the very first route visit. It exists only
+  // to give a brand-new player the mental model ("4 stops, catch first,
+  // fainted is forever"); afterwards it never comes back.
+  function drawIntroNote(isG) {
+    var box = $('xIntro');
+    if (!box || !run) return;
+    var showIt = !isG && run.section === 1 && (run.battleInSection || 0) === 0 && !run._introSeen;
+    box.hidden = !showIt;
+    if (!showIt) return;
+    var dismiss = $('xIntroDismiss');
+    if (dismiss) dismiss.onclick = function () {
+      run._introSeen = 1;
+      saveGame();
+      box.hidden = true;
+    };
+  }
+
+  // ---- SECTION STEPPER ----------------------------------------------------
+  // Four battle stops, always visible: this is the single most useful mental
+  // model a new player needs ("a section is 4 battles"). Past stops check off,
+  // the current one is lit gold, future ones stay quiet.
+  function drawSectionStepper(n, isG) {
+    var host = $('xStepper');
+    if (!host || !run) return;
+    var stops;
+    if (isG) {
+      host.classList.add('gauntlet');
+      var t = N.trainerFor(run);
+      stops = [{
+        label: 'Trainer ' + run.section,
+        sub: t ? t.cls : 'trainer'
+      }];
+      host.innerHTML = '<button type="button" class="step now" role="listitem">' +
+        '<span class="step-ic">&#9876;</span>' +
+        '<span class="step-lb">' + escapeHtml(stops[0].label) + '</span>' +
+        '<span class="step-lb" style="opacity:.7">' + escapeHtml(stops[0].sub) + '</span>' +
+        '</button>';
+      return;
+    }
+    host.classList.remove('gauntlet');
+    host.innerHTML = '';
+    var names = ['Capture', 'Wild', 'Wild', 'Trainer'];
+    for (var i = 0; i < 4; i++) {
+      var state = i < n ? 'done' : (i === n ? 'now' : '');
+      var mark = state === 'done' ? '&#10003;' : String(i + 1);
+      host.innerHTML += '<div class="step ' + state + '" role="listitem">' +
+        '<span class="step-ic">' + mark + '</span>' +
+        '<span class="step-lb">' + names[i] + '</span>' +
+        '</div>';
+    }
+  }
+
+  // ---- NEXT MOVE ----------------------------------------------------------
+  // The single guided action. It follows the state of the run: hurt team →
+  // heal; catch window → bring a ball; evolution ready → evolve; otherwise →
+  // just fight. One line, one direction, no decisions to make.
+  function updateNextMove(trainerNext, isG, n) {
+    var box = $('nextMove');
+    if (!box || !run) return;
+    var icon = $('nextMoveIcon'), txt = $('nextMoveText');
+    var msg;
+    var injured = run.party.some(function (m) { return !C.isFainted(m) && (m.hpPct < .999 || !!m.status); });
+    var hasMedicine = Object.keys(run.bag).some(function (id) { return !!C.HEAL_ITEMS[id] && run.bag[id] > 0; });
+    var evoMon = run.party.filter(function (m) {
+      return Object.keys(run.bag).some(function (id) { return bagGroupOf(id) === 'evo' && evoTargetsFor(id, m).length; });
+    })[0];
+    var catchOpen = !trainerNext && n === 0 && !run.catchUsedThisSection;
+
+    if (!isG && injured && hasMedicine && run.party.some(function (m) { return !C.isFainted(m); })) {
+      msg = { ic: '&#10084;', b: 'Heal your team first', s: 'Some Pokemon are hurt. Use the medicine you own, then battle from full strength.' };
+    } else if (!isG && injured) {
+      msg = { ic: '&#9733;', b: 'Stock up on medicine', s: 'Your team is hurt. A quick stop at the Shop makes the next battle far safer.' };
+    } else if (!isG && catchOpen) {
+      var hasBall = Object.keys(run.bag).reduce(function (n2, id) { return n2 + (C.BALLS[id] ? run.bag[id] : 0); }, 0) > 0;
+      msg = hasBall
+        ? { ic: '&#9678;', b: 'Capture encounter ahead', s: 'Weaken the wild Pokemon, then throw a Pok\u00e9 Ball. This is your only catch this section.' }
+        : { ic: '&#9678;', b: 'Bring a Pok\u00e9 Ball', s: 'The next encounter is your one catch of the section \u2014 grab a ball from the Shop first.' };
+    } else if (evoMon) {
+      msg = { ic: '&#9650;', b: evoMon.name + ' is ready to evolve', s: 'Open its team card to see what it can become.' };
+    } else if (trainerNext && isG) {
+      msg = { ic: '&#9876;', b: 'Trainer battle ahead', s: 'No items, no running \u2014 win and your survivors are fully restored.' };
+    } else if (trainerNext) {
+      msg = { ic: '&#9876;', b: 'The section boss is waiting', s: 'A trainer with a full team and smarter tactics. Beating them heals your team.' };
+    } else {
+      msg = { ic: '&#9876;', b: 'Wild battle ahead', s: 'Your team is ready. Tap the battle button to continue.' };
+    }
+    box.hidden = false;
+    if (icon) icon.innerHTML = msg.ic;
+    if (txt) txt.innerHTML = '<b>' + escapeHtml(msg.b) + '</b><small>' + escapeHtml(msg.s) + '</small>';
   }
 
   // A single milestone reward introduces the Master Ball without asking the
@@ -1504,6 +1640,28 @@
 
   // --------------------------------------------------------------- MART ---
   var martStock = null;
+  var martFilter = 'all';
+  var MART_GROUPS = [['all', 'Everything'], ['ball', 'Balls'], ['heal', 'Medicine'],
+                     ['held', 'Held Items'], ['evo', 'Evolution Items'],
+                     ['forme', 'Forme Change'], ['mega', 'Mega Stones'], ['service', 'Services']];
+  function drawMartFilters() {
+    var host = $('martFilters');
+    if (!host) return;
+    host.innerHTML = '';
+    MART_GROUPS.forEach(function (g) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mart-filter' + (martFilter === g[0] ? ' on' : '');
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', martFilter === g[0] ? 'true' : 'false');
+      b.textContent = g[1];
+      b.addEventListener('click', function () {
+        martFilter = g[0];
+        drawMart();
+      });
+      host.appendChild(b);
+    });
+  }
   function openMart() {
     if (!martStock) martStock = N.rollMart(run);
     // Forme / Mega stock is party-dependent: a catch or a faint changes it, so
@@ -1521,12 +1679,84 @@
     drawMart();
   }
 
+  // One shop tile: art + name + price + honest copy + state. `featured`
+  // tiles get a gold-edged frame and a Buy chevron so the recommended shelf
+  // reads as the obvious place to start.
+  function martCardHtml(e, featured) {
+    var sold = e.stock <= 0;
+    var broke = !sold && run.money < e.price;
+    var d = document.createElement('div');
+    if (e.kind !== 'service') d.setAttribute('data-tip', 'item:' + e.id);
+    d.className = 'shop-item' + (sold ? ' sold' : '') + (broke ? ' broke' : '') +
+      (e.kind === 'service' ? ' service' : '') + (e.hot ? ' hot' : '') +
+      (featured ? ' featured' : '') +
+      (e.kind === 'mega' ? ' mega-item' : '') + (e.kind === 'forme' ? ' forme-item' : '');
+    var artHtml = (window.ItemArt && e.kind !== 'service')
+      ? window.ItemArt.itemImg(e.id, 34, 'si-art') : '';
+    var plainHtml = itemPlainHtml(e.id, 'si-plain');
+    var tipHtml = '';
+    if (window.Coach && e.kind === 'held' && !sold && !broke) {
+      var holder = window.Coach.bestHolderFor(e.id, run.party);
+      if (holder) {
+        tipHtml = '<span class="tip-badge" data-tip="text:' +
+          escapeHtml('Good fit for ' + holder.name + '. ' +
+            (window.Coach.heldPlain(e.id) || '')) +
+          '"><i aria-hidden="true">\u2726</i>Good fit</span>';
+      }
+    }
+    d.innerHTML = tipHtml +
+      '<div class="si-top">' + artHtml + '<span class="si-name">' + e.name + '</span>' +
+      '<span class="si-price' + (e.sale ? ' sale' : '') + '">' + (sold ? 'SOLD' : '$' + e.price) + '</span></div>' +
+      '<div class="si-desc">' + (e.desc || '') + plainHtml + '</div>' +
+      (e.kind === 'evo' ? '<div class="si-tag evo">evolution</div>' : '') +
+      (e.kind === 'mega' ? '<div class="si-tag mega">mega stone</div>' : '') +
+      (e.kind === 'forme' ? '<div class="si-tag forme">forme change</div>' : '') +
+      (e.hot && e.kind !== 'evo'
+          ? '<div class="si-hot">\u2726 your party can use this</div>' : '') +
+      (run.bag[e.id] ? '<div class="si-own">owned: ' + run.bag[e.id] + '</div>' : '');
+    if (!sold) d.addEventListener('click', function () { buyEntry(e); });
+    return d;
+  }
+
   function drawMart() {
     var grid = $('martGrid');
     grid.innerHTML = '';
+    // Beginner first: a short "Recommended" shelf at the top. These are the
+    // items that genuinely help THIS party right now (Coach-backed), so a new
+    // player never has to interpret a wall of stock before buying anything.
+    var featured = martStock.filter(function (e) {
+      if (e.stock <= 0 || run.money < e.price) return false;
+      if (e.unique && N.ownsItem(run, e.id)) return false;
+      if (e.hot) return true;
+      if (e.kind === 'held' && window.Coach && window.Coach.bestHolderFor(e.id, run.party)) return true;
+      if (e.kind === 'ball' && !run.bag[e.id]) return true;
+      return false;
+    }).slice(0, 4);
+    if (featured.length && martFilter === 'all') {
+      var fh = document.createElement('div');
+      fh.className = 'shop-featured';
+      var label = document.createElement('div');
+      label.className = 'sec-label';
+      label.innerHTML = '<span>\u2726 Recommended for you</span>';
+      fh.appendChild(label);
+      var fwrap = document.createElement('div');
+      fwrap.className = 'shop-grid';
+      fh.appendChild(fwrap);
+      grid.appendChild(fh);
+      featured.forEach(function (e) {
+        e._featured = 1;
+        fwrap.appendChild(martCardHtml(e, true));
+      });
+    }
     var groups = { ball: 'Poke Balls', heal: 'Medicine', evo: 'Evolution Items', forme: 'Forme Change', mega: 'Mega Stones', held: 'Held Items', service: 'Services' };
+    // Featured membership is re-decided every render (stock, money and party
+    // all change), never frozen onto a stock object.
+    martStock.forEach(function (e) { delete e._featured; });
+    drawMartFilters();
     Object.keys(groups).forEach(function (k) {
+      if (martFilter !== 'all' && martFilter !== k) return;
       var items = martStock.filter(function (e) {
+        if (martFilter !== 'all' && e._featured) return false;
         if (e.kind !== k) return false;
         if (e.unique && N.ownsItem(run, e.id)) return false;
         return true;
@@ -1538,46 +1768,7 @@
       var wrap = document.createElement('div');
       wrap.className = 'shop-grid';
       items.forEach(function (e) {
-        // Unique stock (Mega Stones): if you already own one, don't offer it
-        // again. Selling it removes it from the bag, so it comes straight back.
-        if (e.unique && N.ownsItem(run, e.id)) return;
-        var sold = e.stock <= 0;
-        // Can't afford it -> dim it, same as sold out. The price stays legible
-        // so it still reads as a goal rather than a broken tile.
-        var broke = !sold && run.money < e.price;
-        var d = document.createElement('div');
-        if (e.kind !== 'service') d.setAttribute('data-tip', 'item:' + e.id);
-        d.className = 'shop-item' + (sold ? ' sold' : '') + (broke ? ' broke' : '') + (e.kind === 'service' ? ' service' : '') + (e.hot ? ' hot' : '') + (e.kind === 'mega' ? ' mega-item' : '') + (e.kind === 'forme' ? ' forme-item' : '');
-        var artHtml = (window.ItemArt && e.kind !== 'service')
-          ? window.ItemArt.itemImg(e.id, 34, 'si-art') : '';
-        // The canon name stays; the gold line underneath is what the item
-        // ACTUALLY does. "Full Heal" is the worst offender in the shop --
-        // everyone reads it as "restores everything", and it restores no HP.
-        var plainHtml = itemPlainHtml(e.id, 'si-plain');
-        // A held item that genuinely suits someone in the party gets a small
-        // "good fit" marker so a recommendation surfaces only when it applies.
-        var tipHtml = '';
-        if (window.Coach && e.kind === 'held' && !sold && !broke) {
-          var holder = window.Coach.bestHolderFor(e.id, run.party);
-          if (holder) {
-            tipHtml = '<span class="tip-badge" data-tip="text:' +
-              escapeHtml('Good fit for ' + holder.name + '. ' +
-                (window.Coach.heldPlain(e.id) || '')) +
-              '"><i aria-hidden="true">\u2726</i>Good fit</span>';
-          }
-        }
-        d.innerHTML = tipHtml +
-          '<div class="si-top">' + artHtml + '<span class="si-name">' + e.name + '</span>' +
-          '<span class="si-price' + (e.sale ? ' sale' : '') + '">' + (sold ? 'SOLD' : '$' + e.price) + '</span></div>' +
-          '<div class="si-desc">' + (e.desc || '') + plainHtml + '</div>' +
-          (e.kind === 'evo' ? '<div class="si-tag evo">evolution</div>' : '') +
-          (e.kind === 'mega' ? '<div class="si-tag mega">mega stone</div>' : '') +
-          (e.kind === 'forme' ? '<div class="si-tag forme">forme change</div>' : '') +
-          (e.hot && e.kind !== 'evo'
-              ? '<div class="si-hot">\u2726 your party can use this</div>' : '') +
-          (run.bag[e.id] ? '<div class="si-own">owned: ' + run.bag[e.id] + '</div>' : '');
-        if (!sold) d.addEventListener('click', function () { buyEntry(e); });
-        wrap.appendChild(d);
+        wrap.appendChild(martCardHtml(e, false));
       });
       grid.appendChild(wrap);
     });
@@ -1658,6 +1849,22 @@
       return total + (Number(draft && draft[stat[0]]) || 0);
     }, 0);
   }
+  // The canonical beginner build: invest in the stat that matches the
+  // Pokemon's best attacking type, then Speed, then a sliver of HP.
+  // Mirrors the spread the game uses when it raises a Pokemon for you.
+  function suggestedSpread(mon) {
+    var sp = Dex.species.get(mon.id);
+    var b = sp && sp.exists ? sp.baseStats : { atk: 80, spa: 80 };
+    var physical = (b.atk || 0) >= (b.spa || 0);
+    var spread = { hp: 2, atk: 0, def: 0, spa: 0, spd: 0, spe: 32 };
+    if (physical) spread.atk = 32; else spread.spa = 32;
+    var style = window.Coach ? window.Coach.attackStyle(mon.id) : null;
+    var about = style && style.key !== 'mixed'
+      ? (style.key === 'Physical' ? 'its Attack' : 'its Sp. Atk')
+      : 'a balanced build';
+    if (style && style.key === 'mixed') { spread.atk = 16; spread.spa = 16; spread.hp = 2; spread.spe = 32; }
+    return { sp: spread, about: about };
+  }
   function statDraftFor(mon) {
     if (!svc || svc.mon !== mon) return Object.assign({}, mon.sp || {});
     if (!svc.spDraft) svc.spDraft = Object.assign({}, mon.sp || {});
@@ -1686,21 +1893,56 @@
     }
     svc = { mon: mon, tab: 'moves', replaceSlot: null, all: null, free: !!free };
     if (!free) { renderHud(); saveGame(); }
-    $('btnTutorBack').textContent = 'Done';
+    var doneBtn = $('btnTutorDone');
+    if (doneBtn) doneBtn.hidden = false;
     drawTrainer();
     show('Tutor');
+  }
+
+  // The wizard could drown a beginner in controls, so the trainer opens with
+  // a hero card that names the Pokemon and states the price/benefit in one
+  // line. Under it, four tabs are one logical journey: moves first, then the
+  // smaller touches.
+  var TUTOR_TABS = [
+    ['moves', 'Moves', '\u2694', 'Pick a new move to learn'],
+    ['ability', 'Ability', '\u2726', 'Switch to a different ability'],
+    ['nature', 'Nature', '\u00b1', 'Boost one stat, weaken another'],
+    ['stats', 'Stats', '\u2191', 'Spend Stat Points how you like']
+  ];
+  function drawTrainerHero(mon) {
+    var host = $('tutorHero');
+    if (!host) return;
+    var sp = Dex.species.get(mon.id);
+    var isG = N.isGauntlet(run);
+    var cost = isG
+      ? 'FREE<small>unlimited</small>'
+      : (run.trainingPaidThisRound
+        ? 'PAID<small>already covered</small>'
+        : '$' + SERVICE_PRICE.toLocaleString() + '<small>one session</small>');
+    host.hidden = false;
+    host.setAttribute('style', typeGlowVars(mon.types || (sp && sp.types)));
+    host.innerHTML =
+      '<span class="th-art">' + bigSprite(mon.id, '', 70, 76, 1, mon.shiny) + '</span>' +
+      '<span class="th-id">' +
+        '<span class="th-species">' + escapeHtml(speciesOf(mon)) + (mon.shiny ? ' \u2728' : '') + '</span>' +
+        '<span class="th-name">' + escapeHtml(mon.name) + '</span>' +
+        '<span class="types th-types">' + typeChips(mon.types || (sp && sp.types) || []) + '</span>' +
+      '</span>' +
+      '<span class="th-cost">' + cost + '</span>';
   }
 
   async function drawTrainer() {
     if (!svc) return;
     var mon = svc.mon;
+    drawTrainerHero(mon);
     $('tutorTitle').textContent = 'Train ' + mon.name;
-    $('tutorSub').textContent = speciesOf(mon) + ' \u00b7 change as much as you like';
+    $('tutorSub').textContent = 'One session covers everything \u2014 change as much as you like.';
 
     var box = $('tutorBody');
-    var tabs = [['moves','Moves'],['ability','Ability'],['nature','Nature'],['stats','Stats']];
-    var tabHtml = '<div class="tr-tabs">' + tabs.map(function (t) {
-      return '<button class="tr-tab' + (svc.tab === t[0] ? ' on' : '') + '" data-t="' + t[0] + '">' + t[1] + '</button>';
+    var tabHtml = '<div class="tr-tabs">' + TUTOR_TABS.map(function (t) {
+      return '<button class="tr-tab' + (svc.tab === t[0] ? ' on' : '') + '" data-t="' + t[0] + '">' +
+        '<span class="tr-tab-ic">' + t[2] + '</span><span>' + t[1] + '</span>' +
+        '<span class="tr-tab-s">' + t[3] + '</span></button>';
     }).join('') + '</div>';
 
     box.innerHTML = tabHtml + '<div id="trBody" class="tr-body"></div>';
@@ -1758,10 +2000,11 @@
         '<div class="tc-label">Current moves \u2014 tap one to replace it</div>' +
         '<div class="tc-slots">' + mon.moves.map(function (id, i) {
           var m = Dex.moves.get(id);
-          return '<button class="tc-slot type-' + m.type + (svc.replaceSlot === i ? ' sel' : '') +
-            '" data-slot="' + i + '" data-tip="move:' + m.id + '">' +
+          var th = TYPE_HEX[m.type] || '#8a93a5';
+          return '<button class="tc-slot' + (svc.replaceSlot === i ? ' sel' : '') +
+            '" data-slot="' + i + '" data-tip="move:' + m.id + '" style="--slot-color:' + th + '">' +
             '<span class="tc-n">' + m.name + '</span>' +
-            '<span class="tc-m">' + (m.category === 'Status' ? 'St' : m.basePower) + '</span>' +
+            '<span class="tc-m">' + (m.category === 'Status' ? 'Status move' : 'Power ' + m.basePower) + '</span>' +
             badgesHtml(id, mon, { compact: true }) +
             '</button>';
         }).join('') + '</div>';
@@ -1786,12 +2029,13 @@
       listEl.innerHTML = subset.map(function (id) {
         var m = Dex.moves.get(id);
         var acc = m.accuracy === true ? '\u2014' : m.accuracy;
-        return '<button class="move-card" data-m="' + id + '" data-tip="move:' + id + '">' +
+        var th = TYPE_HEX[m.type] || '#8a93a5';
+        return '<button class="move-card" data-m="' + id + '" data-tip="move:' + id + '" style="--mc-color:' + th + '">' +
           '<div class="mc-top"><span class="mv-chip type-' + m.type + '">' + m.type + '</span>' +
             '<span class="mc-cat">' + m.category + '</span></div>' +
           '<div class="mc-name">' + m.name + '</div>' +
-          '<div class="mc-stats"><span>' + (m.category === 'Status' ? '\u2014' : 'Pow ' + m.basePower) +
-            '</span><span>Acc ' + acc + '</span><span>PP ' + m.pp + '</span></div>' +
+          '<div class="mc-stats"><span><b>' + (m.category === 'Status' ? '\u2014' : m.basePower) + '</b> power</span>' +
+            '<span><b>' + acc + '</b> acc</span><span><b>' + m.pp + '</b> pp</span></div>' +
           badgesHtml(id, mon) + '</button>';
       }).join('') || '<p class="hint">No matches.</p>';
       listEl.querySelectorAll('.move-card').forEach(function (b) {
@@ -1832,14 +2076,17 @@
 
   function drawTrainAbility(body, mon) {
     var opts = N.abilityOptions(mon);
-    body.innerHTML = '<div class="opt-list">' + opts.map(function (a) {
+    var guide = '<div class="coach-line"><span class="cl-ic">\u2726</span><span>' +
+      'An ability is a <b>built-in perk</b> that works every battle \u2014 no button, no item. ' +
+      'Tap the description to see what each one does.</span></div>';
+    body.innerHTML = guide + '<div class="opt-list">' + opts.map(function (a) {
       var ab = Dex.abilities.get(a);
       var on = a === mon.ability;
       return '<button class="opt-row' + (on ? ' sel' : '') + '" data-a="' + a + '" data-tip="ability:' + ab.id + '">' +
         '<b>' + ab.name + '</b><span>' + (ab.shortDesc || ab.desc || '') + '</span>' +
-        (on ? '<span class="mv-meta">current</span>' : '') + '</button>';
+        (on ? '<span class="mv-meta">Current</span>' : '') + '</button>';
     }).join('') + '</div>' +
-    (opts.length < 2 ? '<p class="hint">This Pokemon has only one legal ability.</p>' : '');
+    (opts.length < 2 ? '<p class="hint" style="margin-top:10px">This Pokemon has only one legal ability.</p>' : '');
     body.querySelectorAll('.opt-row').forEach(function (b) {
       b.addEventListener('click', function () {
         mon.ability = b.dataset.a;
@@ -1850,20 +2097,30 @@
   }
 
   function drawTrainNature(body, mon) {
-    body.innerHTML = '<div class="nat-grid">' + NATURES.map(function (n) {
+    var style = window.Coach ? window.Coach.attackStyle(mon.id) : null;
+    // The one nature a beginner actually needs: boost the attacking stat the
+    // Pokemon actually uses. Highlight it and say so in the guide line.
+    var key = style && style.key === 'Physical' ? 'Adamant'
+            : style && style.key === 'Special' ? 'Modest' : null;
+    var guide = '<div class="coach-line"><span class="cl-ic">\u2726</span><span>' +
+      'A nature <b>boosts one stat by 10% and weakens another by 10%</b>.' +
+      (key ? ' The recommended one for ' + escapeHtml(speciesOf(mon)) + ' is <b>' + key + '</b>.' : '') +
+      '</span></div>';
+    body.innerHTML = guide + '<div class="nat-grid">' + NATURES.map(function (n) {
       var on = (mon.nature || 'Serious') === n[0];
-      return '<button class="nat' + (on ? ' sel' : '') + '" data-n="' + n[0] + '">' +
+      var rec = n[0] === key;
+      var neutral = n[1] === '\u2014' || n[1] === '\\u2014' || n[2] === '\u2014' || n[2] === '\\u2014';
+      var d1 = neutral ? 'balanced' : n[1];
+      var d2 = neutral ? '' : (' \u2212 ' + n[2]);
+      var desc = neutral
+        ? 'balanced \u2014 no change'
+        : '+' + d1 + d2;
+      return '<button class="nat' + (on ? ' sel' : '') + (rec ? ' rec' : '') + '" data-n="' + n[0] + '">' +
         '<span class="nat-n">' + n[0] + '</span>' +
-        '<span class="nat-d">' + (n[1] === '\u2014' ? 'balanced' : '+' + n[1] + ' \u2212' + n[2]) + '</span>' +
+        '<span class="nat-d">' + desc + '</span>' +
+        (rec ? '<span class="nat-tag">Suggested</span>' : '') +
         '</button>';
     }).join('') + '</div>';
-    body.querySelectorAll('.nat').forEach(function (b) {
-      b.addEventListener('click', function () {
-        mon.nature = b.dataset.n;
-        toast(mon.name + ' is now ' + b.dataset.n + '.');
-        drawTrainer(); if (run && !svc.free) saveGame();
-      });
-    });
   }
 
   function drawTrainStats(body, mon) {
@@ -1910,9 +2167,11 @@
 
     // Build once, then only patch values on input: re-rendering the whole
     // block mid-drag would tear the slider out from under the pointer.
+    var suggested = suggestedSpread(mon);
     body.innerHTML =
       statsTable +
-      '<div class="sp-head" id="spBudget" aria-live="polite">Stat Points left <b id="spLeft">0</b> <span>/ ' + TOTAL + '</span></div>' +
+      '<div class="sp-head" id="spBudget" aria-live="polite">Stat Points left <b id="spLeft">0</b> <span>/ ' + TOTAL + '</span>' +
+        '<button type="button" class="btn-mini sp-auto" data-auto-spread>Use suggested spread</button></div>' +
       STAT_KEYS.map(function (k) {
         var v = draft[k[0]] || 0;
         return '<div class="sp-row" data-s="' + k[0] + '">' +
@@ -1923,14 +2182,30 @@
           '</div>';
       }).join('') +
       '<p class="sp-warning" id="spWarning" role="alert" hidden></p>' +
-      '<p class="hint">Max ' + MAXP + ' per stat, ' + TOTAL + ' in total. ' +
-        'You can move any slider first; finish at ' + TOTAL + ' or fewer points.</p>';
+      '<div class="coach-line" style="margin:10px 0 0"><span class="cl-ic">\u2726</span><span>' +
+        'Stat Points make a Pokemon <b>faster, tougher or harder-hitting</b> in battle. ' +
+        escapeHtml(speciesOf(mon)) + ' wants <b>' + suggested.about + '</b> \u2014 tap <b>Use suggested spread</b> ' +
+        'and you are done. You never need to know the numbers.</span></div>';
 
     var leftEl = body.querySelector('#spLeft');
     var budgetEl = body.querySelector('#spBudget');
     var warningEl = body.querySelector('#spWarning');
     var rows = [].slice.call(body.querySelectorAll('.sp-range'));
     var stRows = [].slice.call(body.querySelectorAll('.st-row:not(.st-head)'));
+
+    // One-tap recommended spread: same 32/32/2 the game uses to raise your
+    // Pokemon, so a beginner can get a fully correct build without touching
+    // a single slider. The player can still adjust afterwards.
+    var autoBtn = body.querySelector('[data-auto-spread]');
+    if (autoBtn) autoBtn.addEventListener('click', function () {
+      draft.hp = suggested.sp.hp; draft.atk = suggested.sp.atk;
+      draft.def = suggested.sp.def; draft.spa = suggested.sp.spa;
+      draft.spd = suggested.sp.spd; draft.spe = suggested.sp.spe;
+      commitStatDraft(false);
+      paint();
+      toast(speciesOf(mon) + ' is optimised for ' + suggested.about + '.');
+      if (run && !svc.free) saveGame();
+    });
 
     function paint() {
       var left = TOTAL - used();
@@ -2090,7 +2365,7 @@
     var panelHtml = isOpen ? cardPanelHtml(m, idx, openPanel) : '';
 
     return '<article class="pc-card' + (fainted ? ' fainted' : '') + (isOpen ? ' open pcp-open-' + openPanel : '') +
-        '" data-uid="' + escapeHtml(m.uid) + '" data-i="' + idx + '">' +
+        '" data-uid="' + escapeHtml(m.uid) + '" data-i="' + idx + '" style="' + typeStyleVars(m.types) + '">' +
       '<div class="pc-head">' +
         '<button type="button" class="pc-drag" data-drag aria-label="Drag to reorder" title="Drag to reorder">&#8975;</button>' +
         (idx === 0 ? '<span class="pc-lead">LEAD</span>' : '<span class="pc-order">#' + (idx + 1) + '</span>') +
@@ -2582,11 +2857,22 @@
         ? 'Train more \u00b7 already paid this round'
         : 'Train Pokemon \u00b7 $' + SERVICE_PRICE.toLocaleString());
 
+    var styleVars = typeGlowVars(mon.types);
+    var statusChips = '';
+    if (C.isFainted(mon)) {
+      statusChips = '<div class="pd-status"><span class="ps-chip" style="background:rgba(255,107,107,.14);color:var(--red)">Fainted \u2014 gone forever</span></div>';
+    } else {
+      if (mon.status) statusChips += '<span class="ps-chip" style="background:' + statusColor(mon.status) + ';color:' +
+        (mon.status === 'par' || mon.status === 'slp' || mon.status === 'frz' ? '#000' : '#fff') + '">' + mon.status.toUpperCase() + '</span>';
+      if (mon.hpPct < 1) statusChips += '<span class="ps-chip" style="background:rgba(255,184,77,.14);color:var(--warn)">Needs healing</span>';
+      if (monLowPP(mon)) statusChips += '<span class="ps-chip" style="background:rgba(127,179,255,.12);color:var(--info)">Low PP</span>';
+    }
+
     host.innerHTML =
       gridHtml +
-      (partySel > 0 ? '<button class="btn-secondary wide pd-lead" style="margin-bottom:10px">Make lead</button>' : '') +
+      (partySel > 0 ? '<button class="btn-secondary wide pd-lead" style="margin-bottom:10px">Make lead \u2014 this Pokemon leads the next battle</button>' : '') +
       '<div class="party-detail">' +
-        '<div class="pd-hero">' +
+        '<div class="pd-hero" style="' + styleVars + '">' +
           '<div class="pd-art">' + bigSprite(mon.id, '', 104, 104, 1, mon.shiny) + '</div>' +
           '<div class="pd-id">' +
             '<div class="pd-species">' + speciesOf(mon) + (mon.shiny ? ' \u2728' : '') + '</div>' +
@@ -2597,19 +2883,23 @@
 
         '<div class="pd-hp">' +
           '<div class="hm-b big"><i style="width:' + pct + '%;background:' + col + '"></i></div>' +
-          '<span>' + cur + ' / ' + mx + (mon.status ? '  \u00b7  ' + mon.status.toUpperCase() : '') + '</span>' +
+          '<span>' + cur + ' / ' + mx + ' HP</span>' +
         '</div>' +
+        (statusChips ? '<div class="pd-status">' + statusChips + '</div>' : '') +
         potionHtml +
 
         '<div class="pd-facts">' +
           '<div class="pd-fact" data-tip="ability:' + mon.ability + '" tabindex="0"><span class="k">Ability</span><span class="v">' + mon.ability + '</span></div>' +
-          '<div class="pd-fact"><span class="k">Nature</span><span class="v">' + (mon.nature || 'Serious') + '</span></div>' +
+          '<div class="pd-fact" data-tip="text:<b>Nature</b> \u2014 one stat is boosted and another is weakened. Train here to change it." tabindex="0"><span class="k">Nature</span><span class="v">' + (mon.nature || 'Serious') + '</span></div>' +
           '<div class="pd-fact"><span class="k">Damage</span><span class="v">' + dmg.toLocaleString() + '</span></div>' +
           '<div class="pd-fact"><span class="k">KOs</span><span class="v">' + kos + '</span></div>' +
         '</div>' +
 
         '<div class="pd-actions">' +
           '<button class="btn-primary pd-train"><img class="ic-train-img" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/power-bracer.png" alt="">' + trainLabel + '</button>' +
+          '<div class="coach-line" style="margin:2px 0 0"><span class="cl-ic">\u2726</span><span>' +
+            'Training lets you change <b>moves, ability, nature and stats</b> \u2014 all in one session, ' +
+            'one price. The game tells you what to pick.</span></div>' +
         '</div>' +
 
         '<div class="pd-sec"><div class="pd-label">Moves</div>' +
@@ -2621,13 +2911,14 @@
             var frac = mxpp ? have / mxpp : 0;
             var ppCol = low ? 'var(--red)' : 'var(--ink)';
             var pw = mv.category === 'Status' ? 'Status' : (mv.basePower ? 'Pow ' + mv.basePower : '');
-            return '<div class="pd-move" data-tip="move:' + mv.id + '" tabindex="0">' +
+            var th = TYPE_HEX[mv.type] || '#8a93a5';
+            return '<div class="pd-move" data-tip="move:' + mv.id + '" tabindex="0" style="--pm-color:' + th + '">' +
               '<div class="pd-move-top"><span class="mv-chip type-' + mv.type + '">' + mv.type + '</span>' +
               '<span class="pd-mv-pw">' + pw + '</span></div>' +
               '<span class="pd-mn">' + mv.name + '</span>' +
               badgesHtml(m, mon, { compact: true }) +
               '<div class="pd-mp-bar"><div class="pd-mp-track"><div class="pd-mp-fill" style="width:' + (frac * 100) + '%;background:' + ppCol + '"></div></div>' +
-              '<span class="pd-mp' + (low ? ' low' : '') + '">' + have + '/' + mxpp + '</span></div>' +
+              '<span class="pd-mp' + (low ? ' low' : '') + '">' + have + '/' + mxpp + ' PP</span></div>' +
               '</div>';
           }).join('') + '</div>' +
         '</div>' +
@@ -2876,8 +3167,38 @@
       ? h + (h === 1 ? ' run finished' : ' runs finished')
       : 'No runs finished';
     updateMenuAvatar();
+
+    // Trainer header: who is playing and where the run stands, at a glance.
+    var nameEl = $('menuTrainerName'), subEl = $('menuTrainerSub'), runEl = $('menuRunState');
+    if (nameEl) nameEl.textContent = profile.name || 'Trainer';
+    var inRun = run && !run.over;
+    if (subEl) subEl.textContent = inRun
+      ? (run.mode === 'daily' ? 'Daily run' : (run.mode === 'gauntlet' ? 'Team Gauntlet' : 'Free Play'))
+      : (profile.totalRuns ? 'Collector & survivor' : 'Your adventure');
+    if (runEl) {
+      if (inRun) {
+        runEl.innerHTML = '<small>' + (run.mode === 'daily' ? 'Daily' : (run.mode === 'gauntlet' ? 'Gauntlet' : 'Free')) +
+          '</small>S' + (run.section || 1) + ' \u00b7 ' + (run.battlesWon || 0) + 'W';
+      } else {
+        runEl.innerHTML = '<small>Status</small>No run';
+      }
+    }
+    var bigAv = $('menuAvatarBig');
+    if (bigAv) bigAv.innerHTML = '<img src="' + avatarUrl(safeAvatar()) + '" alt="" decoding="async">';
+    // On the title there is nothing to resume: the single obvious action is
+    // closing the sheet. In a run it is "Resume" so the player lands back in
+    // the game with one tap.
+    var resumeBtn = $('btnMenuClose');
+    if (resumeBtn) resumeBtn.textContent = inRun ? 'Resume' : 'Close';
+
+    // The danger zone only exists while a live run can be abandoned.
     var abBtn = $('btnMenuAbandon');
-    if (abBtn) abBtn.hidden = !run || run.over || !$('screenTitle').hidden;
+    // Abandon only exists while a run is live (title visible = nothing to abandon).
+    var canAbandon = !!(run && !run.over && $('screenTitle').hidden);
+    if (abBtn) abBtn.hidden = !canAbandon;
+    var dGroup = $('menuDangerGroup'), dLabel = $('menuDangerLabel');
+    if (dGroup) dGroup.hidden = !canAbandon;
+    if (dLabel) dLabel.hidden = !canAbandon;
     window.Modal.open('screenMenu');
   }
   function closeMenu() { window.Modal.close('screenMenu'); }
@@ -5050,11 +5371,13 @@
   function showCatch(clone, money) {
     show('Catch');
     $('catchTitle').textContent = (clone.shiny ? '\u2728 Shiny! ' : 'Gotcha! ') + clone.name + ' was caught!';
+    var kick = $('catchKicker');
+    if (kick) kick.textContent = clone.shiny ? '1 in 512 \u2014 an incredible find' : 'New partner acquired';
     var st = clone.status ? clone.status.toUpperCase() : 'none';
     $('catchBody').innerHTML =
       '<div class="catch-new">' + bigSprite(clone.id, '', 140, 154, 1, clone.shiny) +
       '<div class="catch-info">' +
-      '<h3 style="margin:0 0 8px 0;">' + escapeHtml(clone.name) + '</h3>' +
+      '<h3 class="sc-name" style="margin:0 0 8px 0;">' + escapeHtml(clone.name) + '</h3>' +
       '<div class="types" style="justify-content:center;">' + typeChips(clone.types) + '</div>' +
       '<div class="statline" style="margin:8px 0;font-size:1rem;">HP ' + pctHP(clone.hpPct) + '% \u00b7 Status ' + st + '</div>' +
       '<div class="ability" style="margin:6px 0;opacity:0.8;">' + clone.ability + '</div>' +
@@ -5183,6 +5506,13 @@
     show('Reward');
     $('rewardTitle').textContent = lost ? 'Defeated...' : 'Victory!';
     $('rewardTitle').className = 'scr-title' + (lost ? ' dead' : '');
+    // The moment screen tints itself: warm gold after a win, dim red after a
+    // defeat, so a glance at the edge of the screen tells the story.
+    var rScreen = $('screenReward');
+    if (rScreen) rScreen.style.setProperty('--m-glow',
+      lost ? 'rgba(255,107,107,.09)' : 'rgba(255,207,92,.07)');
+    var kick = $('rewardKicker');
+    if (kick) kick.textContent = lost ? 'The battle did not go your way' : (money ? 'Prize money collected' : 'The battle is won');
     var html = '';
     if (money) html += '<p class="reward-money">+$' + money + '</p>';
     if (dead && dead.length) {
@@ -5196,7 +5526,16 @@
     }
     if (healed) html += '<p class="reward-heal">Your team was fully restored.</p>';
     if (!money && (!dead || !dead.length) && !missedCatch && !healed) html += '<p class="hint">You live to fight on.</p>';
-    html += '<p class="hint">Battles won: <b>' + run.battlesWon + '</b> \u00b7 Party: <b>' + run.party.length + '</b></p>';
+    // One line of honest next-step guidance, matched to what actually happened.
+    if (lost && N.alive(run).length) {
+      html += '<p class="miss-note" style="margin-top:14px">The team escaped \u2014 <b>patch everyone up</b> before the next fight. HP and PP carry over.</p>';
+    } else if (dead && dead.length) {
+      html += '<p class="miss-note" style="margin-top:14px">They are <b>gone forever</b> \u2014 that is the rule of this run. Your survivors carry on for them.</p>';
+    }
+    html += '<div class="sum-stats" style="margin-top:16px;padding:12px;grid-template-columns:repeat(2,1fr)">' +
+      '<div class="sum-stat"><span class="v">' + run.battlesWon + '</span><span class="k">Battles won</span></div>' +
+      '<div class="sum-stat"><span class="v">' + run.party.length + '</span><span class="k">Party size</span></div>' +
+      '</div>';
     $('rewardBody').innerHTML = html;
     $('btnRewardDone').onclick = afterBattleAdvance;
     renderHud();
@@ -5255,6 +5594,8 @@
     var caughtName = run.lastCaughtName;
 
     $('sumTitle').textContent = 'Section ' + finished + ' complete';
+    var sumKick = $('sumKicker');
+    if (sumKick) sumKick.textContent = 'The route is behind you \u2014 here is what happened';
     $('sumSub').textContent = run.catchMissed
       ? 'You pressed on empty-handed.'
       : (caughtName ? caughtName + ' joined the team.' : 'The route is behind you.');
@@ -5305,6 +5646,10 @@
     recordRunEnd();
     var m = N.mvp(run);
     show('GameOver');
+    var goScreen = $('screenGameOver');
+    if (goScreen) goScreen.style.setProperty('--m-glow', 'rgba(255,107,107,.09)');
+    var goKick = $('goKicker');
+    if (goKick) goKick.textContent = 'Every Pokemon is remembered here';
     $('goScore').innerHTML =
       '<div class="score-big">' + run.battlesWon + '</div><div class="score-lbl">' +
         (N.isGauntlet(run) ? 'trainers beaten' : 'battles won') + '</div>' +
@@ -5391,7 +5736,14 @@
 
     $('drTitle').textContent = complete ? 'Daily complete!' : 'Daily ended';
     $('drTitle').className = 'scr-title' + (complete ? '' : ' dead');
+    var drScreen = $('screenDailyResult');
+    if (drScreen) drScreen.style.setProperty('--m-glow',
+      complete ? 'rgba(255,207,92,.08)' : 'rgba(255,107,107,.08)');
     $('drSub').textContent = 'Dailylocke #' + entry.n + ' \u00b7 ' + entry.date;
+    var drKick = $('drKicker');
+    if (drKick) drKick.textContent = complete
+      ? 'Scored \u00b7 recorded \u00b7 one for the calendar'
+      : 'The run is over \u2014 but the streak lives on';
 
     $('drStats').innerHTML =
       '<div class="sum-stat"><span class="v' + (complete ? ' gold' : '') + '">' +
@@ -6238,11 +6590,11 @@
       if (run && run._inBattle) battleFailed(e);
       else appFatal('The saved battle could not be resumed', e);
     }
-    $('btnTutorBack').addEventListener('click', function () {
+    function finishTutor() {
       // Sliders may be moved in either order, so their session draft can be
       // temporarily over budget. Do not let the player leave until the spread
       // is back within the 66-point limit.
-      if (!commitStatDraft(true)) return;
+      if (svc && !commitStatDraft(true)) return;
       if (run && svc && !svc.free) saveGame();
       svc = null;
       if (gbTraining) {
@@ -6257,7 +6609,12 @@
       } else {
         renderCrossroads(); show('Crossroads');
       }
-    });
+    }
+    $('btnTutorBack').addEventListener('click', finishTutor);
+    var tutorDone = $('btnTutorDone');
+    if (tutorDone) tutorDone.addEventListener('click', finishTutor);
+    var tutorCancel = $('btnTutorCancel');
+    if (tutorCancel) tutorCancel.addEventListener('click', finishTutor);
     // "Save progress" lives only on the section summary now: saving is
     // taught at the one moment it matters (a section done), not after every
     // battle. The backup itself stays reachable from the menu.
