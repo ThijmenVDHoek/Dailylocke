@@ -646,6 +646,52 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 }
 .shop-item.service { background:linear-gradient(160deg, rgba(192,124,232,.16), var(--surface)); }
 
+/* Transformation offers are decisions, not tiny item rows. Give each one a
+   full-width card with a large result silhouette and a readable comparison
+   panel, while keeping the target's species name hidden until the player uses
+   the item. */
+.shop-grid:has(.shop-item.forme-item),
+.shop-grid:has(.shop-item.mega-item) { grid-template-columns:1fr; }
+.shop-item.forme-item, .shop-item.mega-item { padding:0; overflow:hidden; }
+.si-transform-card { padding:16px 18px 15px; }
+.si-transform-top { margin-bottom:8px; }
+.si-transform-top .si-name { font-size:1.15rem; }
+.si-transform-visual {
+  display:grid; grid-template-columns:minmax(90px,.7fr) auto minmax(210px,1.3fr);
+  align-items:center; gap:14px; min-height:150px; padding:10px 0 14px;
+}
+.si-transform-source, .si-transform-result {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  min-width:0; text-align:center; gap:4px;
+}
+.si-transform-source > .anim-mon { display:block; margin:4px auto 1px; }
+.si-transform-source > b { color:#fff; font-size:.85rem; overflow-wrap:anywhere; }
+.si-transform-source-label {
+  color:var(--ink-3); font-size:.62rem; letter-spacing:1.1px; text-transform:uppercase;
+}
+.si-transform-arrow { color:var(--gold); font-size:2rem; text-shadow:0 0 18px rgba(255,215,110,.35); }
+.si-transform-results { display:flex; align-items:flex-end; justify-content:center; gap:4px; min-width:0; }
+.si-transform-silhouette { display:flex; align-items:flex-end; justify-content:center; min-width:0; }
+.si-transform-silhouette .anim-mon {
+  display:block; filter:brightness(0) saturate(0); animation:evopPulse 2.4s ease-in-out infinite;
+}
+.si-transform-results.multi .si-transform-silhouette + .si-transform-silhouette { margin-left:-6px; }
+.si-transform-specs {
+  display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:6px;
+  padding:10px 0; border-top:1px solid rgba(255,255,255,.1); border-bottom:1px solid rgba(255,255,255,.1);
+}
+.si-transform-specs > div {
+  display:flex; flex-direction:column; gap:3px; min-width:0; padding:7px 8px;
+  border-radius:var(--r-sm); background:rgba(0,0,0,.16);
+}
+.si-transform-specs b { color:var(--gold); font-size:.65rem; letter-spacing:.7px; text-transform:uppercase; }
+.si-transform-specs span { color:var(--ink-2); font-size:.76rem; line-height:1.25; overflow-wrap:anywhere; }
+.si-transform-desc { margin-top:9px; }
+@media (max-width:600px) {
+  .si-transform-visual { grid-template-columns:minmax(72px,.65fr) auto minmax(150px,1.35fr); gap:8px; }
+  .si-transform-specs { grid-template-columns:repeat(2, minmax(0,1fr)); }
+}
+
 .sell-grid { display:flex; flex-wrap:wrap; gap:7px; }
 .sell-btn {
   display:flex; align-items:center; gap:7px;

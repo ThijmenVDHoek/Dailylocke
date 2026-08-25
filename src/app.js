@@ -245,6 +245,156 @@
     return types.map(function (t) { return '<span class="type type-' + t + '">' + t + '</span>'; }).join('');
   }
 
+  // ---- transformation shop cards -----------------------------------------
+  // Forme changes and Mega Stones are the two remaining party-specific shop
+  // shelves. Unlike ordinary items, their value is in the Pokemon they create,
+  // so a name + item sprite is not enough: show a large result silhouette and
+  // compare the concrete type, base-stat and ability changes before purchase.
+  var TRANSFORM_STATS = [
+    ['hp', 'HP'], ['atk', 'Atk'], ['def', 'Def'],
+    ['spa', 'Sp. Atk'], ['spd', 'Sp. Def'], ['spe', 'Speed']
+  ];
+
+  function martTransformOwner(entry) {
+    if (!run || !Array.isArray(run.party)) return null;
+    if (entry.forId != null) {
+      for (var i = 0; i < run.party.length; i++) {
+        if (String(run.party[i].uid) === String(entry.forId) || run.party[i].id === entry.forId) return run.party[i];
+      }
+    }
+    if (entry.forSpecies) {
+      for (var j = 0; j < run.party.length; j++) {
+        if (run.party[j].name === entry.forSpecies) return run.party[j];
+      }
+    }
+    return null;
+  }
+
+  function martTransformInfo(entry) {
+    var owner = martTransformOwner(entry);
+    if (!owner) return null;
+    var targets = [];
+    if (entry.kind === 'mega' && window.Mega) {
+      var mega = window.Mega.infoFor(entry.id);
+      var megaTarget = mega && mega.forme;
+      if (!megaTarget && entry.forme) megaTarget = Dex.species.get(entry.forme).id;
+      if (megaTarget) targets.push({ id: megaTarget });
+    } else if (entry.kind === 'forme' && window.Forme) {
+      targets = window.Forme.targetsFor(owner, entry.id).map(function (target) {
+        return { id: target.id };
+      });
+    }
+    targets = targets.filter(function (target) {
+      var sp = Dex.species.get(target.id);
+      return sp && sp.exists;
+    });
+    if (!targets.length) return null;
+    return { owner: owner, from: Dex.species.get(owner.id), targets: targets };
+  }
+
+  function firstAbility(species) {
+    if (!species || !species.abilities) return '';
+    for (var key in species.abilities) {
+      if (species.abilities[key]) return species.abilities[key];
+    }
+    return '';
+  }
+
+  function distinctValues(values) {
+    var out = [];
+    values.forEach(function (value) {
+      if (out.indexOf(value) < 0) out.push(value);
+    });
+    return out;
+  }
+
+  function transformTypeSpec(info) {
+    var before = (info.from.types || []).join(' / ');
+    var after = distinctValues(info.targets.map(function (target) {
+      return (Dex.species.get(target.id).types || []).join(' / ');
+    }));
+    if (after.length > 1) return 'varies by result';
+    return before === after[0] ? before + ' (unchanged)' : before + ' → ' + after[0];
+  }
+
+  function transformStatSpec(info) {
+    var before = info.from.baseStats || {};
+    var lines = info.targets.map(function (target) {
+      var after = Dex.species.get(target.id).baseStats || {};
+      var changes = [];
+      TRANSFORM_STATS.forEach(function (stat) {
+        var delta = (after[stat[0]] || 0) - (before[stat[0]] || 0);
+        if (delta) changes.push(stat[1] + ' ' + (delta > 0 ? '+' : '') + delta);
+      });
+      return changes.length ? changes.join(' · ') : 'no base-stat change';
+    });
+    return distinctValues(lines).length === 1 ? lines[0] : 'varies by result';
+  }
+
+  function transformBstSpec(info) {
+    var before = C.bst(info.from.id);
+    var after = distinctValues(info.targets.map(function (target) { return C.bst(target.id); }));
+    if (after.length > 1) return before + ' → varies by result';
+    var delta = after[0] - before;
+    return before + ' → ' + after[0] + ' (' + (delta > 0 ? '+' : '') + delta + ')';
+  }
+
+  function transformAbilitySpec(info) {
+    var before = firstAbility(info.from);
+    var after = distinctValues(info.targets.map(function (target) {
+      return firstAbility(Dex.species.get(target.id));
+    }));
+    if (after.length > 1) return 'varies by result';
+    return before === after[0] ? (after[0] || 'unchanged') + ' (unchanged)' :
+      (before || 'none') + ' → ' + (after[0] || 'none');
+  }
+
+  function transformSilhouettes(info) {
+    var cls = info.targets.length > 1 ? ' multi' : '';
+    return '<div class="si-transform-results' + cls + '">' +
+      info.targets.slice(0, 4).map(function (target) {
+        return '<span class="si-transform-silhouette" aria-label="Result silhouette">' +
+          animSprite(target.id, info.targets.length > 1 ? 84 : 116,
+            info.targets.length > 1 ? 92 : 126, '', 1.25) + '</span>';
+      }).join('') + '</div>';
+  }
+
+  function transformShopTileHtml(entry) {
+    var info = martTransformInfo(entry);
+    if (!info) return '';
+    var type = entry.kind === 'mega' ? 'Mega transformation' : 'Permanent forme change';
+    var description = entry.kind === 'mega'
+      ? 'Use during battle to temporarily transform this Pokemon.'
+      : 'Use from the team to permanently change this Pokemon\'s forme.';
+    var targetCount = info.targets.length > 1 ? ' · choose 1 of ' + info.targets.length + ' results' : '';
+    var price = entry.sale ? '$' + entry.price + ' sale' : '$' + entry.price;
+    return '<div class="si-transform-card">' +
+      '<div class="si-top si-transform-top">' +
+        (window.ItemArt ? window.ItemArt.itemImg(entry.id, 38, 'si-art') : '') +
+        '<span class="si-name">' + escapeHtml(entry.name) + '</span>' +
+        '<span class="si-price' + (entry.sale ? ' sale' : '') + '">' + price + '</span>' +
+      '</div>' +
+      '<div class="si-transform-visual">' +
+        '<div class="si-transform-source"><span class="si-transform-source-label">Your Pokemon</span>' +
+          animSprite(info.owner.id, 58, 66, '', 1.15, info.owner.shiny) +
+          '<b>' + escapeHtml(entry.forSpecies || speciesOf(info.owner)) + '</b></div>' +
+        '<span class="si-transform-arrow" aria-hidden="true">→</span>' +
+        '<div class="si-transform-result"><span class="si-transform-source-label">Result' + targetCount + '</span>' +
+          transformSilhouettes(info) + '</div>' +
+      '</div>' +
+      '<div class="si-transform-specs">' +
+        '<div><b>Type</b><span>' + escapeHtml(transformTypeSpec(info)) + '</span></div>' +
+        '<div><b>Base stats</b><span>' + escapeHtml(transformStatSpec(info)) + '</span></div>' +
+        '<div><b>BST</b><span>' + escapeHtml(transformBstSpec(info)) + '</span></div>' +
+        '<div><b>Ability</b><span>' + escapeHtml(transformAbilitySpec(info)) + '</span></div>' +
+        '<div><b>Duration</b><span>' + escapeHtml(type) + '</span></div>' +
+      '</div>' +
+      '<div class="si-desc si-transform-desc">' + escapeHtml(description) + '</div>' +
+      '<div class="si-hot">✦ available for ' + escapeHtml(entry.forSpecies || speciesOf(info.owner)) + '</div>' +
+      (run.bag[entry.id] ? '<div class="si-own">owned: ' + run.bag[entry.id] + '</div>' : '') +
+    '</div>';
+  }
+
   // Small roster row for history tiles: party sprites in a tight row, with
   // the MVP marked by a tiny gold pill.
   function rosterRowHtml(roster, mvpId) {
@@ -1894,9 +2044,10 @@
       var seenF = {};
       window.Forme.relevantItems(run).forEach(function (f) {
         if (seenF[f.id]) return; seenF[f.id] = 1;
+        var formeOwner = run.party.filter(function (m) { return m.name === f.forSpecies; })[0];
         martStock.push({ kind: 'forme', id: f.id, name: f.name, price: f.price,
                          desc: f.desc, stock: 99, hot: true, unique: true,
-                         forSpecies: f.forSpecies });
+                         forSpecies: f.forSpecies, forId: formeOwner && formeOwner.id });
       });
     }
     drawMart();
@@ -2054,9 +2205,13 @@
         // so it still reads as a goal rather than a broken tile.
         var broke = !sold && run.money < e.price;
         var d = document.createElement('div');
-        if (e.kind !== 'service') d.setAttribute('data-tip', 'item:' + e.id);
+        if (e.kind !== 'service' && e.kind !== 'forme' && e.kind !== 'mega') {
+          d.setAttribute('data-tip', 'item:' + e.id);
+        }
         d.className = 'shop-item' + (sold ? ' sold' : '') + (broke ? ' broke' : '') + (e.kind === 'service' ? ' service' : '') + (e.hot ? ' hot' : '') + (e.kind === 'mega' ? ' mega-item' : '') + (e.kind === 'forme' ? ' forme-item' : '');
-        var artHtml = (window.ItemArt && e.kind !== 'service')
+        var transformHtml = (e.kind === 'forme' || e.kind === 'mega')
+          ? transformShopTileHtml(e) : '';
+        var artHtml = (window.ItemArt && e.kind !== 'service' && !transformHtml)
           ? window.ItemArt.itemImg(e.id, 34, 'si-art') : '';
         // The canon name stays; the gold line underneath is what the item
         // ACTUALLY does. legacy status-only medicines are not stocked on new runs --
@@ -2073,7 +2228,7 @@
               (window.Coach.heldPlain(e.id) || ''));
           }
         }
-        d.innerHTML = tipHtml +
+        d.innerHTML = transformHtml || tipHtml +
           '<div class="si-top">' + artHtml + '<span class="si-name">' + e.name + '</span>' +
           '<span class="si-price' + (e.sale ? ' sale' : '') + '">' + (sold ? 'SOLD' : '$' + e.price) + '</span></div>' +
           '<div class="si-desc">' + (e.desc || '') + plainHtml + '</div>' +

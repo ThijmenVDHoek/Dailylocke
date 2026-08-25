@@ -946,9 +946,10 @@
     var FM = window.Forme;
     if (FM) {
       FM.relevantItems(run).forEach(function (f) {
+        var formeOwner = run.party.filter(function (m) { return m.name === f.forSpecies; })[0];
         stock.push({ kind: 'forme', id: f.id, name: f.name, price: f.price,
                      desc: f.desc, stock: 99, hot: true, unique: true,
-                     forSpecies: f.forSpecies });
+                     forSpecies: f.forSpecies, forId: formeOwner && formeOwner.id });
       });
     }
 
@@ -958,9 +959,11 @@
     var MG = window.Mega;
     if (MG) {
       MG.relevantStones(run).forEach(function (st2) {
+        var megaOwner = run.party.filter(function (m) { return m.name === st2.forSpecies; })[0];
         stock.push({ kind: 'mega', id: st2.id, name: st2.name, price: st2.price,
                      desc: MG.desc(st2.id), stock: 1, hot: true, unique: true,
-                     forme: st2.formeName, forSpecies: st2.forSpecies });
+                     forme: st2.formeName, forSpecies: st2.forSpecies,
+                     forId: megaOwner && megaOwner.id });
       });
     }
 
