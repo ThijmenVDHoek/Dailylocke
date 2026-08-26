@@ -1003,6 +1003,18 @@
   // Balls and Full Restore stay in the Mart; evolution and held items are
   // battle rewards now. Forme-change items and Mega Stones retain their
   // dedicated party-specific shelves.
+  // The three-card offer is granted automatically: the game picks one of the
+  // cards itself instead of making the player stop and choose. The pick is
+  // seeded from the same battle coordinates as the offer, so re-opening the
+  // reward screen can never reroll the prize (and the same Daily seed yields
+  // the same reward for everyone).
+  function pickReward(run, choices) {
+    if (!run || !choices || !choices.length) return null;
+    var rand = C.mulberry32(C.hashString(run.seed + '|item-reward-pick|' + run.section + '|' +
+      run.battleInSection + '|' + (run._shopSeq || 0)));
+    return choices[Math.floor(rand() * choices.length)];
+  }
+
   function rollMart(run) {
     var seed = C.hashString(run.seed + '|mart|' + run.section + '|' + run.battleInSection + '|' + (run._shopSeq || 0));
     var rand = C.mulberry32(seed);
@@ -1187,7 +1199,7 @@
     FIELD_POOL: FIELD_POOL,
     SECTION6_CAPTURE_POOL: SECTION6_CAPTURE_POOL, section6CaptureFor: section6CaptureFor,
     BASE_REWARD: BASE_REWARD, sectionCompletionReward: sectionCompletionReward, healAll: healAll,
-    battleRewardChoices: battleRewardChoices,
+    battleRewardChoices: battleRewardChoices, pickReward: pickReward,
     rollMart: rollMart, applyItem: applyItem,
     tutorOptions: tutorOptions, teachMove: teachMove, abilityOptions: abilityOptions,
     mvp: mvp, roster: roster, trainPlayerMon: trainPlayerMon,
