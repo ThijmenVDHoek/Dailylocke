@@ -4,10 +4,11 @@ A daily nuzlocke challenge, played in the browser. Pick a starter, fight through
 sections of wild encounters and trainers, and try to keep your team alive.
 The Mart's healing item is always a Full Restore; Ball tiers progress from
 Poke Ball in section 1 to Great Ball in section 2 and Ultra Ball from section 3.
-Tap any shop or Bag item to read its full description before buying, using, or
-selling it; selling is handled inside the owned-item sheet. Buy ten balls at one
-Mart stop to receive a Premier Ball. Evolution and held items are victory
-rewards: choose one of three after each win.
+The Ball and the Full Restore share one shelf so the two essentials sit side by
+side. Tap a shop item to set a quantity and confirm with Buy; tap a Bag item to
+Use a Full Restore or Sell anything you own. Buy ten balls at one Mart stop to
+receive a Premier Ball. Evolution and held items are victory rewards: after each
+win, one is picked for you and granted to your Bag immediately.
 
 Three modes, **independent save slots** — so one can never block another:
 

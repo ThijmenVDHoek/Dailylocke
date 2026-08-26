@@ -722,7 +722,32 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
   max-width:520px; margin:16px auto 10px; color:var(--ink-2);
   font-size:1rem; line-height:1.55; text-align:left; white-space:pre-line;
 }
-.shop-item-meta { min-height:1.3em; margin:0 0 18px; color:var(--ink-3); font-size:.82rem; }
+.shop-item-meta { min-height:1.3em; margin:0 0 14px; color:var(--ink-3); font-size:.82rem; }
+/* Quantity stepper for Mart purchases: [-][numeric input][+] then Buy. */
+.shop-item-qty {
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  margin:0 0 14px;
+}
+.shop-item-qty .qty-btn {
+  width:46px; height:46px; flex:0 0 auto;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:var(--r-md); border:1px solid rgba(255,255,255,.14);
+  background:var(--surface-hi); color:var(--ink);
+  font-size:1.35rem; line-height:1; cursor:pointer;
+  transition:background-color .14s, transform .12s;
+}
+.shop-item-qty .qty-btn:hover:not(:disabled) { background:var(--surface-press); }
+.shop-item-qty .qty-btn:active:not(:disabled) { transform:scale(.94); }
+.shop-item-qty .qty-btn:disabled { opacity:.35; cursor:not-allowed; }
+.shop-item-qty .qty-input {
+  width:76px; height:46px; text-align:center;
+  font-size:1.15rem; font-family:inherit; color:var(--ink);
+  background:var(--bg-1); border:1px solid rgba(255,255,255,.2);
+  border-radius:var(--r-md); -moz-appearance:textfield; appearance:textfield;
+}
+.shop-item-qty .qty-input::-webkit-outer-spin-button,
+.shop-item-qty .qty-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+.shop-item-qty .qty-input:focus { outline:2px solid var(--gold); outline-offset:1px; }
 .shop-item-actions { display:flex; flex-direction:column; gap:9px; }
 .shop-item-actions button { width:100%; }
 #btnShopItemBuy {

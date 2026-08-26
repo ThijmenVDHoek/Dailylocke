@@ -3693,6 +3693,29 @@ host2.remove();
       `a=${a.map((e) => e.id).join(',')} b=${b.map((e) => e.id).join(',')}`);
   }
 
+  // The reward is granted automatically now: pickReward() chooses exactly one
+  // of the three offered cards, seeded from the same battle coordinates so a
+  // refresh (or another player on the same Daily) sees the same prize.
+  {
+    const runA = N2.newRun(7331); runA.mode = 'free';
+    const runB = N2.newRun(7331); runB.mode = 'free';
+    const choices = N2.battleRewardChoices(runA);
+    const pickA = N2.pickReward(runA, N2.battleRewardChoices(runA));
+    const pickB = N2.pickReward(runB, N2.battleRewardChoices(runB));
+    const inOffer = choices.some((e) => e.id === (pickA && pickA.id));
+    check('the auto-granted reward is one of the three offered cards',
+      !!pickA && inOffer, pickA ? pickA.id + ' from ' + choices.map((e) => e.id).join(',') : 'none');
+    check('the auto-granted reward is deterministic for the same seed',
+      !!pickA && !!pickB && pickA.id === pickB.id, pickA && pickB ? pickA.id + ' vs ' + pickB.id : '');
+    const none = N2.pickReward(runA, []);
+    check('an empty offer grants nothing',
+      none === null, String(none));
+    const gauntlet = N2.newRun(99); gauntlet.mode = 'gauntlet';
+    const gPick = N2.pickReward(gauntlet, N2.battleRewardChoices(gauntlet));
+    check('the gauntlet never auto-grants an item',
+      gPick === null, String(gPick && gPick.id));
+  }
+
   // Owned relevant items must NOT block the offer. If the player already
   // owns the relevant item, the picker must fall through to other unowned
   // picks rather than serving the owned item back to them.
@@ -3799,6 +3822,155 @@ host2.remove();
   const strongMon = await N2.makeWild(section6, strongId);
   check('the section 6 capture is marked as a strong encounter',
     strongMon.specialEncounter === 'section6-strong-capture');
+}
+
+// ============================================================ MART & BAG SHEETS
+// The Mart sheet is a purchase dialog: a [-][numeric input][+] quantity
+// stepper plus a single Buy button that confirms. The Bag sheet offers "Use"
+// for a Full Restore and "Sell" for both it and Balls.
+{
+  // Spin up a fresh live run through the same UI a player uses, so the
+  // closure-scoped run state is real (Game.run is null this late in the
+  // suite -- the earlier runs were retired on purpose).
+  const waitFor = async (fn, ms = 12000) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      const value = fn();
+      if (value) return value;
+      await new Promise((res) => setTimeout(res, 25));
+    }
+    return null;
+  };
+  window.Modal.closeAll();
+  window.document.getElementById('btnNewRun').click();
+  const starter = await waitFor(() => window.document.querySelector('#starterGrid .pick-btn'));
+  if (starter) starter.click();
+  const nick = await waitFor(() => !window.document.getElementById('screenNickname').hidden &&
+    window.document.getElementById('nickInput'));
+  if (nick) {
+    nick.value = 'Blaze';
+    window.document.getElementById('btnNickOk').click();
+  }
+  const route = await waitFor(() => !window.document.getElementById('screenCrossroads').hidden);
+  if (!route) throw new Error('could not reach the route screen for the Mart sheet test');
+
+  const live = window.Game.run;
+  const N2 = window.Nuz;
+  live.mode = 'free'; live.over = false; live.prologue = false;
+  // Section 1 on purpose: the fresh run's Mart is already rolled for the
+  // first shelf, and the layout (not the ball tier) is what this block pins.
+  live.section = 1; live.battleInSection = 0;
+  live.money = 50000; live.bag = {};
+  const shopMon = await C.makeMon('charmander');
+  shopMon.name = 'Blaze'; shopMon.hpPct = 1; shopMon.item = '';
+  live.party = [shopMon]; N2.trackMon(live, shopMon);
+  // Keep the coach quiet: no route lesson may cover the shop mid-test.
+  const COx = window.Coach;
+  COx.attach(window.Storage.blankProfile(), () => {});
+  COx.setOnboarded(true); COx.setPrologue(false);
+  ['route', 'trainer', 'save', 'catch', 'effect', 'switch', 'battleBag', 'caught',
+   'mart', 'train', 'held', 'skipping', 'moveChoice', 'evoBranch']
+    .forEach((id) => COx.markSeen(id));
+  window.Modal.closeAll();
+  window.Game.show('Crossroads');
+  window.Game.redrawRoute();
+  await new Promise((r) => setTimeout(r, 30));
+
+  const martGrid = window.document.getElementById('martGrid');
+  const subHeads = [...martGrid.querySelectorAll('.sub-title')].map((h) => h.textContent);
+  const wraps = [...martGrid.querySelectorAll('.shop-grid')];
+  const essWrap = wraps[0];
+  const essTiles = essWrap ? [...essWrap.querySelectorAll('.shop-item')] : [];
+  const essNames = essTiles.map((t) => t.textContent.trim().slice(0, 24));
+  check('the essentials shelf places the Ball and Full Restore side by side',
+    subHeads[0] === 'Essentials' && essTiles.length === 2 &&
+      /Poke Ball/.test(essNames.join('|')) && /Full Restore/.test(essNames.join('|')),
+    `heads=${subHeads.join(',')} tiles=${essNames.join(' / ')}`);
+
+  // Open the Poke Ball tile: quantity stepper + Buy only (no Sell/Use).
+  const ballTile = essTiles.find((t) => /Poke Ball/.test(t.textContent));
+  ballTile.click();
+  await new Promise((r) => setTimeout(r, 40));
+  check('the Mart sheet opens with a quantity stepper and Buy only',
+    window.Modal.isOpen('screenShopItem') &&
+      !window.document.getElementById('shopItemQty').hidden &&
+      window.document.getElementById('btnShopItemBuy').textContent === 'Buy for $200' &&
+      window.document.getElementById('btnShopItemSell').hidden &&
+      window.document.getElementById('btnShopItemUse').hidden);
+
+  // + -> 2, typed 5 -> 5, Buy confirms the whole quantity.
+  window.document.getElementById('btnShopItemPlus').click();
+  const qtyInput = window.document.getElementById('shopItemQtyInput');
+  check('the + button steps the quantity up and reprices the Buy button',
+    qtyInput.value === '2' &&
+      window.document.getElementById('btnShopItemBuy').textContent === 'Buy 2 for $400');
+  qtyInput.value = '5';
+  qtyInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  check('typing a quantity reprices the Buy button',
+    window.document.getElementById('btnShopItemBuy').textContent === 'Buy 5 for $1000');
+  window.document.getElementById('btnShopItemBuy').click();
+  await new Promise((r) => setTimeout(r, 40));
+  check('Buy confirms the purchase and hands over the full quantity',
+    live.bag.pokeball === 5 && live.money === 50000 - 1000,
+    `bag=${JSON.stringify(live.bag)} money=${live.money}`);
+  check('the Mart sheet closes after a confirmed purchase',
+    !window.Modal.isOpen('screenShopItem'));
+
+  // Same flow for the Full Restore: buy two.
+  window.Game.redrawRoute();
+  const restoreTile = [...window.document.querySelectorAll('#martGrid .shop-item')]
+    .find((t) => /Full Restore/.test(t.textContent));
+  restoreTile.click();
+  await new Promise((r) => setTimeout(r, 40));
+  const restoreInput = window.document.getElementById('shopItemQtyInput');
+  restoreInput.value = '2';
+  restoreInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  window.document.getElementById('btnShopItemBuy').click();
+  await new Promise((r) => setTimeout(r, 40));
+  check('the Full Restore buys in bulk the same way',
+    live.bag.fullrestore === 2 && live.money === 50000 - 1000 - 7600,
+    `bag=${JSON.stringify(live.bag)} money=${live.money}`);
+
+  // Bag sheet: Full Restore -> Use + Sell; Ball -> Sell only.
+  window.Game.redrawRoute();
+  window.document.querySelector('#xOwned .owned-item[data-item="fullrestore"]').click();
+  await new Promise((r) => setTimeout(r, 40));
+  check('the Bag sheet for a Full Restore offers Use and Sell',
+    window.Modal.isOpen('screenShopItem') &&
+      !window.document.getElementById('btnShopItemUse').hidden &&
+      window.document.getElementById('btnShopItemUse').textContent === 'Use' &&
+      !window.document.getElementById('btnShopItemSell').hidden &&
+      window.document.getElementById('btnShopItemBuy').hidden &&
+      window.document.getElementById('shopItemQty').hidden);
+  window.Modal.close('screenShopItem');
+  window.document.querySelector('#xOwned .owned-item[data-item="pokeball"]').click();
+  await new Promise((r) => setTimeout(r, 40));
+  check('the Bag sheet for a Ball offers Sell and no Use',
+    window.Modal.isOpen('screenShopItem') &&
+      window.document.getElementById('btnShopItemUse').hidden &&
+      !window.document.getElementById('btnShopItemSell').hidden &&
+      window.document.getElementById('btnShopItemSell').textContent === 'Sell 1 for $100');
+  window.Modal.close('screenShopItem');
+
+  // The quantity can never exceed what the player can afford: the input is
+  // clamped on the way in, and the Buy button reprices to match.
+  const ballTile2 = [...window.document.querySelectorAll('#martGrid .shop-item')]
+    .find((t) => /Poke Ball/.test(t.textContent));
+  ballTile2.click();
+  await new Promise((r) => setTimeout(r, 40));
+  const q2 = window.document.getElementById('shopItemQtyInput');
+  q2.value = '999';
+  q2.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  const clamped = Number(q2.value);
+  // Bound by both the shelf stock left (99 - 5 bought) and the money on hand.
+  const maxBuyable = Math.min(99 - 5, Math.floor(live.money / 200));
+  check('the quantity input clamps to what is buyable',
+    clamped === maxBuyable && clamped < 999 && clamped >= 1,
+    `clamped=${clamped} buyable=${maxBuyable}`);
+  window.Modal.close('screenShopItem');
 }
 
 // ============================================================ USE-TRANSFORM POPUP

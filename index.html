@@ -249,7 +249,7 @@
       </div>
       <div class="rule">
         <span class="rl-n">8</span>
-        <div><b>Spend your winnings</b><p>Shop the Mart for section-gated balls, Full Restores and transformation stones. Choose evolution and held items from the three-item reward after each victory. Train any Pokemon to change its moves, ability, nature and Stat Points.</p></div>
+        <div><b>Spend your winnings</b><p>Shop the Mart for section-gated balls, Full Restores and transformation stones. After each victory, one evolution or held item is granted to your Bag automatically. Train any Pokemon to change its moves, ability, nature and Stat Points.</p></div>
       </div>
       <div class="rule">
         <span class="rl-n">9</span>
@@ -604,9 +604,9 @@
   </div>
 
   <!-- ===================== SHOP ITEM DETAILS (overlay) ===================== -->
-  <!-- Every Mart tile opens this sheet instead of buying immediately. Bag items
-       use the same sheet so selling lives beside the item it belongs to rather
-       than in a separate shop section. -->
+  <!-- Every Mart tile opens this sheet. Buying goes through a quantity
+       stepper ([-][input][+]) and a single Buy button that confirms the
+       purchase; selling lives in the Bag sheet, not here. -->
   <div id="screenShopItem" class="overlay" hidden>
     <div class="overlay-card shop-item-card">
       <div class="shop-item-art" id="shopItemArt"></div>
@@ -616,9 +616,14 @@
       </div>
       <p id="shopItemDesc" class="shop-item-full-desc"></p>
       <p id="shopItemMeta" class="shop-item-meta"></p>
+      <div class="shop-item-qty" id="shopItemQty" hidden>
+        <button type="button" id="btnShopItemMinus" class="qty-btn" aria-label="Decrease quantity">&#8722;</button>
+        <input type="number" id="shopItemQtyInput" class="qty-input" value="1" min="1" max="99" inputmode="numeric" aria-label="Quantity" />
+        <button type="button" id="btnShopItemPlus" class="qty-btn" aria-label="Increase quantity">+</button>
+      </div>
       <div class="shop-item-actions">
         <button type="button" id="btnShopItemBuy" class="btn-primary wide">Buy</button>
-        <button type="button" id="btnShopItemUse" class="btn-secondary wide" hidden>Use / Give</button>
+        <button type="button" id="btnShopItemUse" class="btn-secondary wide" hidden>Use</button>
         <button type="button" id="btnShopItemSell" class="btn-secondary wide" hidden>Sell</button>
         <button type="button" id="btnShopItemClose" class="btn-secondary wide">Close</button>
       </div>

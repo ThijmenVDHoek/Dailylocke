@@ -2102,7 +2102,7 @@
         }
 
         // Point at the starter's one team card instead of making the player
-        // infer the next step from the reward they selected.
+        // infer the next step from the reward they received.
         var starterSlot = scrollTeamSlotIntoView(starter);
         if (starterSlot) {
           // The player received the evolution item as a battle reward. Move
@@ -2199,12 +2199,18 @@
     // In tutorial section 1: only balls + Full Restore. Later sections add
     // the dedicated Forme Change and Mega Stone shelves; held/evolution items
     // are chosen after victories.
-    var groups = (isPro && run.section === 1) 
-      ? { ball: 'Poke Balls', heal: 'Medicine' }
-      : { ball: 'Poke Balls', heal: 'Medicine', forme: 'Forme Change', mega: 'Mega Stones', service: 'Services' };
+    // The Ball and the Full Restore share ONE shelf so the two essential
+    // purchases sit side by side on a single row. Forme changes and Mega
+    // Stones keep their own carousel headings; Services is reserved for
+    // entries that live on the team screen today.
+    var groups = (isPro && run.section === 1)
+      ? { essentials: 'Essentials' }
+      : { essentials: 'Essentials', forme: 'Forme Change', mega: 'Mega Stones', service: 'Services' };
     Object.keys(groups).forEach(function (k) {
       var items = martStock.filter(function (e) {
-        if (e.kind !== k) return false;
+        if (k === 'essentials') {
+          if (e.kind !== 'ball' && e.kind !== 'heal') return false;
+        } else if (e.kind !== k) return false;
         if (e.unique && N.ownsItem(run, e.id)) return false;
         return true;
       });
@@ -2342,7 +2348,7 @@
 
   function openShopItemPopup(entry) {
     if (!entry || !run) return;
-    shopItemPopup = { source: 'shop', entry: entry };
+    shopItemPopup = { source: 'shop', entry: entry, qty: 1 };
     drawShopItemPopup();
     var buy = $('btnShopItemBuy');
     window.Modal.open('screenShopItem', {
@@ -2381,22 +2387,27 @@
     var buy = $('btnShopItemBuy');
     var use = $('btnShopItemUse');
     var sell = $('btnShopItemSell');
+    var qtyRow = $('shopItemQty');
     if (sourceShop) {
       var sold = Number(entry.stock) <= 0;
-      var broke = !sold && run.money < entry.price;
       meta.textContent = sold ? 'Sold out' : '$' + entry.price +
         (entry.sale ? ' sale' : '') + (run.bag[id] ? ' \u00b7 You own ' + run.bag[id] : '');
+      // The Mart sheet is a purchase dialog: quantity stepper + Buy. No Sell
+      // here -- selling lives in the Bag sheet next to the item you own.
       buy.hidden = false;
-      buy.disabled = sold || broke;
-      buy.textContent = sold ? 'Sold out' : broke ? 'Not enough money' : 'Buy for $' + entry.price;
       use.hidden = true;
-      // If the player already owns loose copies, the same item sheet can sell
-      // one too. This also makes the `owned: x` label on a shop tile an honest
-      // shortcut to the sell action; the Bag card remains the primary path.
-      sell.hidden = qty < 1;
-      sell.disabled = qty < 1;
-      sell.textContent = qty < 1 ? 'No copy to sell' : 'Sell 1 for $' + sellValue(id);
+      sell.hidden = true;
+      if (qtyRow) {
+        qtyRow.hidden = sold;
+        var input = $('shopItemQtyInput');
+        if (input) {
+          input.max = String(shopMaxQty(entry));
+          input.value = String(Math.max(1, Math.min(Number(ctx.qty) || 1, shopMaxQty(entry))));
+        }
+      }
+      syncShopQty();
     } else {
+      if (qtyRow) qtyRow.hidden = true;
       var holder = ctx.holder;
       var holderName = holder ? holder.name : '';
       meta.textContent = holderName
@@ -2408,18 +2419,70 @@
       sell.disabled = !canSell;
       sell.textContent = !canSell ? 'No copy to sell'
         : (holder && qty < 1 ? 'Sell held item for $' : 'Sell 1 for $') + sellValue(id);
-      // Balls are battle controls rather than a usable field item. Every other
-      // owned item keeps the old Bag -> target picker flow, now reached from
-      // this sheet instead of spending/sending it on the first tap.
-      var canUse = !holder && !C.BALLS[id] && qty > 0;
-      use.hidden = !canUse && !holder;
+      // The Bag sheet offers exactly two actions: "Use" for a Full Restore
+      // (the only field-usable medicine) and "Sell" for both it and Balls.
+      // Balls are battle controls rather than a usable field item. Held,
+      // evolution, forme and mega items keep the old Bag -> target picker
+      // flow ("Use / Give") because they are applied to a Pokemon.
+      var isHeal = !!C.HEAL_ITEMS[id];
+      var canUse = !holder && isHeal && qty > 0;
+      var canGive = !holder && !isHeal && !C.BALLS[id] && qty > 0;
+      use.hidden = !canUse && !canGive && !holder;
       if (holder) {
         use.hidden = false;
         use.textContent = 'Take item from ' + holderName;
       } else if (canUse) {
+        use.textContent = 'Use';
+      } else if (canGive) {
         use.textContent = 'Use / Give';
       }
     }
+  }
+
+  // Most copies of a Mart item a player may buy in one go: bounded by the
+  // shelf stock (unique items like Mega Stones are one per player) and by
+  // what the player can actually afford right now.
+  function shopMaxQty(entry) {
+    if (!entry) return 1;
+    var stockMax = entry.unique ? 1 : Math.max(1, Number(entry.stock) || 1);
+    var affordMax = entry.price > 0 ? Math.floor((Number(run.money) || 0) / entry.price) : stockMax;
+    return Math.max(1, Math.min(stockMax, affordMax));
+  }
+
+  function currentShopQty() {
+    var input = $('shopItemQtyInput');
+    var n = input ? Math.floor(Number(input.value)) : 1;
+    if (!isFinite(n) || n < 1) n = 1;
+    return n;
+  }
+
+  // Re-read the quantity input, clamp it to what is buyable, and refresh the
+  // Buy button text/state (and the +/- buttons) to match.
+  function syncShopQty() {
+    var ctx = shopItemPopup;
+    if (!ctx || !ctx.entry) return;
+    var entry = ctx.entry;
+    var max = shopMaxQty(entry);
+    var n = Math.min(currentShopQty(), max);
+    if (n < 1) n = 1;
+    ctx.qty = n;
+    var input = $('shopItemQtyInput');
+    if (input && String(input.value) !== String(n)) input.value = String(n);
+    var buy = $('btnShopItemBuy');
+    var total = entry.price * n;
+    var sold = Number(entry.stock) <= 0;
+    var canAfford = (Number(run.money) || 0) >= total;
+    if (buy) {
+      buy.disabled = sold || !canAfford;
+      buy.textContent = sold ? 'Sold out'
+        : !canAfford ? 'Not enough money'
+        : n > 1 ? 'Buy ' + n + ' for $' + total
+        : 'Buy for $' + total;
+    }
+    var minus = $('btnShopItemMinus');
+    var plus = $('btnShopItemPlus');
+    if (minus) minus.disabled = n <= 1;
+    if (plus) plus.disabled = n >= max;
   }
 
   function closeShopItemPopup() {
@@ -2430,10 +2493,12 @@
     var ctx = shopItemPopup;
     if (!ctx || ctx.source !== 'shop') return;
     var entry = ctx.entry;
+    var qty = Math.max(1, Math.min(currentShopQty(), shopMaxQty(entry)));
+    var total = entry.price * qty;
     if (Number(entry.stock) <= 0) { toast('Sold out.'); return; }
-    if (run.money < entry.price) { toast('Not enough money.'); return; }
+    if (run.money < total) { toast('Not enough money.'); return; }
     closeShopItemPopup();
-    buyEntry(entry);
+    buyEntry(entry, qty);
   }
 
   function sellFromShopPopup() {
@@ -2516,18 +2581,30 @@
     }
   }
 
-  function buyEntry(e) {
-    if (run.money < e.price) { toast('Not enough money.'); return; }
-    run.money -= e.price;
-    if (!e.unique) e.stock--;      // unique items are gated by ownership
-    N.addItem(run, e.id, 1);
-    var earnedPremier = e.kind === 'ball' && N.noteShopBallPurchase &&
-      N.noteShopBallPurchase(run, e.id);
+  function buyEntry(e, qty) {
+    // Bulk purchases flow through the same single entry point; the quantity
+    // is clamped to what the shelf actually has (unique items are one per
+    // player) before any money moves.
+    qty = Math.max(1, Math.floor(Number(qty) || 1));
+    var maxQty = e.unique ? 1 : Math.max(1, Number(e.stock) || 1);
+    qty = Math.min(qty, maxQty);
+    var total = e.price * qty;
+    if (run.money < total) { toast('Not enough money.'); return; }
+    run.money -= total;
+    if (!e.unique) e.stock = Math.max(0, e.stock - qty);   // unique items are gated by ownership
+    N.addItem(run, e.id, qty);
+    var earnedPremier = false;
+    if (e.kind === 'ball' && N.noteShopBallPurchase) {
+      for (var pi = 0; pi < qty; pi++) {
+        if (N.noteShopBallPurchase(run, e.id)) earnedPremier = true;
+      }
+    }
     if (earnedPremier) {
       N.logMsg(run, 'You bought 10 balls at this stop and received a Premier Ball.');
     }
-    N.logMsg(run, 'Bought ' + e.name + '.');
-    toast(earnedPremier ? 'Bought ' + e.name + ' — Premier Ball earned!' : 'Bought ' + e.name + '!');
+    var qtyLabel = qty > 1 ? qty + 'x ' + e.name : e.name;
+    N.logMsg(run, 'Bought ' + qtyLabel + '.');
+    toast(earnedPremier ? 'Bought ' + qtyLabel + ' — Premier Ball earned!' : 'Bought ' + qtyLabel + '!');
     drawMart(); drawOwned(); renderHud(); saveGame();
     // The purchase is the completed target of the current lesson. Immediately
     // arm the next, single team-card target instead of making the player guess
@@ -3542,7 +3619,7 @@
             // An empty slot is the single biggest missed opportunity for a
             // casual player, so say what it is FOR, not just that it is empty.
             : '<div class="pd-empty">Nothing held. A held item works in every battle and never ' +
-              'runs out \u2014 buy one in the Mart and give it from your Bag.</div>') +
+              'runs out \u2014 earn one as a battle reward and give it from your Bag.</div>') +
         '</div>' +
         evoRowHtml(mon, partySel) +
         formeRowHtml(mon)) +
@@ -6845,19 +6922,32 @@
         // random shop item.
         var sectionItemReward = (!N.isGauntlet(run) && !bctx.cfg.isWild &&
           run.section === 5 && N.sectionCompletionReward(run.section)) || null;
-        var itemChoices = N.battleRewardChoices(run);
+        // Victory rewards are granted instantly. One of the three seeded
+        // item cards is picked automatically and put straight into the Bag,
+        // so the player never has to stop and choose after a win.
+        var grantedReward = null;
         if (sectionItemReward) {
+          grantedReward = sectionItemReward;
           N.addItem(run, sectionItemReward, 1);
           N.logMsg(run, 'Section 5 complete! You received a Master Ball.');
-          // Persist the milestone before the player dismisses the reward
-          // screen; a refresh here must not make the prize disappear.
+        } else {
+          var pickedReward = N.pickReward(run, N.battleRewardChoices(run));
+          if (pickedReward) {
+            grantedReward = pickedReward.id;
+            N.addItem(run, grantedReward, 1);
+            N.logMsg(run, 'You received ' + pickedReward.name + ' as your battle reward.');
+          }
+        }
+        if (grantedReward) {
+          // Persist the prize before the player dismisses the reward
+          // screen; a refresh here must not make it disappear.
           saveGame();
         }
         var ss = run.sectionStats || (run.sectionStats = { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:run.section });
         ss.money = (Number(ss.money) || 0) + (Number(money) || 0);
         ss.won = (Number(ss.won) || 0) + 1;
         dead.forEach(function (d) { ss.lost.push({ name: d.name, id: d.id, shiny: d.shiny }); });
-        showReward(money, dead, false, missed, healed, sectionItemReward, itemChoices);
+        showReward(money, dead, false, missed, healed, grantedReward);
       } else {
         if (!N.alive(run).length) return gameOver();
         var ss2 = run.sectionStats || (run.sectionStats = { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:run.section });
@@ -6867,8 +6957,7 @@
     });
   }
 
-  function showReward(money, dead, lost, missedCatch, healed, itemReward, itemChoices) {
-    itemChoices = Array.isArray(itemChoices) ? itemChoices : [];
+  function showReward(money, dead, lost, missedCatch, healed, itemReward) {
     show('Reward');
     $('rewardTitle').textContent = lost ? 'Defeated...' : 'Victory!';
     $('rewardTitle').className = 'scr-title' + (lost ? ' dead' : '');
@@ -6885,92 +6974,17 @@
     }
     if (healed) html += '<p class="reward-heal">Your team was fully restored.</p>';
     if (itemReward) {
-      html += '<p class="reward-item">You received a <b>' + escapeHtml(itemName(itemReward)) + '</b>!</p>';
+      html += '<p class="reward-item">You received a <b>' + escapeHtml(itemName(itemReward)) +
+              '</b>! It was added to your Bag.</p>';
     }
-    if (itemChoices.length) {
-      // A fourth "skip for cash" card is always offered alongside the three
-      // item picks. Its cash is calibrated to be a clear downgrade on trainer
-      // battles (where 2x BASE makes the money reward already the larger of
-      // the two) and a close call on wild battles -- an item the party can
-      // actually use tends to be worth more than a cash infusion, so picking
-      // skip is a deliberate trade, not always strictly optimal. The card
-      // sits at the end of the row so the seeded item order is preserved.
-      var skipId = '__skip_for_cash__';
-      var skipCash = Math.round(N.BASE_REWARD * 0.75 *
-        N.rewardMultiplier(run) * N.ascensionRewardBonus(run));
-      var cards = itemChoices.slice();
-      cards.push({ id: skipId, kind: 'cash', name: 'Cash bundle',
-                   desc: '+$' + skipCash.toLocaleString() + ' instead of an item.' });
-      html += '<div class="reward-pick"><h3>Choose one reward</h3>' +
-        '<p class="hint">Take one evolution item, held item, or trade all three for cash.</p>' +
-        '<div class="reward-choices reward-choices-4">' + cards.map(function (entry) {
-          if (entry.id === skipId) {
-            // Cash card: a money-themed pill in place of an item sprite.
-            return '<button type="button" class="reward-choice reward-choice-cash" data-reward-id="' +
-              escapeHtml(entry.id) + '"><span class="reward-choice-art reward-choice-cash-art">' +
-              '$</span><span class="reward-choice-copy"><b>' + escapeHtml(entry.name) +
-              '</b><small>Skip items</small><em>' + escapeHtml(entry.desc) +
-              '</em></span></button>';
-          }
-          var kind = entry.kind === 'evo' ? 'Evolution item' : 'Held item';
-          return '<button type="button" class="reward-choice" data-reward-id="' +
-            escapeHtml(entry.id) + '"><span class="reward-choice-art">' +
-            (window.ItemArt ? window.ItemArt.itemImg(entry.id, 42) : '') +
-            '</span><span class="reward-choice-copy"><b>' + escapeHtml(entry.name) +
-            '</b><small>' + escapeHtml(kind) + '</small><em>' + escapeHtml(entry.desc || '') +
-            '</em></span></button>';
-        }).join('') + '</div><p class="hint reward-pick-note">Select one reward to continue.</p></div>';
-    }
-    if (!money && (!dead || !dead.length) && !missedCatch && !healed && !itemReward && !itemChoices.length) {
+    if (!money && (!dead || !dead.length) && !missedCatch && !healed && !itemReward) {
       html += '<p class="hint">You live to fight on.</p>';
     }
     html += '<p class="hint">Battles won: <b>' + run.battlesWon + '</b> \u00b7 Party: <b>' + run.party.length + '</b></p>';
     $('rewardBody').innerHTML = html;
     var continueBtn = $('btnRewardDone');
-    continueBtn.disabled = itemChoices.length > 0;
+    continueBtn.disabled = false;
     continueBtn.onclick = afterBattleAdvance;
-    $('rewardBody').querySelectorAll('[data-reward-id]').forEach(function (button) {
-      button.addEventListener('click', function () {
-        if (button.disabled) return;
-        var pickedId = button.dataset.rewardId;
-        // The 4th card is a cash-only sentinel: the sentinel is not in
-        // itemChoices, so it does not go through N.addItem, and its picked
-        // value is the run.money figure computed up front. Disable every
-        // other card on the way to it, mark the chosen one, and only
-        // enable Continue once the player has actually picked one.
-        var isSkip = pickedId === skipId;
-        var picked = null;
-        for (var ri = 0; ri < itemChoices.length; ri++) {
-          if (itemChoices[ri].id === pickedId) { picked = itemChoices[ri]; break; }
-        }
-        if (!isSkip && !picked) return;
-        itemChoices.forEach(function (entry) {
-          var node = $('rewardBody').querySelector('[data-reward-id="' + entry.id + '"]');
-          if (node) { node.disabled = true; node.classList.toggle('picked', node === button); }
-        });
-        // Disable the cash card too once it's been picked (the loop above
-        // doesn't know about it). It is already marked .picked via the
-        // toggle on the actual node the player clicked.
-        if (isSkip) {
-          var skipNode = $('rewardBody').querySelector('[data-reward-id="' + skipId + '"]');
-          if (skipNode) { skipNode.disabled = true; skipNode.classList.add('picked'); }
-          run.money = (Number(run.money) || 0) + skipCash;
-          if (run.sectionStats) {
-            run.sectionStats.money = (Number(run.sectionStats.money) || 0) + skipCash;
-          }
-          N.logMsg(run, 'You took the cash (+$' + skipCash.toLocaleString() + ').');
-          var note2 = $('rewardBody').querySelector('.reward-pick-note');
-          if (note2) note2.textContent = '+$' + skipCash.toLocaleString() + ' added to your money.';
-        } else {
-          N.addItem(run, picked.id, 1);
-          N.logMsg(run, 'You chose ' + picked.name + ' as your battle reward.');
-          var note = $('rewardBody').querySelector('.reward-pick-note');
-          if (note) note.textContent = picked.name + ' added to your bag.';
-        }
-        continueBtn.disabled = false;
-        saveGame();
-      });
-    });
     renderHud();
   }
 
@@ -8167,6 +8181,24 @@
     $('btnShopItemUse').addEventListener('click', useOwnedFromShopPopup);
     $('btnShopItemSell').addEventListener('click', sellFromShopPopup);
     $('btnShopItemClose').addEventListener('click', closeShopItemPopup);
+    // Mart quantity stepper: [-][numeric input][+], with the Buy button
+    // acting as the confirm that actually charges and hands over the items.
+    var qtyMinus = $('btnShopItemMinus'), qtyPlus = $('btnShopItemPlus'), qtyInput = $('shopItemQtyInput');
+    if (qtyMinus) qtyMinus.addEventListener('click', function () {
+      if (!shopItemPopup) return;
+      shopItemPopup.qty = currentShopQty() - 1;
+      if (shopItemPopup.qty < 1) shopItemPopup.qty = 1;
+      if (qtyInput) qtyInput.value = String(shopItemPopup.qty);
+      syncShopQty();
+    });
+    if (qtyPlus) qtyPlus.addEventListener('click', function () {
+      if (!shopItemPopup) return;
+      shopItemPopup.qty = currentShopQty() + 1;
+      if (qtyInput) qtyInput.value = String(shopItemPopup.qty);
+      syncShopQty();
+    });
+    if (qtyInput) qtyInput.addEventListener('input', syncShopQty);
+    if (qtyInput) qtyInput.addEventListener('change', syncShopQty);
     $('btnGoTitle').addEventListener('click', function () { show('Title'); setContinueState(); });
     // ---- Daily result screen ----
     $('btnDrTitle').addEventListener('click', function () { show('Title'); setContinueState(); });
