@@ -3862,6 +3862,252 @@ host2.remove();
     stock.filter((e) => e.kind === 'forme').every((e) => !!e.forSpecies));
 }
 
+// ====================================== ITEM FLOW: SHOP, BAG, REWARD PICK ====
+// The four item-flow rules, driven through the real DOM:
+//   1. a picked reward card is used/given IMMEDIATELY (sheet opens over the
+//      reward screen, no Cancel, the item never idles in the Bag);
+//   2. the ball and the Full Restore sit SIDE BY SIDE on one Supplies shelf;
+//   3. the Bag sheet offers Use (Full Restore only) and Sell (both staples);
+//   4. the shop sheet is buy-only: [-] [qty] [+] plus the confirm button.
+{
+  const N2 = window.Nuz;
+  const C2 = window.Core;
+  const waitForIt = async (fn, ms = 8000) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      const value = fn();
+      if (value) return value;
+      await new Promise((res) => setTimeout(res, 25));
+    }
+    return null;
+  };
+
+  // Build a fresh ordinary Free Play run through the title, exactly like a
+  // returning player does (the suite's earlier runs have all been retired).
+  window.Modal.closeAll();
+  if (window.Coach) window.Coach.clearMark();
+  window.Game.show('Title');
+  window.document.getElementById('btnNewRun').click();
+  const modeSheet = await waitForIt(() => !window.document.getElementById('screenModeInfo').hidden, 1000);
+  if (modeSheet) window.document.getElementById('btnModeGo').click();
+  const starterBtn = await waitForIt(() => window.document.querySelector('#starterGrid .pick-btn'));
+  if (starterBtn) starterBtn.click();
+  const nickSheet = await waitForIt(() =>
+    !window.document.getElementById('screenNickname').hidden &&
+    window.document.getElementById('nickInput'));
+  if (nickSheet) {
+    window.document.getElementById('nickInput').value = 'Mac';
+    window.document.getElementById('btnNickOk').click();
+  }
+  const routeUp = await waitForIt(() => !window.document.getElementById('screenCrossroads').hidden);
+  const g = window.Game.run;
+  check('the item-flow block reached a live Free Play run', !!g && !!routeUp);
+  if (g) {
+    window.Modal.closeAll();
+    if (window.Coach) {
+      window.Coach.clearMark();
+      try { window.Coach.setOnboarded(true); } catch (e) {}
+      ['mart', 'held', 'train'].forEach((id) => {
+        try { window.Coach.markSeen(id); } catch (e) {}
+      });
+    }
+
+    // A plain party with no forme/mega members: the Mart shows only Supplies.
+    const mac = await C2.makeMon('machoke'); mac.name = 'Mac';
+    const sprout = await C2.makeMon('ivysaur'); sprout.name = 'Sprout';
+    g.mode = 'free'; g.prologue = false; g.over = false;
+    g.section = 2; g.battleInSection = 0;
+    g.money = 60000;
+    g.bag = { fullrestore: 2 };
+    g.party = [mac, sprout];
+    [mac, sprout].forEach((m) => N2.trackMon(g, m));
+    window.Game.redrawRoute();
+    await new Promise((r) => setTimeout(r, 60));
+    window.Modal.closeAll();
+
+    // ---- 2. ball + Full Restore share one shelf, side by side ----
+    const firstShelf = window.document.querySelector('#martGrid .shop-grid');
+    const shelfTiles = firstShelf ? [...firstShelf.querySelectorAll(':scope > .shop-item')] : [];
+    const shelfText = shelfTiles.map((t) => t.textContent).join(' ');
+    check('the Mart puts the ball and the Full Restore on one Supplies shelf',
+      shelfTiles.length === 2 &&
+      /Poke Ball|Great Ball|Ultra Ball/.test(shelfTiles[0].textContent) &&
+      /Full Restore/.test(shelfTiles[1].textContent),
+      shelfText.replace(/\s+/g, ' ').slice(0, 80));
+
+    // ---- 4. the shop sheet is a stepper plus Buy, nothing else ----
+    shelfTiles[0].click();
+    await new Promise((r) => setTimeout(r, 30));
+    check('tapping a shop tile opens the buy sheet',
+      window.Modal.isOpen('screenShopItem'));
+    const qtyRow = window.document.getElementById('shopQtyRow');
+    const qtyIn = window.document.getElementById('shopQtyInput');
+    const buyBtn = window.document.getElementById('btnShopItemBuy');
+    check('the shop sheet shows the [-] [qty] [+] stepper',
+      qtyRow && qtyRow.hidden === false && !!qtyIn &&
+      !window.document.getElementById('btnShopQtyMinus').hidden &&
+      !window.document.getElementById('btnShopQtyPlus').hidden);
+    check('the shop sheet hides Use and Sell entirely',
+      window.document.getElementById('btnShopItemUse').hidden === true &&
+      window.document.getElementById('btnShopItemSell').hidden === true);
+    const unitPrice = (() => {
+      const m = /Buy for \$(\d+)/.exec(buyBtn.textContent || '');
+      return m ? Number(m[1]) : 0;
+    })();
+    check('the buy button quotes the unit price', unitPrice > 0, buyBtn.textContent);
+
+    // Stepper: + twice buys three. The button must re-quote the stack total.
+    window.document.getElementById('btnShopQtyPlus').click();
+    window.document.getElementById('btnShopQtyPlus').click();
+    check('the stepper raises the quantity and re-quotes the total',
+      qtyIn.value === '3' && new RegExp('Buy 3 for \\$' + (unitPrice * 3)).test(buyBtn.textContent),
+      `${qtyIn.value} — ${buyBtn.textContent}`);
+    const moneyBefore = g.money;
+    buyBtn.click();
+    await new Promise((r) => setTimeout(r, 30));
+    const boughtId = /Great Ball/.test(shelfText) ? 'greatball' : 'pokeball';
+    check('confirming buys the whole stack at once',
+      g.bag[boughtId] === 3 && g.money === moneyBefore - unitPrice * 3,
+      `bag=${g.bag[boughtId]} money=${g.money - moneyBefore}`);
+
+    // Typing a number works too, and overshooting stock/money clamps on blur.
+    shelfTiles[0].click();
+    await new Promise((r) => setTimeout(r, 30));
+    qtyIn.value = '999';
+    qtyIn.dispatchEvent(new window.Event('change'));
+    const clamped = Number(qtyIn.value);
+    check('a typed quantity clamps back to the shelf limit', clamped >= 1 && clamped < 999,
+      String(clamped));
+    window.document.getElementById('btnShopItemClose').click();
+
+    // The ten-ball Premier bonus must still count PER BALL in a multi-buy.
+    let guard = 0;
+    while ((g.bag[boughtId] || 0) < 10 && guard++ < 12) {
+      const tile = window.document.querySelectorAll('#martGrid .shop-grid .shop-item')[0];
+      tile.click();
+      await new Promise((r) => setTimeout(r, 20));
+      window.document.getElementById('btnShopQtyPlus').click();
+      window.document.getElementById('btnShopItemBuy').click();
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    check('a multi-buy walks the ten-ball Premier bonus once per ball',
+      (g.bag[boughtId] || 0) >= 10 && g.bag.premierball === 1,
+      `${boughtId}=${g.bag[boughtId]} premier=${g.bag.premierball || 0}`);
+
+    // ---- 3. the Bag sheet: Use for Full Restore, Sell for both ----
+    window.Game.redrawRoute();
+    await new Promise((r) => setTimeout(r, 60));
+    window.Modal.closeAll();
+    const ownedHeal = window.document.querySelector('#xOwned [data-item="fullrestore"]');
+    check('the Bag lists the owned Full Restore', !!ownedHeal);
+    if (ownedHeal) {
+      ownedHeal.click();
+      await new Promise((r) => setTimeout(r, 30));
+      const use = window.document.getElementById('btnShopItemUse');
+      const sell = window.document.getElementById('btnShopItemSell');
+      check('the Bag sheet offers Use and Sell for a Full Restore',
+        window.Modal.isOpen('screenShopItem') && use.hidden === false &&
+        use.textContent.trim() === 'Use' && sell.hidden === false);
+      check('the Bag sheet hides the quantity stepper',
+        window.document.getElementById('shopQtyRow').hidden === true &&
+        window.document.getElementById('btnShopItemBuy').hidden === true);
+      window.document.getElementById('btnShopItemClose').click();
+    }
+    const ownedBall = window.document.querySelector(`#xOwned [data-item="${boughtId}"]`);
+    if (ownedBall) {
+      ownedBall.click();
+      await new Promise((r) => setTimeout(r, 30));
+      const use = window.document.getElementById('btnShopItemUse');
+      const sell = window.document.getElementById('btnShopItemSell');
+      check('a Ball in the Bag can be Sold but not Used',
+        use.hidden === true && sell.hidden === false && !sell.disabled,
+        `use.hidden=${use.hidden} sell=${sell.textContent}`);
+      window.document.getElementById('btnShopItemClose').click();
+    }
+
+    // ---- 1. a reward card is used/given immediately ----
+    // Held item: the give sheet opens over the reward screen, has no Cancel,
+    // and the item lands on a Pokemon rather than in the Bag.
+    window.Game.reward(500, [], false, false, false, null, [
+      { id: 'leftovers', kind: 'held', name: 'Leftovers', desc: 'Held item.', stock: 1 }
+    ]);
+    await new Promise((r) => setTimeout(r, 30));
+    check('the reward screen lays out its cards and locks Continue',
+      !window.document.getElementById('screenReward').hidden &&
+      window.document.querySelectorAll('#rewardBody .reward-choice').length === 2 &&
+      window.document.getElementById('btnRewardDone').disabled === true);
+    const itemCard = window.document.querySelector('#rewardBody .reward-choice:not(.reward-choice-cash)');
+    itemCard.click();
+    await new Promise((r) => setTimeout(r, 30));
+    check('picking a reward card immediately opens the give sheet',
+      window.Modal.isOpen('screenPicker') &&
+      /Give to which Pokemon\?/.test(window.document.getElementById('pickerSub').textContent));
+    check('the reward give sheet has no way out but choosing',
+      window.document.getElementById('btnPickerCancel').hidden === true);
+    const giveRow = window.document.querySelector('#pickerBody .pick-row:not([disabled])');
+    if (giveRow) giveRow.click();
+    await new Promise((r) => setTimeout(r, 60));
+    check('the reward item is given on the spot, not stored',
+      !window.Modal.isOpen('screenPicker') && g.bag.leftovers == null &&
+      g.party.some((m) => m.item === 'leftovers'),
+      `leftovers=${g.bag.leftovers || 0} holder=${g.party.filter((m) => m.item === 'leftovers').length}`);
+
+    // Evolution item: same rule, but the evolution resolves quietly in place
+    // (no full-screen animation hijacking the post-battle flow).
+    window.Game.reward(500, [], false, false, false, null, [
+      { id: 'linkcable', kind: 'evo', name: 'Link Cable', desc: 'Trade evolution.', stock: 1 }
+    ]);
+    await new Promise((r) => setTimeout(r, 30));
+    const evoCard = window.document.querySelector('#rewardBody .reward-choice:not(.reward-choice-cash)');
+    check('a reward evo card is offered', !!evoCard);
+    if (evoCard) {
+      evoCard.click();
+      await new Promise((r) => setTimeout(r, 30));
+      check('picking an evolution reward opens the use sheet over the reward screen',
+        window.Modal.isOpen('screenPicker') &&
+        !window.document.getElementById('screenReward').hidden &&
+        /Use on which Pokemon\?/.test(window.document.getElementById('pickerSub').textContent));
+      const evoRow = window.document.querySelector('#pickerBody .pick-row:not([disabled])');
+      check('the Machoke row is a valid immediate target', !!evoRow);
+      const noteEl = window.document.querySelector('.reward-pick-note');
+      if (evoRow) evoRow.click();
+      // Evo.evolve flips the species id before its learnset pass resolves, so
+      // wait for the NOTE, not the id -- the note lands last.
+      const evolved = await waitForIt(() =>
+        (mac.id === 'machamp' && noteEl && /evolved into Machamp/.test(noteEl.textContent))
+          ? mac : null, 15000);
+      check('the evolution resolves in place and consumes the item',
+        !!evolved && g.bag.linkcable == null &&
+        window.document.getElementById('screenEvolve').hidden === true &&
+        window.document.getElementById('screenReward').hidden === false,
+        `mac=${mac.id} bag=${g.bag.linkcable}`);
+      check('the reward note reports the evolution',
+        !!evolved, noteEl && noteEl.textContent);
+    }
+
+    // Cash card: still a straight trade, no sheet, and it unlocks Continue.
+    window.Game.reward(500, [], false, false, false, null, [
+      { id: 'leftovers', kind: 'held', name: 'Leftovers', desc: 'Held item.', stock: 1 }
+    ]);
+    await new Promise((r) => setTimeout(r, 30));
+    const cashCard = window.document.querySelector('#rewardBody .reward-choice-cash');
+    const moneyPreCash = g.money;
+    cashCard.click();
+    await new Promise((r) => setTimeout(r, 30));
+    const skipCashGain = g.money - moneyPreCash;
+    check('the cash card still trades the items for money, no sheet',
+      skipCashGain > 0 && !window.Modal.isOpen('screenPicker') &&
+      window.document.getElementById('btnRewardDone').disabled === false,
+      `+$${skipCashGain}`);
+
+    window.Modal.closeAll();
+    window.Game.redrawRoute();
+    window.Game.show('Crossroads');
+    await new Promise((r) => setTimeout(r, 60));
+    window.Modal.closeAll();
+  }
+}
+
 const realErrors = consoleErrors.filter((e) => !/THREE|WebGL|cry|audio|sprite|mount unavailable/i.test(e));
 check('no unexpected console errors', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
 

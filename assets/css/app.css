@@ -722,7 +722,31 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
   max-width:520px; margin:16px auto 10px; color:var(--ink-2);
   font-size:1rem; line-height:1.55; text-align:left; white-space:pre-line;
 }
-.shop-item-meta { min-height:1.3em; margin:0 0 18px; color:var(--ink-3); font-size:.82rem; }
+.shop-item-meta { min-height:1.3em; margin:0 0 12px; color:var(--ink-3); font-size:.82rem; }
+/* Quantity stepper on the buy sheet: [-] [how many] [+] side by side. Large
+   square hit areas so a thumb can tap either end one-handed; the number field
+   itself hides the spinner arrows (steppers are already on either side). */
+.shop-qty { display:flex; align-items:center; justify-content:center; gap:10px; margin:0 0 16px; }
+.qty-btn {
+  width:52px; height:48px; padding:0;
+  border-radius:var(--r-md); border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.10); color:var(--ink);
+  font-family:inherit; font-size:1.6rem; line-height:1;
+  cursor:pointer; user-select:none;
+}
+.qty-btn:hover:not(:disabled) { background:rgba(255,255,255,.16); }
+.qty-btn:active:not(:disabled) { transform:translateY(1px) scale(.99); }
+.qty-btn:disabled { opacity:.38; cursor:not-allowed; }
+.qty-input {
+  width:84px; height:48px; text-align:center;
+  border-radius:var(--r-md); border:1px solid rgba(255,255,255,.14);
+  background:var(--surface); color:var(--ink);
+  font-family:inherit; font-size:1.25rem;
+  -moz-appearance:textfield; appearance:textfield;
+}
+.qty-input:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+.qty-input::-webkit-outer-spin-button,
+.qty-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
 .shop-item-actions { display:flex; flex-direction:column; gap:9px; }
 .shop-item-actions button { width:100%; }
 #btnShopItemBuy {
