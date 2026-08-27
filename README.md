@@ -109,7 +109,7 @@ like `/manifest.json` or `/sw.js` resolve to the *user* site and 404 there,
 which silently makes the app un-installable: no manifest, no worker, so
 `beforeinstallprompt` never fires. Accordingly the manifest link, its
 `start_url` / `scope` / icons, the `register('sw.js')` call and every
-`APP_SHELL` entry are relative, and the smoke test guards each of them.
+`APP_SHELL` entry are relative; the service-worker revision guard fails the build if any shell entry is missing.
 
 The worker also precaches with `cache.add()` per file rather than `addAll()`,
 because `addAll()` is atomic — one 404 would reject `install()` and leave the
@@ -274,7 +274,7 @@ The research behind these choices, and the mapping onto this codebase, is in
 ### Two rules a lesson must never break
 
 Both of these shipped broken once and stranded players mid-onboarding, so they
-are pinned by tests in `tools/smoke-test.mjs`.
+are treated as invariants when changing the coach or modal code.
 
 **A lesson must never be able to appear on top of a dialog and be
 unclickable.** `Modal` makes the page behind a dialog `inert`, and the game's
@@ -442,7 +442,7 @@ Each step keeps the old function names in `app.js` as thin delegates, so callers
 don't move in the same commit that the logic does. `app.js` is currently about
 369 KB raw; the next split targets the profile/history renderer, battle protocol,
 and screen controllers rather than pretending the old size claim is still true.
-The extracted modules remain independently unit-tested.
+The extracted modules stay independently loadable and hand-verifiable.
 
 ## Loading strategy
 
@@ -506,35 +506,23 @@ npm run build     # regenerates vendor/pkmn-sim.js + vendor/pkmn-learnsets.js
 
 ### Quality checks
 
-One suite, one gate.
-
-**`tools/smoke-test.mjs` (JSDOM)** loads `index.html` using the real script
-order, boots the game and fights an actual battle through the engine. It covers
-module wiring, the trimmed bundle's data, on-demand learnsets, the install
-button on every platform path, subpath-safe PWA paths, backup export/import
-round-tripping (including rejection of malformed files), the Daily's
-date/streak/share logic, the ascension curve, role-based movesets, the AI's
-situational scoring, the modal controller and the whole guided tutorial flow.
-
-A real-browser Playwright check now covers the gap JSDOM cannot: Chromium with
-SwiftShader loads the deployed app, verifies the singleton renderer, exercises
-context loss/restoration and confirms the DOM HUD survives flat mode. It lives
-in `tools/browser-smoke.mjs` and is intentionally small so it can run on CI.
+There is deliberately **no automated e2e/smoke suite**: gameplay is verified by
+hand. The remaining automated gate is static: ESLint plus the service-worker
+revision guard, which stops a deploy from shipping new JavaScript under an old
+cache name (which would strand returning players on stale code).
 
 ```sh
 npm ci --prefix tools
-npm run check --prefix tools        # lint + JSDOM + service-worker revision
-npm run test:browser --prefix tools # requires a Playwright browser install
+npm run check --prefix tools        # ESLint + service-worker revision
 ```
 
 ### CI
 
-The active workflow is
-[`/.github/workflows/check.yml`](.github/workflows/check.yml). It runs on every
-push and pull request, installs Chromium for the WebGL smoke test, and gates the
-Pages deploy. `static.yml` runs the same quality gate before uploading the Pages
-artifact, so a stale service-worker revision or broken renderer cannot silently
-ship on `main`.
+The staged workflow is
+[`tools/ci/check.yml`](tools/ci/check.yml). It runs on every push and pull
+request and gates the Pages deploy behind ESLint and the service-worker
+revision check. `static.yml` runs the same gate before uploading the Pages
+artifact, so a stale service-worker revision cannot silently ship on `main`.
 
 ### The service-worker revision
 

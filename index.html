@@ -365,20 +365,23 @@
     <!-- the team lives on this screen; no separate menu -->
     <div class="team-strip" id="xTeam"></div>
 
-    <div class="x-bag" id="xBagBlock">
-      <div class="x-bag-head">
-        <h3 class="x-bag-title">Bag</h3>
-        <span class="x-bag-note" id="xBagNote"></span>
+    <!-- One combined overview: what you own (the bag) directly above what you
+         can buy (the Mart). They are a single panel now, not two sections. -->
+    <div class="x-items" id="xItemsBlock">
+      <div class="x-items-head">
+        <h3 class="x-items-title">Items</h3>
+        <span class="x-items-note" id="xBagNote"></span>
       </div>
-      <div id="xOwned" class="owned-grid"></div>
-    </div>
 
-    <div class="x-shop" id="xShopBlock">
-      <div class="x-shop-head">
-        <h3 class="x-shop-title">Poke Mart</h3>
-        <span class="x-shop-note">Tap an item for details</span>
+      <div class="x-bag" id="xBagBlock">
+        <h4 class="x-sub-title">Bag</h4>
+        <div id="xOwned" class="owned-grid"></div>
       </div>
-      <div id="martGrid" class="mart-inline"></div>
+
+      <div class="x-shop" id="xShopBlock">
+        <h4 class="x-sub-title">Poke Mart <span class="x-shop-hint">tap an item for details</span></h4>
+        <div id="martGrid" class="mart-inline"></div>
+      </div>
     </div>
 
     <div class="x-battle-dock">

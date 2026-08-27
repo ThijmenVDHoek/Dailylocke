@@ -27,7 +27,7 @@ const CACHE_PREFIX = 'dailylocke-';
 
 // ---- GENERATED: do not edit by hand -------------------------------------
 // `npm run build:sw --prefix tools` recomputes this from the shell contents.
-const SHELL_REV = 'd86f22c14fb1';
+const SHELL_REV = '0185126ef246';
 // -------------------------------------------------------------------------
 
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${SHELL_REV}`;
@@ -85,7 +85,10 @@ const APP_SHELL = [
   'src/pwa.js',
   'src/renderer-loader.js',
   'src/app-loader.js',
-  'src/app.js'
+  'src/app.js',
+  // Tiny silent clip used to unlock the HTMLMediaElement audio stack inside
+  // the first user gesture (iOS/iPadOS blocks media started outside one).
+  'assets/audio/silence.wav'
 ].map((path) => new URL(path, self.location).href);
 
 self.addEventListener('install', (event) => {

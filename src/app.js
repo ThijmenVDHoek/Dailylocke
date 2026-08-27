@@ -1710,11 +1710,11 @@
     drawPartyDetail();
 
     // The Gauntlet has no economy at all: no cash, no bag, no Mart. The team
-    // strip and the trainer preview are the whole route screen.
-    var cashPill = $('xCashPill'), bagBlock = $('xBagBlock'), shopBlock = $('xShopBlock');
+    // strip and the trainer preview are the whole route screen. The combined
+    // Items panel holds both, so the whole panel hides.
+    var cashPill = $('xCashPill'), itemsBlock = $('xItemsBlock');
     if (cashPill) cashPill.hidden = isG;
-    if (bagBlock) bagBlock.hidden = isG;
-    if (shopBlock) shopBlock.hidden = isG;
+    if (itemsBlock) itemsBlock.hidden = isG;
     if (!isG) {
       drawOwned();
       // the shop lives on this screen now
@@ -2216,10 +2216,13 @@
       h.className = 'sub-title'; h.textContent = groups[k];
       grid.appendChild(h);
       var wrap = document.createElement('div');
-      // Forme and Mega shelves render as a horizontal carousel so the compact
-      // tiles sit side by side and scroll if there are more than the screen
-      // can fit. Ordinary groups keep the 2-column grid.
-      wrap.className = 'shop-grid' + (k === 'forme' || k === 'mega' ? ' forme-carousel' : '');
+      // Forme Change offers stay in the compact horizontal carousel. Mega
+      // Stones stack full-width and underneath each other: they were getting
+      // squeezed in the carousel and there is always just a handful on a
+      // shelf, so a vertical stack reads better. Ordinary groups keep the
+      // 2-column grid.
+      wrap.className = 'shop-grid' + (k === 'forme' ? ' forme-carousel'
+        : k === 'mega' ? ' mega-stack' : '');
       items.forEach(function (e) {
         // Unique stock (Mega Stones): if you already own one, don't offer it
         // again. Selling it removes it from the bag, so it comes straight back.
@@ -7110,38 +7113,38 @@
       '</div>';
     }
     if (itemChoices.length) {
-      // A fourth "skip for cash" card is always offered alongside the three
-      // item picks. Its cash is calibrated to be a clear downgrade on trainer
-      // battles (where 2x BASE makes the money reward already the larger of
-      // the two) and a close call on wild battles -- an item the party can
-      // actually use tends to be worth more than a cash infusion, so picking
-      // skip is a deliberate trade, not always strictly optimal. The card
-      // sits at the end of the row so the seeded item order is preserved.
+      // The "skip for cash" option used to be a fourth card in the same row
+      // as the item picks, which made it read as an equal fourth item. It is
+      // deliberately a SEPARATE option underneath the item cards: the three
+      // items are the reward, and trading all three for money is the
+      // alternative. Its cash is calibrated to be a clear downgrade on
+      // trainer battles (where 2x BASE makes the money reward already the
+      // larger of the two) and a close call on wild battles -- an item the
+      // party can actually use tends to be worth more than a cash infusion,
+      // so picking skip is a deliberate trade, not always strictly optimal.
       var skipId = '__skip_for_cash__';
       var skipCash = Math.round(N.BASE_REWARD * 0.75 *
         N.rewardMultiplier(run) * N.ascensionRewardBonus(run));
-      var cards = itemChoices.slice();
-      cards.push({ id: skipId, kind: 'cash', name: 'Cash bundle',
-                   desc: '+$' + skipCash.toLocaleString() + ' instead of an item.' });
       html += '<div class="reward-pick"><h3>Choose one reward</h3>' +
-        '<p class="hint">Take one item \u2014 it is used or given immediately \u2014 or trade all three for cash.</p>' +
-        '<div class="reward-choices reward-choices-4">' + cards.map(function (entry) {
-          if (entry.id === skipId) {
-            // Cash card: a money-themed pill in place of an item sprite.
-            return '<button type="button" class="reward-choice reward-choice-cash" data-reward-id="' +
-              escapeHtml(entry.id) + '"><span class="reward-choice-art reward-choice-cash-art">' +
-              '$</span><span class="reward-choice-copy"><b>' + escapeHtml(entry.name) +
-              '</b><small>Skip items</small><em>' + escapeHtml(entry.desc) +
-              '</em></span></button>';
-          }
+        '<p class="hint">Take one item \u2014 it is used or given immediately.</p>' +
+        '<div class="reward-choices">' + itemChoices.map(function (entry) {
           var kind = entry.kind === 'evo' ? 'Evolution item' : 'Held item';
           return '<button type="button" class="reward-choice" data-reward-id="' +
-            escapeHtml(entry.id) + '"><span class="reward-choice-art">' +
+            escapeHtml(entry.id) + '">' +
+            '<span class="reward-choice-art">' +
             (window.ItemArt ? window.ItemArt.itemImg(entry.id, 42) : '') +
             '</span><span class="reward-choice-copy"><b>' + escapeHtml(entry.name) +
             '</b><small>' + escapeHtml(kind) + '</small><em>' + escapeHtml(entry.desc || '') +
             '</em></span></button>';
-        }).join('') + '</div><p class="hint reward-pick-note">Select one reward to continue.</p></div>';
+        }).join('') + '</div>' +
+        '<div class="reward-or" role="separator"><span>or</span></div>' +
+        '<button type="button" class="reward-cash-alt" data-reward-id="' + skipId + '">' +
+          '<span class="reward-cash-art" aria-hidden="true">$</span>' +
+          '<span class="reward-cash-copy"><b>Take the cash bundle instead</b>' +
+          '<small>Skip all three items and take <em>+$' + skipCash.toLocaleString() +
+          '</em></small></span>' +
+        '</button>' +
+        '<p class="hint reward-pick-note">Select an item \u2014 or take the cash \u2014 to continue.</p></div>';
     }
     if (!money && (!dead || !dead.length) && !missedCatch && !healed && !itemReward && !itemChoices.length) {
       html += '<p class="hint">You live to fight on.</p>';
