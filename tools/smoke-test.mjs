@@ -4025,9 +4025,10 @@ host2.remove();
       window.document.getElementById('btnShopItemClose').click();
     }
 
-    // ---- 1. a reward card is used/given immediately ----
-    // Held item: the give sheet opens over the reward screen, has no Cancel,
-    // and the item lands on a Pokemon rather than in the Bag.
+    // ---- 1. a reward card is used/given (or cancelled for a fresh pick) ----
+    // Held item: the give sheet opens over the reward screen WITH a Cancel;
+    // cancelling refunds the item and re-enables every card. Committing lands
+    // the item on a Pokemon rather than in the Bag.
     window.Game.reward(500, [], false, false, false, null, [
       { id: 'leftovers', kind: 'held', name: 'Leftovers', desc: 'Held item.', stock: 1 }
     ]);
@@ -4037,13 +4038,38 @@ host2.remove();
       window.document.querySelectorAll('#rewardBody .reward-choice').length === 2 &&
       window.document.getElementById('btnRewardDone').disabled === true);
     const itemCard = window.document.querySelector('#rewardBody .reward-choice:not(.reward-choice-cash)');
+    const bagBeforePick = g.bag.leftovers || 0;
     itemCard.click();
     await new Promise((r) => setTimeout(r, 30));
     check('picking a reward card immediately opens the give sheet',
       window.Modal.isOpen('screenPicker') &&
       /Give to which Pokemon\?/.test(window.document.getElementById('pickerSub').textContent));
-    check('the reward give sheet has no way out but choosing',
-      window.document.getElementById('btnPickerCancel').hidden === true);
+    check('the reward give sheet offers a Cancel button',
+      window.document.getElementById('btnPickerCancel').hidden === false);
+    check('picking a reward card places the item on hold in the bag',
+      (g.bag.leftovers || 0) === bagBeforePick + 1);
+    // Cancelling refunds the on-hold item and makes every card live again.
+    window.document.getElementById('btnPickerCancel').click();
+    await new Promise((r) => setTimeout(r, 30));
+    check('cancelling the reward sheet refunds the item and re-enables the cards',
+      !window.Modal.isOpen('screenPicker') &&
+      (g.bag.leftovers || 0) === bagBeforePick &&
+      window.document.querySelectorAll('#rewardBody .reward-choice:not([disabled])').length === 2 &&
+      window.document.getElementById('btnRewardDone').disabled === true,
+      `bag=${g.bag.leftovers || 0}`);
+    // While a pick is pending, the cash card cannot be claimed.
+    const itemCardAgain = window.document.querySelector('#rewardBody .reward-choice:not(.reward-choice-cash)');
+    const moneyPrePending = g.money;
+    itemCardAgain.click();
+    await new Promise((r) => setTimeout(r, 30));
+    check('cash cannot be claimed while the item sheet is open',
+      window.Modal.isOpen('screenPicker') && g.money === moneyPrePending,
+      `money delta=${g.money - moneyPrePending}`);
+    window.document.getElementById('btnPickerCancel').click();
+    await new Promise((r) => setTimeout(r, 30));
+    // Now commit: the item lands on a Pokemon rather than in the Bag.
+    itemCardAgain.click();
+    await new Promise((r) => setTimeout(r, 30));
     const giveRow = window.document.querySelector('#pickerBody .pick-row:not([disabled])');
     if (giveRow) giveRow.click();
     await new Promise((r) => setTimeout(r, 60));
@@ -4051,9 +4077,13 @@ host2.remove();
       !window.Modal.isOpen('screenPicker') && g.bag.leftovers == null &&
       g.party.some((m) => m.item === 'leftovers'),
       `leftovers=${g.bag.leftovers || 0} holder=${g.party.filter((m) => m.item === 'leftovers').length}`);
+    check('a committed reward cannot be swapped for cash afterwards',
+      window.document.querySelector('#rewardBody .reward-choice-cash').disabled === true &&
+      window.document.getElementById('btnRewardDone').disabled === false);
+    g.party.forEach((m) => { if (m.item === 'leftovers') m.item = ''; });
 
-    // Evolution item: same rule, but the evolution resolves quietly in place
-    // (no full-screen animation hijacking the post-battle flow).
+    // Evolution item: the full-screen evolution animation now plays, then the
+    // reward screen returns with the choice locked in.
     window.Game.reward(500, [], false, false, false, null, [
       { id: 'linkcable', kind: 'evo', name: 'Link Cable', desc: 'Trade evolution.', stock: 1 }
     ]);
@@ -4069,23 +4099,27 @@ host2.remove();
         /Use on which Pokemon\?/.test(window.document.getElementById('pickerSub').textContent));
       const evoRow = window.document.querySelector('#pickerBody .pick-row:not([disabled])');
       check('the Machoke row is a valid immediate target', !!evoRow);
-      const noteEl = window.document.querySelector('.reward-pick-note');
       if (evoRow) evoRow.click();
-      // Evo.evolve flips the species id before its learnset pass resolves, so
-      // wait for the NOTE, not the id -- the note lands last.
-      const evolved = await waitForIt(() =>
-        (mac.id === 'machamp' && noteEl && /evolved into Machamp/.test(noteEl.textContent))
-          ? mac : null, 15000);
-      check('the evolution resolves in place and consumes the item',
-        !!evolved && g.bag.linkcable == null &&
-        window.document.getElementById('screenEvolve').hidden === true &&
-        window.document.getElementById('screenReward').hidden === false,
+      // The evolution animation is a full-screen sequence.
+      await waitForIt(() => !window.document.getElementById('screenEvolve').hidden, 6000);
+      check('the evolution animation plays on the Evolve screen',
+        window.document.getElementById('screenEvolve').hidden === false &&
+        window.document.getElementById('screenReward').hidden === true);
+      const evoDone = window.document.getElementById('btnEvoDone');
+      await waitForIt(() => evoDone && evoDone.hidden === false, 15000);
+      evoDone.click();
+      await new Promise((r) => setTimeout(r, 60));
+      check('the animation returns to the reward screen and consumed the item',
+        mac.id === 'machamp' && g.bag.linkcable == null &&
+        window.document.getElementById('screenReward').hidden === false &&
+        window.document.getElementById('btnRewardDone').disabled === false,
         `mac=${mac.id} bag=${g.bag.linkcable}`);
-      check('the reward note reports the evolution',
-        !!evolved, noteEl && noteEl.textContent);
+      check('after the animation the cash card can no longer be claimed',
+        window.document.querySelector('#rewardBody .reward-choice-cash').disabled === true);
     }
 
-    // Cash card: still a straight trade, no sheet, and it unlocks Continue.
+    // Cash card: a straight trade, no sheet; it unlocks Continue and locks
+    // the item cards.
     window.Game.reward(500, [], false, false, false, null, [
       { id: 'leftovers', kind: 'held', name: 'Leftovers', desc: 'Held item.', stock: 1 }
     ]);
@@ -4099,6 +4133,22 @@ host2.remove();
       skipCashGain > 0 && !window.Modal.isOpen('screenPicker') &&
       window.document.getElementById('btnRewardDone').disabled === false,
       `+$${skipCashGain}`);
+    check('the cash choice locks the item cards',
+      window.document.querySelectorAll('#rewardBody .reward-choice:not(.reward-choice-cash):disabled').length === 1);
+
+    // ---- 1b. a trainer win shows the progression panel, not item cards ----
+    window.Game.reward(2000, [], false, false, true, null, [], true);
+    await new Promise((r) => setTimeout(r, 30));
+    const upgrade = window.document.querySelector('#rewardBody .reward-upgrade');
+    check('a trainer victory shows the upgrade panel instead of item cards',
+      !!upgrade &&
+      /Poke Balls are upgraded in the shop/i.test(upgrade.textContent) &&
+      /Pokemon encounters are upgraded/i.test(upgrade.textContent) &&
+      /Difficulty is increased/i.test(upgrade.textContent) &&
+      window.document.querySelectorAll('#rewardBody .reward-choice').length === 0,
+      upgrade ? upgrade.textContent.replace(/\s+/g, ' ').slice(0, 120) : 'no panel');
+    check('the upgrade panel leaves Continue enabled',
+      window.document.getElementById('btnRewardDone').disabled === false);
 
     window.Modal.closeAll();
     window.Game.redrawRoute();

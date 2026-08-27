@@ -838,6 +838,30 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 @media (max-width:420px) {
   .reward-choices, .reward-choices-4 { grid-template-columns:1fr; }
 }
+/* The trainer-win "progression popup": instead of a 1-of-3 item pick, the
+   section clear announces the three unlocks -- better shop balls, stronger
+   encounters, tougher difficulty. Styled as a raised gold-bordered card so it
+   reads as a milestone panel rather than ordinary reward text. */
+.reward-upgrade {
+  margin:16px auto 8px; max-width:560px;
+  background:linear-gradient(160deg, rgba(255,215,110,.14), rgba(255,215,110,.04));
+  border:1px solid rgba(255,215,110,.45); border-radius:14px;
+  padding:16px 18px; text-align:left;
+  box-shadow:0 0 26px rgba(255,215,110,.18);
+}
+.reward-upgrade h3 { margin:0 0 10px; color:var(--gold); text-align:center; font-size:1.2rem; }
+.upgrade-list { list-style:none; margin:0 0 8px; padding:0; display:flex; flex-direction:column; gap:8px; }
+.upgrade-list li {
+  position:relative; padding:10px 12px 10px 34px;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
+  border-radius:10px; color:var(--ink-2); font-size:.92rem; line-height:1.35;
+}
+.upgrade-list li::before {
+  content:'\2726'; position:absolute; left:12px; top:9px;
+  color:var(--gold); font-size:1rem;
+}
+.upgrade-list li b { color:var(--ink); }
+.reward-upgrade .hint { text-align:center; margin:8px 0 0; }
 .losses { margin:14px 0; }
 .losses h4 { color:#ff8b95; font-size:.95rem; margin-bottom:8px; }
 .losses .grave { display:inline-flex; }
