@@ -604,9 +604,11 @@
   </div>
 
   <!-- ===================== SHOP ITEM DETAILS (overlay) ===================== -->
-  <!-- Every Mart tile opens this sheet instead of buying immediately. Bag items
-       use the same sheet so selling lives beside the item it belongs to rather
-       than in a separate shop section. -->
+  <!-- Every Mart tile opens this sheet instead of buying immediately. From the
+       shop the sheet is buy-only: a quantity stepper [-] [input] [+] plus the
+       confirm button. Bag items use the same sheet with Use (Full Restore) and
+       Sell, so selling lives beside the item it belongs to rather than in a
+       separate shop section. -->
   <div id="screenShopItem" class="overlay" hidden>
     <div class="overlay-card shop-item-card">
       <div class="shop-item-art" id="shopItemArt"></div>
@@ -616,6 +618,11 @@
       </div>
       <p id="shopItemDesc" class="shop-item-full-desc"></p>
       <p id="shopItemMeta" class="shop-item-meta"></p>
+      <div class="shop-qty" id="shopQtyRow" hidden>
+        <button type="button" id="btnShopQtyMinus" class="qty-btn" aria-label="One fewer">&#8722;</button>
+        <input type="number" id="shopQtyInput" class="qty-input" inputmode="numeric" min="1" step="1" value="1" aria-label="How many to buy">
+        <button type="button" id="btnShopQtyPlus" class="qty-btn" aria-label="One more">+</button>
+      </div>
       <div class="shop-item-actions">
         <button type="button" id="btnShopItemBuy" class="btn-primary wide">Buy</button>
         <button type="button" id="btnShopItemUse" class="btn-secondary wide" hidden>Use / Give</button>

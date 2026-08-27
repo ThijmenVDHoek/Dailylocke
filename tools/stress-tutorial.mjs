@@ -347,8 +347,20 @@ async function autoPlay(maxMs) {
     }
     // 6. reward screen
     if (!$('screenReward').hidden) {
+      // A reward card opens the use/give sheet over the reward screen; the
+      // item must be spent on a Pokemon before Continue unlocks.
+      if (window.Modal && window.Modal.isOpen('screenPicker')) {
+        const row = doc.querySelector('#pickerBody .pick-row:not([disabled])');
+        const cancel = $('btnPickerCancel');
+        if (row) { row.click(); await wait(300); continue; }
+        if (cancel && !cancel.hidden) { cancel.click(); await wait(200); continue; }
+      }
       const btn = $('btnRewardDone');
-      if (btn) { btn.click(); await wait(250); continue; }
+      if (btn && !btn.disabled) { btn.click(); await wait(250); continue; }
+      // Prefer an item card (the cash card is last); any pick works.
+      const card = doc.querySelector('#rewardBody .reward-choice:not(.reward-choice-cash):not([disabled])') ||
+                   doc.querySelector('#rewardBody [data-reward-id]:not([disabled])');
+      if (card) { card.click(); await wait(300); continue; }
     }
     // 7. section summary
     if (!$('screenSummary').hidden) {

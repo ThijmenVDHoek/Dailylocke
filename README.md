@@ -4,10 +4,12 @@ A daily nuzlocke challenge, played in the browser. Pick a starter, fight through
 sections of wild encounters and trainers, and try to keep your team alive.
 The Mart's healing item is always a Full Restore; Ball tiers progress from
 Poke Ball in section 1 to Great Ball in section 2 and Ultra Ball from section 3.
-Tap any shop or Bag item to read its full description before buying, using, or
-selling it; selling is handled inside the owned-item sheet. Buy ten balls at one
+The two sit side by side on one Supplies shelf. Tapping a shop item opens a
+buy-only sheet with a `[-] [qty] [+]` stepper and a confirm button; tapping a
+Bag item offers Use (Full Restore only) and Sell. Buy ten balls at one
 Mart stop to receive a Premier Ball. Evolution and held items are victory
-rewards: choose one of three after each win.
+rewards: choose one of three after each win — the item is used on, or given
+to, a Pokemon immediately.
 
 Three modes, **independent save slots** — so one can never block another:
 
@@ -213,8 +215,10 @@ alternate switches are not available until the script reaches them.
 11. **Saving** (the section summary) — the only place the Save button appears,
     and the lesson is honest: the run lives in this browser session, the
     backup file is what survives a cleared browser.
-12. **Evolution** (section 2) — *forced*: buy the Rare Candy from the Mart and
-    actually use it to evolve your starter before the tutorial lets go.
+12. **Evolution** (section 2) — *forced*: take the Rare Candy as the battle
+    reward (the tutorial guarantees one) and actually use it — the reward
+    sheet makes you spend it on a Pokemon right away — to evolve your starter
+    before the tutorial lets go.
 13. **Training** (section 2) — a hand-held walkthrough through the Train
     service: replace a move, pick an ability, pick a nature, move a Stat
     Point, press Done.
