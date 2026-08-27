@@ -3980,19 +3980,32 @@ host2.remove();
       String(clamped));
     window.document.getElementById('btnShopItemClose').click();
 
-    // The ten-ball Premier bonus must still count PER BALL in a multi-buy.
+    // The Premier bonus counts PER BALL in a multi-buy and REPEATS: every
+    // full group of ten balls earns another Premier Ball. Buy up to 20 balls
+    // (the stepper above already bought 3), asserting the first crossing at
+    // ten grants one Premier Ball and the crossing at twenty grants a second.
     let guard = 0;
-    while ((g.bag[boughtId] || 0) < 10 && guard++ < 12) {
+    let checkedTen = false;
+    while ((g.bag[boughtId] || 0) < 20 && guard++ < 14) {
       const tile = window.document.querySelectorAll('#martGrid .shop-grid .shop-item')[0];
       tile.click();
       await new Promise((r) => setTimeout(r, 20));
       window.document.getElementById('btnShopQtyPlus').click();
       window.document.getElementById('btnShopItemBuy').click();
       await new Promise((r) => setTimeout(r, 30));
+      if (!checkedTen && (g.bag[boughtId] || 0) >= 10) {
+        checkedTen = true;
+        check('a multi-buy walks the Premier bonus once per ball — first ten balls give one Premier Ball',
+          (g.bag.premierball || 0) === 1,
+          `${boughtId}=${g.bag[boughtId]} premier=${g.bag.premierball || 0}`);
+      }
     }
-    check('a multi-buy walks the ten-ball Premier bonus once per ball',
-      (g.bag[boughtId] || 0) >= 10 && g.bag.premierball === 1,
+    check('the Premier bonus repeats — twenty balls give two Premier Balls',
+      (g.bag[boughtId] || 0) >= 20 && (g.bag.premierball || 0) === 2,
       `${boughtId}=${g.bag[boughtId]} premier=${g.bag.premierball || 0}`);
+    check('the Mart no longer renders the "buy ten more balls" Premier pill',
+      !window.document.getElementById('martBallBonus') &&
+      !window.document.querySelector('.mart-ball-bonus'));
 
     // ---- 3. the Bag sheet: Use for Full Restore, Sell for both ----
     window.Game.redrawRoute();

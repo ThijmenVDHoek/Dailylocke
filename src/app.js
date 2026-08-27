@@ -2280,19 +2280,6 @@
       grid.appendChild(wrap);
     });
 
-    var bonus = N.shopBonusStatus ? N.shopBonusStatus(run) : {
-      bought: Number(run.shopBallPurchases) || 0,
-      target: 10, awarded: !!run.shopPremierAwarded
-    };
-    var bonusEl = $('martBallBonus');
-    if (bonusEl) {
-      var remaining = Math.max(0, bonus.target - bonus.bought);
-      bonusEl.textContent = bonus.awarded
-        ? 'Premier Ball earned at this shop.'
-        : 'Buy ' + remaining + ' more ball' + (remaining === 1 ? '' : 's') +
-          ' here to earn a Premier Ball.';
-      bonusEl.classList.toggle('earned', bonus.awarded);
-    }
   }
   function itemName(id) {
     if (window.Evo && window.Evo.CUSTOM_ITEMS[id]) return window.Evo.CUSTOM_ITEMS[id].name;
@@ -2570,20 +2557,24 @@
     run.money -= total;
     if (!e.unique) e.stock = Math.max(0, (Number(e.stock) || 0) - qty);  // unique items are gated by ownership
     N.addItem(run, e.id, qty);
-    // The ten-ball Premier bonus counts individual balls, so a multi-buy
-    // walks the counter once per ball in the stack.
-    var earnedPremier = false;
+    // The Premier bonus counts individual balls (one Premier Ball per full
+    // group of ten), so a multi-buy walks the counter once per ball in the
+    // stack and a big purchase can earn several Premier Balls at once.
+    var premierCount = 0;
     if (e.kind === 'ball' && N.noteShopBallPurchase) {
       for (var b = 0; b < qty; b++) {
-        if (N.noteShopBallPurchase(run, e.id)) earnedPremier = true;
+        if (N.noteShopBallPurchase(run, e.id)) premierCount++;
       }
     }
     var label = (qty > 1 ? qty + 'x ' : '') + e.name;
-    if (earnedPremier) {
-      N.logMsg(run, 'You bought 10 balls at this stop and received a Premier Ball.');
+    if (premierCount > 0) {
+      N.logMsg(run, 'For buying balls at this stop, you received ' + premierCount +
+        ' Premier Ball' + (premierCount === 1 ? '' : 's') + '.');
     }
     N.logMsg(run, 'Bought ' + label + '.');
-    toast(earnedPremier ? 'Bought ' + label + ' \u2014 Premier Ball earned!' : 'Bought ' + label + '!');
+    toast(premierCount > 0
+      ? 'Bought ' + label + ' \u2014 ' + premierCount + ' Premier Ball' + (premierCount === 1 ? '' : 's') + ' earned!'
+      : 'Bought ' + label + '!');
     drawMart(); drawOwned(); renderHud(); saveGame();
     // The purchase is the completed target of the current lesson. Immediately
     // arm the next, single team-card target instead of making the player guess

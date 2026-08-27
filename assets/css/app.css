@@ -1524,15 +1524,6 @@ textarea.search.save-code {
 .x-shop-title { font-size:1.3rem; color:#7fc9ff; }
 .x-shop-note { font-size:.74rem; color:var(--ink-3); margin-left:auto; }
 .mart-inline { display:block; }
-.mart-ball-bonus {
-  margin:-2px 0 12px; padding:7px 11px; border-radius:var(--r-pill);
-  background:rgba(255,215,110,.09); color:var(--gold);
-  font-size:.74rem; text-align:center; letter-spacing:.15px;
-}
-.mart-ball-bonus.earned {
-  background:rgba(74,222,128,.13); color:#9df0bd;
-  box-shadow:inset 0 0 0 1px rgba(74,222,128,.25);
-}
 .shop-item:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
 
 /* ===== FIXED BATTLE CTA ===== */

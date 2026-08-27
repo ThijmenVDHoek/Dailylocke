@@ -236,11 +236,11 @@
       d.__v = 3;
     }
 
-    // v3 -> v4: each Mart stop tracks its ten-ball Premier Ball bonus. Missing
-    // fields are the normal shape for an older run and must start at zero.
+    // v3 -> v4: each Mart stop counts ball purchases for the repeating
+    // Premier Ball bonus (one per full group of ten balls). Missing fields
+    // are the normal shape for an older run and must start at zero.
     if (v < 4) {
       if (d.shopBallPurchases === undefined) d.shopBallPurchases = 0;
-      if (d.shopPremierAwarded === undefined) d.shopPremierAwarded = false;
       d.__v = 4;
     }
 

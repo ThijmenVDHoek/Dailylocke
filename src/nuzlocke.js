@@ -60,8 +60,8 @@
       _shopSeq: 0,
       // Ball purchases are counted per Mart stop. The counter survives a
       // refresh while that stop is open, but is reset when the route advances.
-      shopBallPurchases: 0,
-      shopPremierAwarded: false
+      // Every group of 10 balls bought at the stop grants a Premier Ball.
+      shopBallPurchases: 0
     };
   }
 
@@ -84,25 +84,21 @@
 
   // The Mart bonus is deliberately run state rather than UI state. That keeps
   // the reward correct if the player refreshes, opens the menu, or returns to
-  // the same shop stop later. A new stop calls resetShopBonus().
+  // the same shop stop later. A new stop calls resetShopBonus(). Every full
+  // group of ten balls bought at the same stop earns one Premier Ball, and
+  // the bonus repeats: 20 balls -> 2 Premier Balls, 30 -> 3, and so on.
   function resetShopBonus(run) {
     if (!run) return;
     run.shopBallPurchases = 0;
-    run.shopPremierAwarded = false;
   }
   function noteShopBallPurchase(run, itemId) {
     if (!run || !C.BALLS[itemId]) return false;
     run.shopBallPurchases = Math.max(0, Number(run.shopBallPurchases) || 0) + 1;
-    if (run.shopBallPurchases >= 10 && !run.shopPremierAwarded) {
-      run.shopPremierAwarded = true;
+    if (run.shopBallPurchases % 10 === 0) {
       addItem(run, 'premierball', 1);
       return true;
     }
     return false;
-  }
-  function shopBonusStatus(run) {
-    var bought = Math.max(0, Number(run && run.shopBallPurchases) || 0);
-    return { bought: bought, target: 10, awarded: !!(run && run.shopPremierAwarded) };
   }
 
   function alive(run) { return run.party.filter(function (m) { return !C.isFainted(m); }); }
@@ -1169,7 +1165,6 @@
     alive: alive, logMsg: logMsg, trackMon: trackMon, buryFainted: buryFainted,
     ownsItem: ownsItem,
     resetShopBonus: resetShopBonus, noteShopBallPurchase: noteShopBallPurchase,
-    shopBonusStatus: shopBonusStatus,
     isGauntlet: isGauntlet,
     nextIsTrainer: nextIsTrainer, advanceBattle: advanceBattle,
     resetSectionStats: resetSectionStats,

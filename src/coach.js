@@ -358,7 +358,7 @@
     maxether:    { one: 'Fully refills one move', long: 'Restores one move\u2019s uses completely.' },
     elixir:      { one: 'Refills every move', long: 'Adds 10 uses back to all four moves at once.' },
     pokeball:    { one: 'The basic ball', long: 'Works best on a weakened target. Cheap enough to throw several.' },
-    premierball: { one: 'A commemorative ball', long: 'A reward for buying ten balls at one shop stop. It has the same catch rate as a Poke Ball.' },
+    premierball: { one: 'A commemorative ball', long: 'A free reward for every ten balls bought at one shop stop (buy twenty, get two). It has the same catch rate as a Poke Ball.' },
     greatball:   { one: '1.5\u00d7 better than a Poke Ball', long: 'A straight upgrade. Worth it on anything you actually want.' },
     ultraball:   { one: '2\u00d7 better than a Poke Ball', long: 'The reliable one. Use it when the catch really matters.' },
     duskball:    { one: '3\u00d7 \u2014 best odds here', long: 'Every route in this game counts as dark, so this is always at full strength.' },
