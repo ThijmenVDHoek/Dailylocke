@@ -85,12 +85,36 @@
   function el() {
     if (audio) return audio;
     audio = new Audio();
+    audio._isMusic = true;
     audio.loop = true;
     // `none` until a battle actually needs it: these are 1-3 MB files and
     // eagerly fetching one competes with the sim bundle and first sprites.
     audio.preload = 'none';
     audio.volume = gain(settings.music);
     return audio;
+  }
+
+  // One-shot elements (cries, previews) come from a fixed pool. The pool is
+  // pre-primed inside the first gesture so iOS lets them play even when the
+  // cry is requested later, outside a gesture (battle cries fire after an
+  // async battle-start, not on the tap itself).
+  function makeSfxEl() {
+    var a = new Audio();
+    a.preload = 'auto';
+    a._isMusic = false;
+    a._busy = false;
+    return a;
+  }
+  function freeSfxEl() {
+    for (var i = 0; i < sfxPool.length; i++) {
+      if (!sfxPool[i]._busy) return sfxPool[i];
+    }
+    // Rare case: every pooled element is mid-cry. Grow the pool rather than
+    // blocking the sound.
+    var a = makeSfxEl();
+    sfxPool.push(a);
+    primeElement(a);
+    return a;
   }
 
   function pickTrack(kind) {
@@ -110,6 +134,23 @@
     if (fadeTimer) { clearInterval(fadeTimer); fadeTimer = null; }
   }
 
+  // iOS / iPadOS (which Chrome and all other browsers on an iPad use under the
+  // hood -- there is no independent iOS Chrome engine) will only start a
+  // *media element* from inside a user gesture. The synthesized typewriter
+  // blip uses the Web Audio API and so survives this, which is why Oak's
+  // text ticks played while the battle music (started after an `await`, hence
+  // OUTSIDE the tap that entered the battle) and every freshly-created cry
+  // element (also outside a gesture) stayed silent.
+  //
+  // The fix mirrors what every mobile-web-audio library does: on the first
+  // gesture, "prime" the media stack by actually playing a tiny silent clip on
+  // both the shared music element and a small pool of one-shot elements. On
+  // iOS a media element that has played once in a gesture is then free to
+  // have its src swapped and be played again programmatically.
+  var SILENCE_URL = new URL('../assets/audio/silence.wav', (document.currentScript && document.currentScript.src) || window.location.href).href;
+  var PRIME_VOLUME = 0.001;   // inaudible on any platform that ignores unlock
+  var sfxPool = [];
+
   function safePlay(a) {
     try {
       var p = a.play();
@@ -117,6 +158,56 @@
       if (p && typeof p.then === 'function') p.catch(function () { /* blocked; a later gesture retries */ });
     } catch (e) { /* ignore */ }
   }
+
+  // Play the silent clip on one element, then pause and reset it. Called from
+  // within the unlock gesture handler so the play() is gesture-attributed.
+  function primeElement(a) {
+    if (!a || a._primed) return;
+    try {
+      var restoreVolume = a.volume;
+      var restoreLoop = a.loop;
+      a.src = SILENCE_URL;
+      a.loop = false;
+      a.volume = PRIME_VOLUME;
+      a.addEventListener('playing', function once() {
+        a.removeEventListener('playing', once);
+        a._primed = true;
+        try { a.pause(); } catch (e) {}
+        try { a.currentTime = 0; } catch (e) {}
+        a.removeAttribute('src');
+        try { a.load(); } catch (e) {}
+        a.volume = restoreVolume;
+        a.loop = restoreLoop;
+      }, { once: true });
+      safePlay(a);
+    } catch (e) { /* ignored: a later gesture tries again */ }
+  }
+
+  function primeAudio() {
+    primeElement(el());
+    if (!sfxPool.length) {
+      for (var i = 0; i < 4; i++) sfxPool.push(makeSfxEl());
+    }
+    sfxPool.forEach(primeElement);
+  }
+
+  // If music was requested but never started (e.g. the battle began after an
+  // await, so play() ran outside the gesture), any later gesture is another
+  // chance to start it. This listener is permanent (unlike the one-time
+  // unlock) specifically so an autoplay rejection during battle self-heals
+  // the moment the player next taps.
+  function kickOnGesture() {
+    if (blipCtx && blipCtx.state === 'suspended') { try { blipCtx.resume(); } catch (e) {} }
+    if (!unlocked) return;
+    primeAudio();
+    if (wantKind && audio && audio.paused && gain(settings.music) > 0) {
+      audio.loop = true;
+      safePlay(audio);
+    }
+  }
+  ['click', 'touchstart', 'keydown'].forEach(function (ev) {
+    document.addEventListener(ev, kickOnGesture, { passive: true });
+  });
 
   // Start (or switch to) the music for a battle. Safe to call before the
   // browser has unlocked audio: the choice is remembered and played on the
@@ -129,14 +220,21 @@
 
     var track = pickTrack(kind);
     var a = el();
+    a.loop = true;
     if (currentTrack !== track) {
       currentTrack = track;
       lastTrack = track;
       a.src = BASE + track + '.mp3';
+      // A preload="none" element that only gets its src after the first
+      // paint needs an explicit load() on some iPad WebKits, otherwise play()
+      // can settle back to paused without an error.
+      try { a.load(); } catch (e) {}
     }
     a.volume = gain(settings.music);
     try { a.currentTime = 0; } catch (e) { /* not seekable yet */ }
     if (gain(settings.music) > 0) safePlay(a);
+    // Belt and braces: if play() was rejected (autoplay policy), the first
+    // subsequent gesture retries it via kickOnGesture.
   }
 
   // Leave the battle screen: fade out over ~450ms, then park the track at the
@@ -162,10 +260,14 @@
     }, 50);
   }
 
-  // First user gesture: browsers only allow audio to begin from one.
+  // First user gesture: browsers only allow audio to begin from one. This
+  // both resumes the Web Audio context (blips) and primes the media-element
+  // stack (music + cries) so playback started by later, non-gesture code is
+  // permitted on iOS / iPadOS.
   function unlock() {
     if (unlocked) return;
     unlocked = true;
+    primeAudio();
     if (wantKind) startBattle(wantKind);
   }
   ['click', 'touchstart', 'keydown'].forEach(function (ev) {
@@ -182,20 +284,34 @@
   // ------------------------------------------------------------------ sfx --
   // Cries and one-shots route through here so the slider actually governs
   // them. `base` scales one effect relative to the others (default 1).
+  // Playback uses a primed pool element so iOS/iPadOS permits it even when
+  // this is called outside a user gesture (e.g. battle cries that fire after
+  // the async battle-start). The returned element exposes `volume` for
+  // callers (BattleUI) that used to own their own Audio.
   function playSfx(urls, base) {
     var g = gain(settings.sfx) * (base == null ? 1 : base);
-    if (g <= 0) return null;
     var list = [].concat(urls || []);
     if (!list.length) return null;
-    var a = new Audio();
-    a.volume = clamp01(g);
+    var a = freeSfxEl();
+    a._busy = true;
+    if (g > 0) a.volume = clamp01(g);
     var i = 0;
-    a.addEventListener('error', function () {
+    function release() {
+      a._busy = false;
+      try { a.removeAttribute('src'); } catch (e) {}
+      try { a.load(); } catch (e) {}
+    }
+    a.onerror = function () {
       i++;
-      if (i < list.length) { a.src = list[i]; a.load(); safePlay(a); }
-    });
+      if (i < list.length) { a.src = list[i]; try { a.load(); } catch (e) {} safePlay(a); }
+      else release();
+    };
+    a.onended = release;
+    try { a.removeAttribute('loop'); } catch (e) {}
     a.src = list[0];
-    safePlay(a);
+    try { a.load(); } catch (e) {}
+    if (g > 0) safePlay(a);
+    else release();
     return a;
   }
 
@@ -263,6 +379,47 @@
     playSfx: playSfx,
     synthBlip: synthBlip,
     unlock: unlock,
+    // Pool access for the battle UI's cry queue. Cry playback lives in the
+    // vendor battle code but must go through gesture-primed elements on iOS;
+    // these let it borrow and return a pooled element. On take the element is
+    // marked busy and stripped of any previous one-shot handlers; on release
+    // it is paused, detached from its cry and made available again.
+    _takeSfx: function () {
+      var a = freeSfxEl();
+      if (a) { a._busy = true; a.onended = null; a.onerror = null; }
+      return a;
+    },
+    _releaseSfx: function (a) {
+      if (!a) return;
+      try { a.pause(); } catch (e) {}
+      a._busy = false;
+      a.onended = null; a.onerror = null;
+      try { a.removeAttribute('src'); } catch (e) {}
+      try { a.load(); } catch (e) {}
+    },
+    // Set up the URL-fallback chain on a borrowed element and start it.
+    // Returns false when the very first play() was rejected (so the caller
+    // can fall back to another element/implementation).
+    _playOn: function (a, urlList) {
+      if (!a || !urlList) return false;
+      var list = [].concat(urlList);
+      var i = 0;
+      a.onerror = function () {
+        i++;
+        if (i < list.length) { a.src = list[i]; try { a.load(); } catch (e) {} safePlay(a); }
+      };
+      try { a.removeAttribute('loop'); } catch (e) {}
+      a.src = list[0];
+      try { a.load(); } catch (e) {}
+      var ok = true;
+      try {
+        var p = a.play();
+        if (p && typeof p.then === 'function') {
+          p.catch(function () { ok = false; });
+        }
+      } catch (e) { ok = false; }
+      return ok;
+    },
     get currentTrack() { return currentTrack; }
   };
 })();

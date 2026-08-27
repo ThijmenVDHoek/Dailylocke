@@ -646,13 +646,14 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 }
 .shop-item.service { background:linear-gradient(160deg, rgba(192,124,232,.16), var(--surface)); }
 
-/* Forme / mega offers used to be full-width single cards so each one could
+/* Forme offers used to be full-width single cards so each one could
    show source sprite, target sprite(s), five-spec grid and a long
    description. With typically just 1-2 of them on the shelf at a time, that
    layout was three times taller than every other shop tile. Now each one is
    a compact card sitting in a horizontal carousel -- source + result sprite
    on a single line, a one-line benefit underneath, "for {species}" on the
-   right -- so the whole shelf can be scanned in a glance. */
+   right -- so the whole shelf can be scanned in a glance. Mega Stones, by
+   contrast, stack full-width (see .mega-stack below). */
 .shop-grid.forme-carousel {
   /* Override the default 2-column grid: a single horizontal row of compact
      cards, scrolling sideways when there are more than fit on screen. */
@@ -665,14 +666,19 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 }
 .shop-grid.forme-carousel::-webkit-scrollbar { height:5px; }
 .shop-grid.forme-carousel::-webkit-scrollbar-thumb { background:rgba(255,255,255,.22); }
-.shop-grid.forme-carousel .shop-item.forme-item,
-.shop-grid.forme-carousel .shop-item.mega-item {
+.shop-grid.forme-carousel .shop-item.forme-item {
   /* Each compact tile takes a fixed width so 2-3 fit on screen and the rest
      scroll. flex:0 0 keeps the snap alignment consistent. */
   flex:0 0 260px; min-width:260px; max-width:280px;
   scroll-snap-align:start;
   padding:10px 12px 11px;
 }
+/* Mega Stones stack full-width, one per row, instead of scrolling sideways
+   in the carousel. There are only ever a few on a shelf and they carry more
+   context (sprites, benefit line, for-species tag), so the extra room reads
+   far better than squeezed fixed-width cards. */
+.shop-grid.mega-stack { display:grid; grid-template-columns:1fr; gap:10px; }
+.shop-grid.mega-stack .shop-item.mega-item { width:100%; padding:12px 14px 13px; }
 .shop-item.forme-item, .shop-item.mega-item { padding:0; overflow:hidden; }
 .si-transform-card { padding:0; }
 .si-transform-top { margin-bottom:6px; }
@@ -802,12 +808,6 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .reward-pick { margin:16px auto 8px; max-width:760px; }
 .reward-pick h3 { margin:0 0 3px; color:var(--ink); }
 .reward-choices { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; margin-top:10px; }
-/* A 4-card row (3 item picks + a "skip for cash" offer) widens the grid
-   but keeps the same gap, so the 4th card sits at the end without
-   compressing the 3 item cards. The skip card is the one that uses the
-   .reward-choice-cash modifier; the grid rule is separate so future
-   4-card offers without cash would still work. */
-.reward-choices-4 { grid-template-columns:repeat(4, minmax(0, 1fr)); }
 .reward-choice { display:flex; align-items:center; gap:8px; min-width:0; padding:10px; text-align:left; color:var(--ink); background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.14); border-radius:10px; }
 .reward-choice:hover, .reward-choice:focus-visible { background:rgba(255,215,110,.14); border-color:var(--gold); }
 .reward-choice.picked { background:rgba(74,222,128,.16); border-color:#4ade80; }
@@ -818,26 +818,71 @@ button { font-family:inherit; cursor:pointer; border:none; background:none; colo
 .reward-choice-copy small { color:var(--ink-3); font-size:.72rem; }
 .reward-choice-copy em { color:var(--ink-2); font-size:.7rem; font-style:normal; line-height:1.25; }
 .reward-pick-note { margin:9px 0 0; color:var(--gold); }
-/* The "skip for cash" card is a deliberate trade, not an item choice:
-   it has no item sprite, a giant dollar sign in place of one, and a
-   gold-tinted surface so it reads as a different category from the
-   three item cards it sits next to. The picked state is the same
-   green as a real item pick -- a chosen card is a chosen card, and
-   the only state the Continue button needs to track is "picked". */
-.reward-choice-cash { background:linear-gradient(160deg, rgba(255,215,110,.18), rgba(255,215,110,.05)); border-color:rgba(255,215,110,.45); }
-.reward-choice-cash:hover, .reward-choice-cash:focus-visible { background:linear-gradient(160deg, rgba(255,215,110,.28), rgba(255,215,110,.10)); border-color:var(--gold); }
-.reward-choice-cash .reward-choice-copy b { color:var(--gold); }
-.reward-choice-cash-art {
-  width:42px; height:42px; border-radius:50%;
+
+/* The cash bundle is a deliberate trade, NOT one of the item picks. It used
+   to be a fourth card in the same row, which read as "a fourth item". Now
+   the three item cards are the reward, and underneath them a divider
+   separates the full-width cash alternative so it is unmistakably the
+   "or take the money and run" option. */
+.reward-or {
+  display:flex; align-items:center; gap:10px; margin:14px 4px 6px;
+  color:var(--ink-3); font-size:.72rem; letter-spacing:1.5px; text-transform:uppercase;
+}
+.reward-or::before, .reward-or::after {
+  content:''; flex:1; height:1px; background:rgba(255,255,255,.12);
+}
+.reward-cash-alt {
+  width:100%; display:flex; align-items:center; gap:12px;
+  padding:13px 16px; text-align:left;
+  color:var(--gold); font-family:inherit;
+  background:linear-gradient(160deg, rgba(255,215,110,.16), rgba(255,215,110,.04));
+  border:1.5px dashed rgba(255,215,110,.5); border-radius:12px;
+  box-shadow:0 0 20px rgba(255,215,110,.10);
+  transition:background-color .16s, border-color .16s, transform .14s;
+}
+.reward-cash-alt:hover, .reward-cash-alt:focus-visible {
+  background:linear-gradient(160deg, rgba(255,215,110,.26), rgba(255,215,110,.09));
+  border-color:var(--gold); outline:none; transform:translateY(-2px);
+}
+.reward-cash-alt:disabled { opacity:.45; cursor:default; transform:none; box-shadow:none; }
+.reward-cash-art {
+  flex:0 0 44px; height:44px; display:grid; place-items:center;
+  border-radius:50%; font-size:1.5rem; font-weight:700;
   background:linear-gradient(160deg, var(--gold), #f0a93a);
-  color:#231a00; font-weight:700; font-size:1.55rem; line-height:1;
-  display:grid; place-items:center;
+  color:#231a00; text-shadow:0 1px 0 rgba(255,255,255,.25);
   box-shadow:0 0 14px rgba(255,215,110,.45);
-  text-shadow:0 1px 0 rgba(255,255,255,.25);
 }
+.reward-cash-copy { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.reward-cash-copy b { font-size:1.02rem; color:var(--gold); }
+.reward-cash-copy small { color:var(--ink-2); font-size:.76rem; font-weight:400; }
+.reward-cash-copy small em { color:var(--gold); font-style:normal; font-weight:700; }
 @media (max-width:420px) {
-  .reward-choices, .reward-choices-4 { grid-template-columns:1fr; }
+  .reward-choices { grid-template-columns:1fr; }
 }
+/* The trainer-win "progression popup": instead of a 1-of-3 item pick, the
+   section clear announces the three unlocks -- better shop balls, stronger
+   encounters, tougher difficulty. Styled as a raised gold-bordered card so it
+   reads as a milestone panel rather than ordinary reward text. */
+.reward-upgrade {
+  margin:16px auto 8px; max-width:560px;
+  background:linear-gradient(160deg, rgba(255,215,110,.14), rgba(255,215,110,.04));
+  border:1px solid rgba(255,215,110,.45); border-radius:14px;
+  padding:16px 18px; text-align:left;
+  box-shadow:0 0 26px rgba(255,215,110,.18);
+}
+.reward-upgrade h3 { margin:0 0 10px; color:var(--gold); text-align:center; font-size:1.2rem; }
+.upgrade-list { list-style:none; margin:0 0 8px; padding:0; display:flex; flex-direction:column; gap:8px; }
+.upgrade-list li {
+  position:relative; padding:10px 12px 10px 34px;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
+  border-radius:10px; color:var(--ink-2); font-size:.92rem; line-height:1.35;
+}
+.upgrade-list li::before {
+  content:'\2726'; position:absolute; left:12px; top:9px;
+  color:var(--gold); font-size:1rem;
+}
+.upgrade-list li b { color:var(--ink); }
+.reward-upgrade .hint { text-align:center; margin:8px 0 0; }
 .losses { margin:14px 0; }
 .losses h4 { color:#ff8b95; font-size:.95rem; margin-bottom:8px; }
 .losses .grave { display:inline-flex; }
@@ -1317,7 +1362,7 @@ textarea.search.save-code {
   pointer-events: none;
   filter: grayscale(0.6);
 }
-.prologue-dim .x-ascension, .prologue-dim .x-bag-note { display:none !important; }
+.prologue-dim .x-ascension, .prologue-dim .x-items-note { display:none !important; }
 .sum-wrap { padding:26px 2px 10px; text-align:center; }
 .sum-crest {
   width:74px; height:74px; margin:0 auto 14px; border-radius:50%;
@@ -1470,12 +1515,24 @@ textarea.search.save-code {
   background:#e6e9f2; box-shadow:0 0 0 2px rgba(255,255,255,.3);
 }
 
-/* ===== INLINE SHOP ON THE ROUTE SCREEN ===== */
-/* ===== BAG (everything you own, above the shop) ===== */
-.x-bag { margin:0 0 22px; }
-.x-bag-head { display:flex; align-items:baseline; gap:10px; margin-bottom:10px; }
-.x-bag-title { font-size:1.3rem; color:var(--gold); }
-.x-bag-note { font-size:.74rem; color:var(--ink-3); margin-left:auto; }
+/* ===== COMBINED ITEMS OVERVIEW (bag + Mart in one panel) ===== */
+/* The bag (owned items) and the Poke Mart (for sale) used to be two stacked
+   sections with their own big headings. They are one panel now: a shared
+   "Items" title, two labelled blocks underneath it. */
+.x-items {
+  margin:0 0 22px; padding:12px 14px 14px;
+  background:rgba(255,255,255,.03);
+  border:1px solid rgba(255,255,255,.08); border-radius:14px;
+}
+.x-items-head { display:flex; align-items:baseline; gap:10px; margin-bottom:6px; }
+.x-items-title { font-size:1.3rem; color:var(--gold); }
+.x-items-note { font-size:.74rem; color:var(--ink-3); margin-left:auto; }
+.x-bag, .x-shop { margin:0; }
+.x-sub-title {
+  font-size:.78rem; letter-spacing:.6px; text-transform:uppercase;
+  color:var(--ink-3); margin:10px 0 8px; font-weight:600;
+}
+.x-shop-hint { text-transform:none; letter-spacing:0; font-weight:400; opacity:.8; }
 /* A single 2-column grid replaces the old per-category stacks, so with only
    1 ball + 1 medicine the two tiles sit side by side on a single row. A
    tiny category chip on every tile preserves the kind (Ball / Heal / Held
@@ -1495,20 +1552,10 @@ textarea.search.save-code {
 }
 .oi-q.take { color:var(--ink-3); font-size:.7rem; }
 
-.x-shop { margin-top:4px; }
-.x-shop-head { display:flex; align-items:baseline; gap:10px; margin-bottom:10px; }
-.x-shop-title { font-size:1.3rem; color:#7fc9ff; }
-.x-shop-note { font-size:.74rem; color:var(--ink-3); margin-left:auto; }
 .mart-inline { display:block; }
-.mart-ball-bonus {
-  margin:-2px 0 12px; padding:7px 11px; border-radius:var(--r-pill);
-  background:rgba(255,215,110,.09); color:var(--gold);
-  font-size:.74rem; text-align:center; letter-spacing:.15px;
-}
-.mart-ball-bonus.earned {
-  background:rgba(74,222,128,.13); color:#9df0bd;
-  box-shadow:inset 0 0 0 1px rgba(74,222,128,.25);
-}
+/* Owned tiles inside the combined panel sit flush with the block label. */
+.x-bag .bag-items { gap:6px; }
+.x-shop .sub-title { margin-top:12px; }
 .shop-item:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
 
 /* ===== FIXED BATTLE CTA ===== */

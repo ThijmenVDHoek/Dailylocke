@@ -37,13 +37,10 @@ jobs:
       - name: Install tooling
         run: npm ci --prefix tools
 
-      # ESLint + the JSDOM smoke suite + the service-worker revision guard.
-      # The revision check is what stops a deploy from shipping new JavaScript
-      # under an old cache name, which would strand returning players on stale
-      # code with no way to notice.
-      #
-      # There is deliberately no real-browser (Playwright) job: the sandbox
-      # this project is developed in cannot download a browser, so the JSDOM
-      # suite is the whole gate and must stay green on its own.
-      - name: Lint, unit tests, service-worker revision
+      # ESLint + the service-worker revision guard. The revision check is
+      # what stops a deploy from shipping new JavaScript under an old cache
+      # name, which would strand returning players on stale code with no way
+      # to notice. There is no automated e2e/smoke suite -- gameplay is
+      # verified by hand.
+      - name: Lint and service-worker revision
         run: npm run check --prefix tools

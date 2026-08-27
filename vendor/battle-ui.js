@@ -1412,9 +1412,15 @@ BattleUI.prototype._drainCryQueue=function(){
   var audio=null,readyHandler=null,idx=0,finished=false;
   function cleanup(){
     if(audio){
-      try{audio.pause();audio.removeAttribute('src');audio.onerror=audio.onloadeddata=null;}catch(_){}
+      try{audio.pause();audio.onerror=audio.onloadeddata=null;}catch(_){}
       try{audio.removeEventListener('ended',onEnd);}catch(_){}
       if(readyHandler){try{audio.removeEventListener('canplaythrough',readyHandler);}catch(_){}readyHandler=null;}
+      // Hand the element back to the GameAudio pool if that's where it came
+      // from: this frees it for the next cry AND, on iOS/iPadOS, keeps the
+      // primed element (one that played inside the first gesture) alive. A
+      // throwaway element simply loses its src.
+      if(audio._fromPool){ try{window.GameAudio._releaseSfx(audio);}catch(_){} }
+      else { try{audio.removeAttribute('src');}catch(_){} }
       audio=null;
     }
     if(safetyT){clearTimeout(safetyT);safetyT=null;}
@@ -1431,8 +1437,26 @@ BattleUI.prototype._drainCryQueue=function(){
     if(finished)return;
     if(idx>=urls.length){advance();return;}
     cleanup();
-    // 0.35 is the cry's own balance against the rest of the mix; the SFX
-    // slider scales it (GameAudio may not exist in isolated tests).
+    // Prefer GameAudio's primed element pool. On iOS/iPadOS a fresh
+    // HTMLMediaElement created OUTSIDE a user gesture is refused playback,
+    // which used to silence every cry in battle (cries fire after the async
+    // battle start, not on the tap). Pool elements played silently inside
+    // the first gesture, so iOS lets them play later. 0.5 is the cry's
+    // balance against the mix; the SFX slider scales it.
+    if(window.GameAudio&&window.GameAudio._takeSfx){
+      var pa=window.GameAudio._takeSfx();
+      pa.volume=window.GameAudio.sfxVolume(0.5);
+      pa._fromPool=true;
+      pa.addEventListener('ended',onEnd,{once:true});
+      // Safety: no Pokemon cry is longer than ~2s; if we're still "playing"
+      // after 2500ms, force-advance so the queue never jams.
+      safetyT=setTimeout(advance,2500);
+      var played=window.GameAudio._playOn(pa,urls[idx++]);
+      if(played===false){ tryNext(); return; }
+      audio=pa;
+      return;
+    }
+    // Fallback (GameAudio absent, e.g. isolated tests): a throwaway element.
     var a=new Audio();
     a.volume=window.GameAudio?window.GameAudio.sfxVolume(0.5):0.35;
     a.preload='auto';audio=a;
@@ -1446,11 +1470,11 @@ BattleUI.prototype._drainCryQueue=function(){
     }
     readyHandler=onReady;
     a.addEventListener('ended',onEnd,{once:true});
-    a.addEventListener('canplaythrough',readyHandler,{once:true});
+    a.addEventListener('canplaythrough',onReady,{once:true});
     // onloadeddata as backup to canplaythrough
     a.onloadeddata=onReady;
     a.onerror=err;
-    // Safety: no Pokémon cry is longer than ~2s; if we're still "playing"
+    // Safety: no Pokemon cry is longer than ~2s; if we're still "playing"
     // after 2500ms, force-advance so the queue never jams.
     safetyT=setTimeout(advance,2500);
     a.src=urls[idx++];

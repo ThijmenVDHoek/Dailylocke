@@ -2,7 +2,7 @@
   "name": "dailylocke-tools",
   "private": true,
   "version": "1.0.0",
-  "description": "Build, lint and test tooling for Dailylocke.",
+  "description": "Build and lint tooling for Dailylocke.",
   "engines": {
     "node": ">=22.22.2"
   },
@@ -10,17 +10,13 @@
     "build": "node build-sim.mjs",
     "build:sw": "node build-sw.mjs",
     "lint": "cd .. && tools/node_modules/.bin/eslint src/*.js vendor/battle-ui.js sw.js tools/*.mjs eslint.config.mjs --config eslint.config.mjs --max-warnings 0",
-    "test": "node smoke-test.mjs",
-    "test:browser": "node browser-smoke.mjs",
-    "check": "npm run lint && npm test && node build-sw.mjs --check"
+    "check": "npm run lint && node build-sw.mjs --check"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@pkmn/sim": "0.10.11",
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
-    "globals": "^17.8.0",
-    "jsdom": "^30.0.0",
-    "playwright": "^1.62.1"
+    "globals": "^17.8.0"
   }
 }

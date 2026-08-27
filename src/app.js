@@ -1710,11 +1710,11 @@
     drawPartyDetail();
 
     // The Gauntlet has no economy at all: no cash, no bag, no Mart. The team
-    // strip and the trainer preview are the whole route screen.
-    var cashPill = $('xCashPill'), bagBlock = $('xBagBlock'), shopBlock = $('xShopBlock');
+    // strip and the trainer preview are the whole route screen. The combined
+    // Items panel holds both, so the whole panel hides.
+    var cashPill = $('xCashPill'), itemsBlock = $('xItemsBlock');
     if (cashPill) cashPill.hidden = isG;
-    if (bagBlock) bagBlock.hidden = isG;
-    if (shopBlock) shopBlock.hidden = isG;
+    if (itemsBlock) itemsBlock.hidden = isG;
     if (!isG) {
       drawOwned();
       // the shop lives on this screen now
@@ -2216,10 +2216,13 @@
       h.className = 'sub-title'; h.textContent = groups[k];
       grid.appendChild(h);
       var wrap = document.createElement('div');
-      // Forme and Mega shelves render as a horizontal carousel so the compact
-      // tiles sit side by side and scroll if there are more than the screen
-      // can fit. Ordinary groups keep the 2-column grid.
-      wrap.className = 'shop-grid' + (k === 'forme' || k === 'mega' ? ' forme-carousel' : '');
+      // Forme Change offers stay in the compact horizontal carousel. Mega
+      // Stones stack full-width and underneath each other: they were getting
+      // squeezed in the carousel and there is always just a handful on a
+      // shelf, so a vertical stack reads better. Ordinary groups keep the
+      // 2-column grid.
+      wrap.className = 'shop-grid' + (k === 'forme' ? ' forme-carousel'
+        : k === 'mega' ? ' mega-stack' : '');
       items.forEach(function (e) {
         // Unique stock (Mega Stones): if you already own one, don't offer it
         // again. Selling it removes it from the bag, so it comes straight back.
@@ -2280,19 +2283,6 @@
       grid.appendChild(wrap);
     });
 
-    var bonus = N.shopBonusStatus ? N.shopBonusStatus(run) : {
-      bought: Number(run.shopBallPurchases) || 0,
-      target: 10, awarded: !!run.shopPremierAwarded
-    };
-    var bonusEl = $('martBallBonus');
-    if (bonusEl) {
-      var remaining = Math.max(0, bonus.target - bonus.bought);
-      bonusEl.textContent = bonus.awarded
-        ? 'Premier Ball earned at this shop.'
-        : 'Buy ' + remaining + ' more ball' + (remaining === 1 ? '' : 's') +
-          ' here to earn a Premier Ball.';
-      bonusEl.classList.toggle('earned', bonus.awarded);
-    }
   }
   function itemName(id) {
     if (window.Evo && window.Evo.CUSTOM_ITEMS[id]) return window.Evo.CUSTOM_ITEMS[id].name;
@@ -2570,20 +2560,24 @@
     run.money -= total;
     if (!e.unique) e.stock = Math.max(0, (Number(e.stock) || 0) - qty);  // unique items are gated by ownership
     N.addItem(run, e.id, qty);
-    // The ten-ball Premier bonus counts individual balls, so a multi-buy
-    // walks the counter once per ball in the stack.
-    var earnedPremier = false;
+    // The Premier bonus counts individual balls (one Premier Ball per full
+    // group of ten), so a multi-buy walks the counter once per ball in the
+    // stack and a big purchase can earn several Premier Balls at once.
+    var premierCount = 0;
     if (e.kind === 'ball' && N.noteShopBallPurchase) {
       for (var b = 0; b < qty; b++) {
-        if (N.noteShopBallPurchase(run, e.id)) earnedPremier = true;
+        if (N.noteShopBallPurchase(run, e.id)) premierCount++;
       }
     }
     var label = (qty > 1 ? qty + 'x ' : '') + e.name;
-    if (earnedPremier) {
-      N.logMsg(run, 'You bought 10 balls at this stop and received a Premier Ball.');
+    if (premierCount > 0) {
+      N.logMsg(run, 'For buying balls at this stop, you received ' + premierCount +
+        ' Premier Ball' + (premierCount === 1 ? '' : 's') + '.');
     }
     N.logMsg(run, 'Bought ' + label + '.');
-    toast(earnedPremier ? 'Bought ' + label + ' \u2014 Premier Ball earned!' : 'Bought ' + label + '!');
+    toast(premierCount > 0
+      ? 'Bought ' + label + ' \u2014 ' + premierCount + ' Premier Ball' + (premierCount === 1 ? '' : 's') + ' earned!'
+      : 'Bought ' + label + '!');
     drawMart(); drawOwned(); renderHud(); saveGame();
     // The purchase is the completed target of the current lesson. Immediately
     // arm the next, single team-card target instead of making the player guess
@@ -4436,36 +4430,94 @@
     var mode = (kind === 'heal') ? 'use'
              : (kind === 'evo' || kind === 'forme') ? 'evolve'
              : 'give';
-    picker = { itemId: itemId, mode: mode, step: 'mon', mon: null };
+    var thisPicker = { itemId: itemId, mode: mode, step: 'mon', mon: null };
+    // Re-opening an already-open sheet is a no-op for Modal.open (it would
+    // keep the stale onClose); close any existing picker sheet first.
+    if (window.Modal.isOpen('screenPicker')) window.Modal.close('screenPicker');
+    picker = thisPicker;
     drawPicker();
-    window.Modal.open('screenPicker', { onClose: function () { picker = null; } });
+    window.Modal.open('screenPicker', {
+      onClose: function () { if (picker === thisPicker) picker = null; }
+    });
   }
 
-  // A battle reward item is used or given the instant its card is picked.
-  // This opens the same target sheet as the Bag path, but over the reward
-  // screen and WITHOUT a way out: no Cancel button, no Escape, no scrim tap.
-  // The reward pool is built so a valid target always exists (evolution items
-  // are limited to what the living party can actually use), so the sheet can
-  // only end one way -- item spent, on a Pokemon, right now. If some edge
-  // case ever leaves every row disabled, the Cancel button reappears rather
-  // than trapping the player; the item then simply stays in the Bag.
+  // A battle reward item is used or given from this target sheet, which opens
+  // over the reward screen. The player CAN cancel: closing the sheet (Cancel,
+  // Escape, scrim tap) before a target is chosen gives the pick back -- the
+  // item added on card click is returned and the reward cards are live again,
+  // so a different card (or the cash bundle) can be chosen. Once a target is
+  // chosen the choice is locked in by closePicker's commit path, so a
+  // cancellation can never refund an item already used or given.
   function openRewardItemPicker(entry) {
     if (!run || !entry || !run.party.length) return;
     var mode = entry.kind === 'evo' ? 'evolve' : 'give';
-    picker = { itemId: entry.id, mode: mode, step: 'mon', mon: null, fromReward: true };
+    var thisPicker = { itemId: entry.id, mode: mode, step: 'mon', mon: null, fromReward: true };
+    // A re-pick right after a cancelled sheet would Modal.open() onto an
+    // already-open sheet (a no-op that keeps the stale onClose). Close it
+    // first; the old onClose no-ops because it is keyed to its own instance.
+    if (window.Modal.isOpen('screenPicker')) window.Modal.close('screenPicker');
+    picker = thisPicker;
+    rewardChoicePending = entry;
     drawPicker();
     var cancelBtn = $('btnPickerCancel');
-    if (cancelBtn) cancelBtn.hidden = true;
-    if (!$('pickerBody').querySelector('.pick-row:not([disabled])') && cancelBtn) {
-      cancelBtn.hidden = false;   // nothing can take it -- do not trap the player
-    }
+    if (cancelBtn) cancelBtn.hidden = false;
+    // Key the close logic to this picker instance. A dismiss (Cancel /
+    // Escape / scrim) leaves rewardDone unset and returns the held item,
+    // re-enabling every reward card; a resolution path (closePicker) sets
+    // rewardDone so the card stays locked and the item is spent in place.
     window.Modal.open('screenPicker', {
-      escape: false, dismissOnScrim: false,
+      escape: true, dismissOnScrim: true,
       onClose: function () {
+        if (picker !== thisPicker) return;
+        var committed = !!thisPicker.rewardDone;
         picker = null;
         if (cancelBtn) cancelBtn.hidden = false;
+        if (!committed) cancelRewardChoice();
       }
     });
+  }
+
+  // ---- reward choice state ------------------------------------------------
+  // rewardChoicePending: the card currently being resolved (sheet open or
+  //   full-screen evolution running). Not yet a choice -- a cancel walks it
+  //   back. rewardEvoPending: a reward-triggered evolution/forme sequence is
+  //   playing; its Done button returns to the reward screen to finalise.
+  var rewardChoicePending = null;
+  var rewardEvoPending = null;
+  // True while the full-screen Evolve view is showing a reward-triggered
+  // morph: the Done button returns to the reward screen, not the crossroads.
+  var rewardEvoOnScreen = false;
+
+  // The picker was closed without using the item. Return the held copy and
+  // make every reward card clickable again, so the player can make a
+  // different choice instead of being locked into the card they first tapped.
+  function cancelRewardChoice() {
+    var entry = rewardChoicePending;
+    rewardChoicePending = null;
+    if (!entry) return;
+    // The card click added exactly one copy "on hold". Take it back -- unless
+    // a commit path already spent it (committed choices never route here).
+    N.useItem(run, entry.id);
+    var note = $('rewardBody').querySelector('.reward-pick-note');
+    if (note) note.textContent = 'Select one reward to continue.';
+    $('rewardBody').querySelectorAll('[data-reward-id]').forEach(function (node) {
+      node.disabled = false;
+      node.classList.remove('picked');
+    });
+    $('btnRewardDone').disabled = true;
+    renderHud(); saveGame();
+  }
+
+  // The picked reward is spent (item given/used, or cash taken). Lock every
+  // card so the choice cannot be re-made or swapped for the cash bundle.
+  function commitRewardChoice(entryId) {
+    rewardChoicePending = null;
+    $('rewardBody').querySelectorAll('[data-reward-id]').forEach(function (node) {
+      node.disabled = true;
+      if (entryId) node.classList.toggle('picked', node.dataset.rewardId === entryId);
+    });
+    var doneBtn = $('btnRewardDone');
+    if (doneBtn) doneBtn.disabled = false;
   }
 
   // What would this item do to this Pokemon? Returns { note, dis } so the
@@ -4547,8 +4599,19 @@
   }
 
 
+  // closePicker() closes a RESOLVED picker: the item was used/given or a
+  // evolution target was chosen. rewardDone marks that for a reward picker
+  // so the modal's onClose handler knows not to refund. Cancel, Escape and
+  // scrim taps never set it -- they close via dismissPicker().
   function closePicker() {
-    picker = null;
+    if (picker && picker.fromReward) picker.rewardDone = true;
+    window.Modal.close('screenPicker');
+  }
+
+  // A genuine dismissal (Cancel button / Escape / scrim tap). The modal's
+  // onClose distinguishes this from closePicker() via rewardDone and refunds
+  // a reward item that was only on hold, so the reward cards go live again.
+  function dismissPicker() {
     window.Modal.close('screenPicker');
   }
 
@@ -4633,66 +4696,57 @@
   }
 
   function runEvoTarget(itemId, mon, t) {
-    // From the reward screen the item is spent in place: the full-screen
-    // evolution sequence would route its Done button to the crossroads and
-    // skip the reward screen's own Continue (catch chance / section summary).
-    if (picker && picker.fromReward) { applyRewardEvolve(itemId, mon, t); return; }
+    // An evolution/forme item picked as a battle reward now plays the SAME
+    // full-screen morph sequence as the Bag path. The sequence remembers it
+    // was launched from the reward (rewardEvoPending) so its Done button
+    // returns to the reward screen instead of the crossroads, and the reward
+    // choice only locks in once the morph resolves.
+    if (picker && picker.fromReward) {
+      rewardEvoPending = { itemId: itemId, mon: mon, target: t };
+      closePicker();
+      if (t.kind === 'forme') { startFormeChange(mon, itemId, t.id); return; }
+      startEvolution(mon, t.opt);
+      return;
+    }
     closePicker();
     if (t.kind === 'forme') { startFormeChange(mon, itemId, t.id); return; }
     startEvolution(mon, t.opt);
   }
 
-  // The no-animation twin of startEvolution(), for an evolution item picked
-  // as a battle reward: the change resolves quietly while the reward screen
-  // stays up, and the result line replaces the "use it now" hint.
-  async function applyRewardEvolve(itemId, mon, t) {
-    closePicker();
-    var note = $('rewardBody').querySelector('.reward-pick-note');
-    function say(text) { if (note) note.textContent = text; }
-    if (t.kind === 'forme') {
-      // Not reachable from today's reward pool (forme items are shop stock),
-      // but kept safe so a future pool change cannot strand the flow.
-      var oldItem = mon.item;
-      if (oldItem && oldItem !== itemId) N.addItem(run, oldItem, 1);
-      mon.item = itemId;
-      var fres = await window.Forme.applyForme(run, mon, t.id);
-      if (fres.ok) {
-        run.bag[itemId]--; if (run.bag[itemId] <= 0) delete run.bag[itemId];
-        say(mon.name + ' changed forme to ' + fres.to + '!');
-        N.logMsg(run, fres.from + ' changed forme to ' + fres.to + '.');
-      } else {
-        say(fres.msg || 'Nothing happened.');
-      }
-      renderHud(); renderCrossroads(); saveGame();
-      return;
+  // Finalise a reward whose evolution/forme sequence just ended: lock the
+  // cards, report the result where the player is looking, and leave the
+  // reward screen's Continue as the only way forward.
+  function finalizeRewardEvolution(noteText) {
+    var pending = rewardEvoPending;
+    rewardEvoPending = null;
+    var entry = pending && rewardChoicePending;
+    rewardChoicePending = null;
+    commitRewardChoice(entry ? entry.id : null);
+    if (noteText) {
+      var note = $('rewardBody').querySelector('.reward-pick-note');
+      if (note) note.textContent = noteText;
     }
-    var res = await window.Evo.evolve(run, mon, t.opt);
-    if (res.ok) {
-      if (run.prologue && run.tutorialStarterUid &&
-          String(mon.uid) === String(run.tutorialStarterUid)) {
-        run.tutorialEvolved = true;
-      }
-      say(res.to + ' evolved into ' + res.species + '!');
-      N.logMsg(run, res.to + ' evolved into ' + res.species + '!');
-      if (mon.shiny) recordShiny(mon, 'evolved');
-      try { playCry(mon.id); } catch (e) {}
-    } else {
-      say(res.msg || 'The evolution failed.');
-    }
-    renderHud(); renderCrossroads(); saveGame();
+    renderHud(); saveGame();
   }
 
   function applyPicked(mon, moveId) {
     var fromReward = !!(picker && picker.fromReward);
-    var res = N.applyItem(run, picker.itemId, mon, moveId);
+    var itemId = picker.itemId;
+    var res = N.applyItem(run, itemId, mon, moveId);
     toast(res.msg);
     if (fromReward) {
       // The reward item was given/held just now -- echo it where the player
-      // is looking instead of only in a toast.
+      // is looking instead of only in a toast, and lock the reward choice in
+      // the same instant.
+      var entry = rewardChoicePending;
+      closePicker();
+      rewardChoicePending = null;
+      commitRewardChoice(entry ? entry.id : null);
       var note = $('rewardBody').querySelector('.reward-pick-note');
       if (note) note.textContent = res.msg;
+    } else {
+      closePicker();
     }
-    closePicker();
     renderCrossroads(); renderHud(); saveGame();
   }
 
@@ -6997,7 +7051,12 @@
         ss.money = (Number(ss.money) || 0) + (Number(money) || 0);
         ss.won = (Number(ss.won) || 0) + 1;
         dead.forEach(function (d) { ss.lost.push({ name: d.name, id: d.id, shiny: d.shiny }); });
-        showReward(money, dead, false, missed, healed, sectionItemReward, itemChoices);
+        // Beating a trainer clears the section, so instead of a 1-of-3 item
+        // pick the reward screen announces the progression that just unlocked:
+        // better balls in the shop, stronger wilds, and a harder climb.
+        var trainerWin = !bctx.cfg.isWild && !N.isGauntlet(run);
+        showReward(money, dead, false, missed, healed, sectionItemReward,
+          trainerWin ? [] : itemChoices, trainerWin);
       } else {
         if (!N.alive(run).length) return gameOver();
         var ss2 = run.sectionStats || (run.sectionStats = { money:0, won:0, caught:null, lost:[], damage:0, kos:0, startedAt:run.section });
@@ -7007,8 +7066,11 @@
     });
   }
 
-  function showReward(money, dead, lost, missedCatch, healed, itemReward, itemChoices) {
+  function showReward(money, dead, lost, missedCatch, healed, itemReward, itemChoices, trainerWin) {
     itemChoices = Array.isArray(itemChoices) ? itemChoices : [];
+    rewardChoicePending = null;
+    rewardEvoPending = null;
+    rewardEvoOnScreen = false;
     show('Reward');
     $('rewardTitle').textContent = lost ? 'Defeated...' : 'Victory!';
     $('rewardTitle').className = 'scr-title' + (lost ? ' dead' : '');
@@ -7027,39 +7089,62 @@
     if (itemReward) {
       html += '<p class="reward-item">You received a <b>' + escapeHtml(itemName(itemReward)) + '</b>!</p>';
     }
+    if (trainerWin && !lost) {
+      // A trainer win closes a section: the "prize" is progression itself.
+      // The ball line is truthful about the next shelf: sections 1->2 and
+      // 2->3 move up a tier; afterwards the Ultra Ball shelf just restocks.
+      var finished = run.section;
+      var nextBall = finished === 1 ? 'greatball' : finished === 2 ? 'ultraball' : null;
+      var ballLine = nextBall
+        ? 'Poke Balls are upgraded in the shop \u2014 ' + itemName(nextBall) + 's are now in stock.'
+        : 'The shop is restocked with Ultra Balls.';
+      html += '<div class="reward-upgrade">' +
+        '<h3>Section ' + finished + ' cleared!</h3>' +
+        '<ul class="upgrade-list">' +
+          '<li><b>' + ballLine + '</b></li>' +
+          '<li><b>Pokemon encounters are upgraded</b> \u2014 stronger wilds appear from here on.</li>' +
+          '<li><b>Difficulty is increased</b> \u2014 trainers and fields get tougher every section.</li>' +
+        '</ul>' +
+        '<p class="hint">' +
+          (run.maxSections && finished >= run.maxSections
+            ? 'Tap Continue to see your results.'
+            : 'Tap Continue to move on to Section ' + (finished + 1) + '.') +
+        '</p>' +
+      '</div>';
+    }
     if (itemChoices.length) {
-      // A fourth "skip for cash" card is always offered alongside the three
-      // item picks. Its cash is calibrated to be a clear downgrade on trainer
-      // battles (where 2x BASE makes the money reward already the larger of
-      // the two) and a close call on wild battles -- an item the party can
-      // actually use tends to be worth more than a cash infusion, so picking
-      // skip is a deliberate trade, not always strictly optimal. The card
-      // sits at the end of the row so the seeded item order is preserved.
+      // The "skip for cash" option used to be a fourth card in the same row
+      // as the item picks, which made it read as an equal fourth item. It is
+      // deliberately a SEPARATE option underneath the item cards: the three
+      // items are the reward, and trading all three for money is the
+      // alternative. Its cash is calibrated to be a clear downgrade on
+      // trainer battles (where 2x BASE makes the money reward already the
+      // larger of the two) and a close call on wild battles -- an item the
+      // party can actually use tends to be worth more than a cash infusion,
+      // so picking skip is a deliberate trade, not always strictly optimal.
       var skipId = '__skip_for_cash__';
       var skipCash = Math.round(N.BASE_REWARD * 0.75 *
         N.rewardMultiplier(run) * N.ascensionRewardBonus(run));
-      var cards = itemChoices.slice();
-      cards.push({ id: skipId, kind: 'cash', name: 'Cash bundle',
-                   desc: '+$' + skipCash.toLocaleString() + ' instead of an item.' });
       html += '<div class="reward-pick"><h3>Choose one reward</h3>' +
-        '<p class="hint">Take one item \u2014 it is used or given immediately \u2014 or trade all three for cash.</p>' +
-        '<div class="reward-choices reward-choices-4">' + cards.map(function (entry) {
-          if (entry.id === skipId) {
-            // Cash card: a money-themed pill in place of an item sprite.
-            return '<button type="button" class="reward-choice reward-choice-cash" data-reward-id="' +
-              escapeHtml(entry.id) + '"><span class="reward-choice-art reward-choice-cash-art">' +
-              '$</span><span class="reward-choice-copy"><b>' + escapeHtml(entry.name) +
-              '</b><small>Skip items</small><em>' + escapeHtml(entry.desc) +
-              '</em></span></button>';
-          }
+        '<p class="hint">Take one item \u2014 it is used or given immediately.</p>' +
+        '<div class="reward-choices">' + itemChoices.map(function (entry) {
           var kind = entry.kind === 'evo' ? 'Evolution item' : 'Held item';
           return '<button type="button" class="reward-choice" data-reward-id="' +
-            escapeHtml(entry.id) + '"><span class="reward-choice-art">' +
+            escapeHtml(entry.id) + '">' +
+            '<span class="reward-choice-art">' +
             (window.ItemArt ? window.ItemArt.itemImg(entry.id, 42) : '') +
             '</span><span class="reward-choice-copy"><b>' + escapeHtml(entry.name) +
             '</b><small>' + escapeHtml(kind) + '</small><em>' + escapeHtml(entry.desc || '') +
             '</em></span></button>';
-        }).join('') + '</div><p class="hint reward-pick-note">Select one reward to continue.</p></div>';
+        }).join('') + '</div>' +
+        '<div class="reward-or" role="separator"><span>or</span></div>' +
+        '<button type="button" class="reward-cash-alt" data-reward-id="' + skipId + '">' +
+          '<span class="reward-cash-art" aria-hidden="true">$</span>' +
+          '<span class="reward-cash-copy"><b>Take the cash bundle instead</b>' +
+          '<small>Skip all three items and take <em>+$' + skipCash.toLocaleString() +
+          '</em></small></span>' +
+        '</button>' +
+        '<p class="hint reward-pick-note">Select an item \u2014 or take the cash \u2014 to continue.</p></div>';
     }
     if (!money && (!dead || !dead.length) && !missedCatch && !healed && !itemReward && !itemChoices.length) {
       html += '<p class="hint">You live to fight on.</p>';
@@ -7072,28 +7157,23 @@
     $('rewardBody').querySelectorAll('[data-reward-id]').forEach(function (button) {
       button.addEventListener('click', function () {
         if (button.disabled) return;
+        // A choice is already resolving (picker sheet open or the evolution
+        // animation playing): no second card -- including the cash bundle --
+        // may be claimed on top of it.
+        if (rewardChoicePending || rewardEvoPending) return;
         var pickedId = button.dataset.rewardId;
         // The 4th card is a cash-only sentinel: the sentinel is not in
         // itemChoices, so it does not go through N.addItem, and its picked
-        // value is the run.money figure computed up front. Disable every
-        // other card on the way to it, mark the chosen one, and only
-        // enable Continue once the player has actually picked one.
+        // value is the run.money figure computed up front.
         var isSkip = pickedId === skipId;
         var picked = null;
         for (var ri = 0; ri < itemChoices.length; ri++) {
           if (itemChoices[ri].id === pickedId) { picked = itemChoices[ri]; break; }
         }
         if (!isSkip && !picked) return;
-        itemChoices.forEach(function (entry) {
-          var node = $('rewardBody').querySelector('[data-reward-id="' + entry.id + '"]');
-          if (node) { node.disabled = true; node.classList.toggle('picked', node === button); }
-        });
-        // Disable the cash card too once it's been picked (the loop above
-        // doesn't know about it). It is already marked .picked via the
-        // toggle on the actual node the player clicked.
         if (isSkip) {
-          var skipNode = $('rewardBody').querySelector('[data-reward-id="' + skipId + '"]');
-          if (skipNode) { skipNode.disabled = true; skipNode.classList.add('picked'); }
+          // Cash is an instant, final choice: lock every card so an item can
+          // never be claimed on top of the cash.
           run.money = (Number(run.money) || 0) + skipCash;
           if (run.sectionStats) {
             run.sectionStats.money = (Number(run.sectionStats.money) || 0) + skipCash;
@@ -7101,18 +7181,20 @@
           N.logMsg(run, 'You took the cash (+$' + skipCash.toLocaleString() + ').');
           var note2 = $('rewardBody').querySelector('.reward-pick-note');
           if (note2) note2.textContent = '+$' + skipCash.toLocaleString() + ' added to your money.';
+          commitRewardChoice(skipId);
         } else {
           N.addItem(run, picked.id, 1);
           N.logMsg(run, 'You chose ' + picked.name + ' as your battle reward.');
           var note = $('rewardBody').querySelector('.reward-pick-note');
           if (note) note.textContent = picked.name + ' \u2014 use it now.';
-          // A reward item never lands in the Bag for later: the moment the
-          // card is picked, the target sheet opens over the reward screen and
-          // the item is used (evolution) or given (held) before the player
-          // can continue.
+          // The card is NOT locked yet: cancelling the use/give sheet returns
+          // the item and re-enables every card, so a different reward can
+          // still be picked. The sheet opening is the pending state that
+          // blocks a second choice; commitRewardChoice() locks once the item
+          // is actually used or given.
           openRewardItemPicker(picked);
         }
-        continueBtn.disabled = false;
+        continueBtn.disabled = isSkip ? false : true;
         saveGame();
       });
     });
@@ -7543,6 +7625,9 @@
       if (window.Modal.isOpen('xTeamDetail')) window.Modal.close('xTeamDetail');
     }
     partySel = -1;
+    // Remember whether this morph belongs to a reward choice so its Done
+    // button returns to the reward screen rather than the crossroads.
+    rewardEvoOnScreen = !!rewardEvoPending;
     show('Evolve');
   }
 
@@ -7570,12 +7655,14 @@
       if (oldItem && oldItem !== itemId) N.addItem(run, oldItem, 1);
       mon.item = itemId;
       var res = await window.Forme.applyForme(run, mon, formeId);
+      var formeNote;
       if (res.ok) {
         run.bag[itemId]--; if (run.bag[itemId] <= 0) delete run.bag[itemId];
         stage.classList.remove('morphing');
         stage.classList.add('done');
         $('evoText').innerHTML = escapeHtml(mon.name) + ' became <b>' + res.to + '</b>!';
         N.logMsg(run, res.from + ' changed forme to ' + res.to + '.');
+        formeNote = mon.name + ' changed forme to ' + res.to + '!';
         if (mon.shiny) {
           recordShiny(mon, 'forme');
           toast('\u2728 Shiny ' + mon.name + ' (' + res.to + ') added to collection!');
@@ -7584,8 +7671,10 @@
       } else {
         stage.classList.remove('morphing');
         $('evoText').textContent = res.msg || 'Nothing happened.';
+        formeNote = res.msg || 'Nothing happened.';
       }
       doneBtn.hidden = false; doneBtn.style.display = '';
+      if (rewardEvoPending) finalizeRewardEvolution(formeNote);
       renderHud(); saveGame();
     }, 3000);
   }
@@ -7658,6 +7747,7 @@
       var res = await window.Evo.evolve(run, mon, opt);
       stage.classList.remove('morphing');
       stage.classList.add('done');
+      var rewardNote;
       if (res.ok) {
         // The guided run's evolution step is satisfied the moment the
         // starter actually evolves (party sheet OR bag path).
@@ -7670,6 +7760,7 @@
           ? ('Congratulations! <b>' + res.to + '</b> evolved into a ' + res.species + '!')
           : ('Congratulations! Your ' + res.fromSpecies + ' evolved into <b>' + res.species + '</b>!');
         N.logMsg(run, res.to + ' evolved into ' + res.species + '!');
+        rewardNote = res.to + ' evolved into ' + res.species + '!';
         if (mon.shiny) {
           recordShiny(mon, 'evolved');
           toast('\u2728 Shiny ' + mon.name + ' evolved into ' + res.species + '!');
@@ -7677,8 +7768,13 @@
         try { playCry(opt.id); } catch (e) {}
       } else {
         $('evoText').textContent = res.msg || 'The evolution failed.';
+        rewardNote = res.msg || 'The evolution failed.';
       }
       doneBtn.hidden = false; doneBtn.style.display = '';
+      // A reward-picked evolution locks its card in only once the morph
+      // resolves; a failed evolution leaves the unconsumed item to be used
+      // from the Bag later, so the reward screen is finalised either way.
+      if (rewardEvoPending) finalizeRewardEvolution(rewardNote);
       renderHud(); saveGame();
       if (res.ok && run && run.prologue && run.section === 2 && window.Coach && window.Coach.tipsOn()) {
         setTimeout(function () {
@@ -8280,6 +8376,13 @@
     $('saveFileIn').addEventListener('change', onSaveFileChosen);
     $('btnCatchDone').addEventListener('click', afterBattleAdvance);
     $('btnEvoDone').addEventListener('click', function () {
+      // A morph launched from the reward screen returns to it so the
+      // Continue flow (section summary / next section) still runs.
+      if (rewardEvoOnScreen) {
+        rewardEvoOnScreen = false;
+        show('Reward');
+        return;
+      }
       renderCrossroads(); show('Crossroads');
     });
     $('btnSumNext').addEventListener('click', function () {
@@ -8307,7 +8410,7 @@
       if (pendingAvatar) { profile.avatar = pendingAvatar; saveProfile(); updateMenuAvatar(); }
       closeAvatarPicker(); showProfile();
     });
-    $('btnPickerCancel').addEventListener('click', closePicker);
+    $('btnPickerCancel').addEventListener('click', dismissPicker);
     $('btnShopItemBuy').addEventListener('click', buyFromShopPopup);
     $('btnShopItemUse').addEventListener('click', useOwnedFromShopPopup);
     $('btnShopItemSell').addEventListener('click', sellFromShopPopup);
